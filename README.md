@@ -1,5 +1,5 @@
 # GoScans
-GoScans is a collection of network scan modules for infrastructure discovery and information gathering.
+GoScans is a collection of network scan modules for infrastructure discovery and information gathering. You can also visit [Large-Scale Discovery](https://github.com/siemens/large-scale-discovery) to see it applied.
 
 # Available scan modules
 | Module                                   | Linux | Windows | Windows (Domain) |
