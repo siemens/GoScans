@@ -1,0 +1,645 @@
+/*
+* GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
+*
+* Copyright (c) Siemens AG, 2016-2021.
+*
+* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+* directory or visit <https://opensource.org/licenses/MIT>.
+*
+ */
+
+package ssl
+
+import (
+	"go-scans/utils"
+	"strings"
+	"sync"
+)
+
+// Parsed map of all ciphers from the mapping.
+// Because there are three name collisions in the OpenSSL names ('RC4-MD5', 'EXP-RC2-CBC-MD5', 'EXP-RC4-MD5'), which
+// are our keys, we have to save a slice of ciphers per key. Gladly the name collisions occur only with ciphers from
+// different protocol versions and have a consistent prefix in their IANA names. Therefore we can determine the correct
+// cipher by supplying the protocol version and checking the IANA name.
+var cipherMapping map[string][]Cipher
+var loadCiphersOnce sync.Once
+
+func LoadCiphers(logger utils.Logger) {
+
+	// Make sure that the mapping is only initialized once to save some time.
+	loadCiphersOnce.Do(func() { loadCiphers(logger) })
+}
+
+// getCipherByName gets the id of the cipher and the cipher suite data by the openssl name. If the name is
+// the empty string or can not be found, a Cipher with default values will be returned.
+// The provided protocol only get's checked if the
+func getCipherByName(logger utils.Logger, opensslName string, protocol Protocol) *Cipher {
+
+	// Do some basic checks.
+	if opensslName == "" {
+		logger.Warningf("Can not cipher matching empty OpenSSL name.")
+	}
+
+	if len(cipherMapping) == 0 {
+		logger.Warningf("No entries in cipher mapping. Is it initialized?")
+		return &Cipher{}
+	}
+
+	// Try to get the suite from our mapping
+	if ciphers, ok := cipherMapping[opensslName]; ok {
+		switch len(ciphers) {
+		case 1:
+			return &ciphers[0]
+
+		case 2:
+			// The SSLv2 and SSLv3 protocols have a IANA name prefix of 'SSL_' instead of 'TLS_', we will check this in
+			// order to determine the correct cipher suite.
+			if protocol == Sslv2 || protocol == Sslv3 {
+				if strings.HasPrefix(ciphers[0].IanaName, "SSL_") {
+					return &ciphers[0]
+				} else if strings.HasPrefix(ciphers[1].IanaName, "SSL_") {
+					return &ciphers[1]
+				}
+			} else if protocol >= Tlsv1_0 || protocol <= Tlsv1_3 {
+				if strings.HasPrefix(ciphers[0].IanaName, "TLS_") {
+					return &ciphers[0]
+				} else if strings.HasPrefix(ciphers[1].IanaName, "TLS_") {
+					return &ciphers[1]
+				}
+			}
+
+			// At this point we should have found a matching cipher suite.
+			logger.Warningf("Found multiple ciphers with OpenSSL name '%s', but none with a matching protocol.",
+				opensslName)
+			return &Cipher{}
+
+		default:
+			// Either we have a length of 0 (which should not be the case) or more than 2 (which should also not be the
+			// case and can not be resolved with the protocol method).
+			logger.Warningf("%d of ciphers found with OpenSSL name '%s', which is not valid.",
+				len(ciphers), opensslName)
+			return &Cipher{}
+		}
+	}
+
+	// Matching suite not found.
+	logger.Warningf("Unknown cipher with OpenSSL name '%s' detected.", opensslName)
+	return &Cipher{}
+}
+
+func loadCiphers(logger utils.Logger) {
+	cipherMapping = make(map[string][]Cipher)
+
+	for _, cipherInfo := range cipherInfos {
+
+		// Ignore TLS_FALLBACK_SCSV , TLS_EMPTY_RENEGOTIATION_INFO_SCSV, SSL_CK_NULL from list.
+		if cipherInfo.Id == "0x5600" || cipherInfo.Id == "0xff0810" {
+			continue
+		}
+
+		// Prepare the cipher suite with some initial values and normalize the names if needed.
+		cipher := Cipher{
+			Id:          cipherInfo.Id,
+			IanaName:    cipherInfo.IanaName,
+			OpensslName: cipherInfo.OpensslName,
+		}
+
+		normalizeIanaName(&cipher)
+
+		// We don't want any empty OpenSSLName field, because we use it as the key in our map and an identifier alter on.
+		if len(cipher.OpensslName) > 0 {
+
+			// Parse the infos
+			parseCipherMapping(logger, &cipherInfo, &cipher)
+
+			// Check if the name already has an entry.
+			if _, ok := cipherMapping[cipher.OpensslName]; ok {
+				// Append the infos
+				cipherMapping[cipher.OpensslName] = append(cipherMapping[cipher.OpensslName], cipher)
+
+			} else {
+				// Create a new slice an save the infos
+				cipherMapping[cipher.OpensslName] = make([]Cipher, 1, 1)
+				cipherMapping[cipher.OpensslName][0] = cipher
+			}
+		}
+	}
+
+	logger.Debugf("Loaded cipher suites.")
+}
+
+// parseCipherMapping creates a Cipher by using the given CipherInfo and computing additional values.
+func parseCipherMapping(logger utils.Logger, cipherInfo *CipherInfo, cipher *Cipher) {
+
+	if strings.Contains(cipher.IanaName, "-draft") {
+		cipher.Draft = true
+	}
+
+	// Key exchange
+	if IsValidKeyExchange(cipherInfo.Kx) {
+		cipher.KeyExchange = cipherInfo.Kx
+		cipher.ForwardSecrecy = cipher.KeyExchange.providesForwardSecrecy()
+	} else {
+		logger.Warningf("Key exchange for cipher suite '%s' is invalid.", cipher.IanaName)
+	}
+
+	// Handle export flag and reduced key sizes.
+	// There are two types of export cipher suites: EXPORT (512 bit) and EXPORT1024 (1024 bit).
+	// Both specify the maximum modulus size for the key exchange algorithm.
+	if cipherInfo.Export {
+		cipher.Export = true
+
+		cipher.KeyExchangeBits = 512
+		if strings.Contains(cipherInfo.IanaName, "EXPORT1024") {
+			cipher.KeyExchangeBits = 1024
+		}
+
+		strength, errStrength := cipher.KeyExchange.getStrength(uint64(cipher.KeyExchangeBits))
+		if errStrength != nil {
+			logger.Debugf("Could not compute key exchange strength: '%s'", errStrength)
+		} else {
+			cipher.KeyExchangeStrength = int(strength)
+		}
+	}
+
+	// Authentication
+	if IsValidAuthentication(cipherInfo.Au) {
+		cipher.Authentication = cipherInfo.Au
+	} else {
+		logger.Warningf("Authentication for cipher suite '%s' is invalid.", cipher.IanaName)
+	}
+
+	// Bulk encryption
+	if IsValidEncryption(cipherInfo.Enc) {
+		cipher.Encryption = cipherInfo.Enc
+		cipher.EncryptionBits = cipherInfo.EncBits
+		cipher.EncryptionStrength = cipher.Encryption.getStrength(cipher.EncryptionBits)
+		cipher.BlockCipher = cipher.Encryption.isBlockCipher()
+		cipher.BlockSize = cipher.Encryption.getBlockSize()
+		cipher.StreamCipher = cipher.Encryption.isStreamCipher()
+	} else {
+		logger.Warningf("Encryption for cipher suite '%s' is invalid.", cipher.IanaName)
+	}
+
+	if IsValidEncryptionMode(cipherInfo.EncMode) {
+		cipher.EncryptionMode = cipherInfo.EncMode
+	} else {
+		logger.Warningf("Encryption mode for cipher suite '%s' is invalid.", cipher.IanaName)
+	}
+
+	// MAC
+	if IsValidMac(cipherInfo.Mac) {
+		cipher.Mac = cipherInfo.Mac
+		cipher.MacBits = cipher.Mac.getDigestSize()
+		cipher.MacStrength = cipher.Mac.getHmacStrength()
+	} else {
+		logger.Warningf("Message authentication code for cipher suite '%s' is invalid.", cipher.IanaName)
+	}
+
+	// Pseudorandom function family.
+	if IsValidPrf(cipherInfo.Prf) {
+		cipher.Prf = cipherInfo.Prf
+		cipher.PrfBits = cipher.Prf.getDigestSize()
+		cipher.PrfStrength = cipher.Prf.getHmacStrength()
+	} else {
+		logger.Warningf(" pseudorandom function family for cipher suite '%s' is invalid.", cipher.IanaName)
+	}
+}
+
+// normalizeIanaName renames some of the IANA-names that don't follow the usual naming scheme. This is only done for
+// readability and could be removed in the future.
+func normalizeIanaName(cipher *Cipher) {
+
+	switch cipher.Id {
+	case "0x010080":
+		cipher.IanaName = "SSL_CK_RSA_WITH_RC4_128_MD5"
+	case "0x020080":
+		cipher.IanaName = "SSL_CK_RSA_EXPORT512_WITH_RC4_40_MD5"
+	case "0x030080":
+		cipher.IanaName = "SSL_CK_RSA_WITH_RC2_128_CBC_MD5"
+	case "0x040080":
+		cipher.IanaName = "SSL_CK_RSA_EXPORT512_WITH_RC2_40_CBC_MD5"
+	case "0x050080":
+		cipher.IanaName = "SSL_CK_RSA_WITH_IDEA_128_CBC_MD5"
+	case "0x060040":
+		cipher.IanaName = "SSL_CK_RSA_WITH_DES_64_CBC_MD5"
+	case "0x0700C0":
+		cipher.IanaName = "SSL_CK_RSA_WITH_3DES_EDE_CBC_MD5"
+	case "0x080080":
+		cipher.IanaName = "SSL_CK_RSA_WITH_RC4_64_MD5"
+	case "0x0057":
+		cipher.IanaName = "TLS_ECDH_anon_WITH_NULL_SHA-draft" // https://www.ietf.org/mail-archive/web/ietf/current/msg38724.htmlreversed
+	case "0xC0AA":
+		cipher.IanaName = "TLS_DHE_PSK_WITH_AES_128_CCM_8" //	https://www.rfc-editor.org/errata_search.php?rfc=6655&eid=3987 (DHE and PSK are interchanged)
+	case "0XC0AB":
+		cipher.IanaName = "TLS_DHE_PSK_WITH_AES_256_CCM_8" //	https://www.rfc-editor.org/errata_search.php?rfc=6655&eid=3987 (DHE and PSK are interchanged)
+	case "0x004F":
+		cipher.IanaName = "TLS_ECMQV_ECDSA_WITH_NULL_SHA-draft" //	https://tools.ietf.org/html/draft-ietf-tls-ecc-00#section-10 (WITH is missing)
+	case "0x0053":
+		cipher.IanaName = "TLS_ECMQV_ECNRA_WITH_NULL_SHA-draft" //	https://tools.ietf.org/html/draft-ietf-tls-ecc-00#section-10 (WITH is missing)
+	case "0x1301":
+		cipher.IanaName = "TLS_ECDH_WITH_AES_128_GCM_SHA256" // https://tools.ietf.org/html/rfc8446#appendix-B.4 (WITH is missing)
+	case "0x1302":
+		cipher.IanaName = "TLS_ECDH_WITH_AES_256_GCM_SHA384" // https://tools.ietf.org/html/rfc8446#appendix-B.4 (WITH is missing)
+	case "0x1303":
+		cipher.IanaName = "TLS_ECDH_WITH_CHACHA20_POLY1305_SHA256" // https://tools.ietf.org/html/rfc8446#appendix-B.4 (WITH is missing)
+	case "0x1304":
+		cipher.IanaName = "TLS_ECDH_WITH_AES_128_CCM_SHA256" // https://tools.ietf.org/html/rfc8446#appendix-B.4 (WITH is missing)
+	case "0x1305":
+		cipher.IanaName = "TLS_ECDH_WITH_AES_128_CCM_8_SHA256" // https://tools.ietf.org/html/rfc8446#appendix-B.4 (WITH is missing)
+	}
+}
+
+// Openssl - IanaName mappings ... list is made from https://testssl.sh/openssl-iana.mapping.html
+// A good site to check the version, current strength and other stuff: https://ciphersuite.info/cs/
+var cipherInfos = []CipherInfo{
+	// These are the cipher suites introduced by TLS 1.3 the key exchange and authentication is limited to (EC)DHE and
+	// PSK with or without EC(DHE). I created decided to not use the 'any' flag used by OpenSSL, as it does suggest that
+	// any possible key exchange is allowed (even insecure ones). Instead the enum is named after the protocol version.
+	{"0x1301", "TLS_AES_128_GCM_SHA256", "TLS_AES_128_GCM_SHA256", KEX_TLSv1_3, AUTH_TLSv1_3, ENC_AES, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0x1302", "TLS_AES_256_GCM_SHA384", "TLS_AES_256_GCM_SHA384", KEX_TLSv1_3, AUTH_TLSv1_3, ENC_AES, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0x1303", "TLS_CHACHA20_POLY1305_SHA256", "TLS_CHACHA20_POLY1305_SHA256", KEX_TLSv1_3, AUTH_TLSv1_3, ENC_CHACHA20, 256, ENC_M_POLY1305, MAC_AEAD, PRF_SHA256, false},
+	{"0x1304", "TLS_AES_128_CCM_SHA256", "TLS_AES_128_CCM_SHA256", KEX_TLSv1_3, AUTH_TLSv1_3, ENC_AES, 128, ENC_M_CCM, MAC_AEAD, PRF_SHA256, false},
+	{"0x1305", "TLS_AES_128_CCM_8_SHA256", "TLS_AES_128_CCM_8_SHA256", KEX_TLSv1_3, AUTH_TLSv1_3, ENC_AES, 128, ENC_M_CCM_8, MAC_AEAD, PRF_SHA256, false},
+
+	{"0x01", "NULL-MD5", "TLS_RSA_WITH_NULL_MD5", KEX_RSA, AUTH_RSA, ENC_NONE, 0, ENC_M_NONE, MAC_MD5, PRF_NONE, false},
+	{"0x02", "NULL-SHA", "TLS_RSA_WITH_NULL_SHA", KEX_RSA, AUTH_RSA, ENC_NONE, 0, ENC_M_NONE, MAC_SHA1, PRF_NONE, false},
+	{"0x03", "EXP-RC4-MD5", "TLS_RSA_EXPORT_WITH_RC4_40_MD5", KEX_RSA, AUTH_RSA, ENC_RC4, 40, ENC_M_NONE, MAC_MD5, PRF_NONE, true},
+	{"0x04", "RC4-MD5", "TLS_RSA_WITH_RC4_128_MD5", KEX_RSA, AUTH_RSA, ENC_RC4, 128, ENC_M_NONE, MAC_MD5, PRF_NONE, false},
+	{"0x05", "RC4-SHA", "TLS_RSA_WITH_RC4_128_SHA", KEX_RSA, AUTH_RSA, ENC_RC4, 128, ENC_M_NONE, MAC_SHA1, PRF_NONE, false},
+	{"0x06", "EXP-RC2-CBC-MD5", "TLS_RSA_EXPORT_WITH_RC2_CBC_40_MD5", KEX_RSA, AUTH_RSA, ENC_RC2, 40, ENC_M_CBC, MAC_MD5, PRF_NONE, true},
+	{"0x07", "IDEA-CBC-SHA", "TLS_RSA_WITH_IDEA_CBC_SHA", KEX_RSA, AUTH_RSA, ENC_IDEA, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x08", "EXP-DES-CBC-SHA", "TLS_RSA_EXPORT_WITH_DES40_CBC_SHA", KEX_RSA, AUTH_RSA, ENC_DES, 40, ENC_M_CBC, MAC_SHA1, PRF_NONE, true},
+	{"0x09", "DES-CBC-SHA", "TLS_RSA_WITH_DES_CBC_SHA", KEX_RSA, AUTH_RSA, ENC_DES, 56, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x0A", "DES-CBC3-SHA", "TLS_RSA_WITH_3DES_EDE_CBC_SHA", KEX_RSA, AUTH_RSA, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x0B", "EXP-DH-DSS-DES-CBC-SHA", "TLS_DH_DSS_EXPORT_WITH_DES40_CBC_SHA", KEX_DH, AUTH_DSS, ENC_DES, 40, ENC_M_CBC, MAC_SHA1, PRF_NONE, true},
+	{"0x0C", "DH-DSS-DES-CBC-SHA", "TLS_DH_DSS_WITH_DES_CBC_SHA", KEX_DH, AUTH_DSS, ENC_DES, 56, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x0D", "DH-DSS-DES-CBC3-SHA", "TLS_DH_DSS_WITH_3DES_EDE_CBC_SHA", KEX_DH, AUTH_DSS, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x0E", "EXP-DH-RSA-DES-CBC-SHA", "TLS_DH_RSA_EXPORT_WITH_DES40_CBC_SHA", KEX_DH, AUTH_RSA, ENC_DES, 40, ENC_M_CBC, MAC_SHA1, PRF_NONE, true},
+	{"0x0F", "DH-RSA-DES-CBC-SHA", "TLS_DH_RSA_WITH_DES_CBC_SHA", KEX_DH, AUTH_RSA, ENC_DES, 56, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x10", "DH-RSA-DES-CBC3-SHA", "TLS_DH_RSA_WITH_3DES_EDE_CBC_SHA", KEX_DH, AUTH_RSA, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x11", "EXP-EDH-DSS-DES-CBC-SHA", "TLS_DHE_DSS_EXPORT_WITH_DES40_CBC_SHA", KEX_DHE, AUTH_DSS, ENC_DES, 40, ENC_M_CBC, MAC_SHA1, PRF_NONE, true},
+	{"0x12", "EDH-DSS-DES-CBC-SHA", "TLS_DHE_DSS_WITH_DES_CBC_SHA", KEX_DHE, AUTH_DSS, ENC_DES, 56, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x13", "EDH-DSS-DES-CBC3-SHA", "TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA", KEX_DHE, AUTH_DSS, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x14", "EXP-EDH-RSA-DES-CBC-SHA", "TLS_DHE_RSA_EXPORT_WITH_DES40_CBC_SHA", KEX_DHE, AUTH_RSA, ENC_DES, 40, ENC_M_CBC, MAC_SHA1, PRF_NONE, true},
+	{"0x15", "EDH-RSA-DES-CBC-SHA", "TLS_DHE_RSA_WITH_DES_CBC_SHA", KEX_DHE, AUTH_RSA, ENC_DES, 56, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x16", "EDH-RSA-DES-CBC3-SHA", "TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA", KEX_DHE, AUTH_RSA, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x17", "EXP-ADH-RC4-MD5", "TLS_DH_anon_EXPORT_WITH_RC4_40_MD5", KEX_DH, AUTH_NONE, ENC_RC4, 40, ENC_M_NONE, MAC_MD5, PRF_NONE, true},
+	{"0x18", "ADH-RC4-MD5", "TLS_DH_anon_WITH_RC4_128_MD5", KEX_DH, AUTH_NONE, ENC_RC4, 128, ENC_M_NONE, MAC_MD5, PRF_NONE, false},
+	{"0x19", "EXP-ADH-DES-CBC-SHA", "TLS_DH_anon_EXPORT_WITH_DES40_CBC_SHA", KEX_DH, AUTH_NONE, ENC_DES, 40, ENC_M_CBC, MAC_SHA1, PRF_NONE, true},
+	{"0x1A", "ADH-DES-CBC-SHA", "TLS_DH_anon_WITH_DES_CBC_SHA", KEX_DH, AUTH_NONE, ENC_DES, 56, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x1B", "ADH-DES-CBC3-SHA", "TLS_DH_anon_WITH_3DES_EDE_CBC_SHA", KEX_DH, AUTH_NONE, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x1E", "KRB5-DES-CBC-SHA", "TLS_KRB5_WITH_DES_CBC_SHA", KEX_KRB5, AUTH_KRB5, ENC_DES, 56, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x1F", "KRB5-DES-CBC3-SHA", "TLS_KRB5_WITH_3DES_EDE_CBC_SHA", KEX_KRB5, AUTH_KRB5, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x20", "KRB5-RC4-SHA", "TLS_KRB5_WITH_RC4_128_SHA", KEX_KRB5, AUTH_KRB5, ENC_RC4, 128, ENC_M_NONE, MAC_SHA1, PRF_NONE, false},
+	{"0x21", "KRB5-IDEA-CBC-SHA", "TLS_KRB5_WITH_IDEA_CBC_SHA", KEX_KRB5, AUTH_KRB5, ENC_IDEA, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x22", "KRB5-DES-CBC-MD5", "TLS_KRB5_WITH_DES_CBC_MD5", KEX_KRB5, AUTH_KRB5, ENC_DES, 56, ENC_M_CBC, MAC_MD5, PRF_NONE, false},
+	{"0x23", "KRB5-DES-CBC3-MD5", "TLS_KRB5_WITH_3DES_EDE_CBC_MD5", KEX_KRB5, AUTH_KRB5, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_MD5, PRF_NONE, false},
+	{"0x24", "KRB5-RC4-MD5", "TLS_KRB5_WITH_RC4_128_MD5", KEX_KRB5, AUTH_KRB5, ENC_RC4, 128, ENC_M_NONE, MAC_MD5, PRF_NONE, false},
+	{"0x25", "KRB5-IDEA-CBC-MD5", "TLS_KRB5_WITH_IDEA_CBC_MD5", KEX_KRB5, AUTH_KRB5, ENC_IDEA, 128, ENC_M_CBC, MAC_MD5, PRF_NONE, false},
+	{"0x26", "EXP-KRB5-DES-CBC-SHA", "TLS_KRB5_EXPORT_WITH_DES_CBC_40_SHA", KEX_KRB5, AUTH_KRB5, ENC_DES, 40, ENC_M_CBC, MAC_SHA1, PRF_NONE, true},
+	{"0x27", "EXP-KRB5-RC2-CBC-SHA", "TLS_KRB5_EXPORT_WITH_RC2_CBC_40_SHA", KEX_KRB5, AUTH_KRB5, ENC_RC2, 40, ENC_M_CBC, MAC_SHA1, PRF_NONE, true},
+	{"0x28", "EXP-KRB5-RC4-SHA", "TLS_KRB5_EXPORT_WITH_RC4_40_SHA", KEX_KRB5, AUTH_KRB5, ENC_RC4, 40, ENC_M_NONE, MAC_SHA1, PRF_NONE, true},
+	{"0x29", "EXP-KRB5-DES-CBC-MD5", "TLS_KRB5_EXPORT_WITH_DES_CBC_40_MD5", KEX_KRB5, AUTH_KRB5, ENC_DES, 40, ENC_M_CBC, MAC_MD5, PRF_NONE, true},
+	{"0x2A", "EXP-KRB5-RC2-CBC-MD5", "TLS_KRB5_EXPORT_WITH_RC2_CBC_40_MD5", KEX_KRB5, AUTH_KRB5, ENC_RC2, 40, ENC_M_CBC, MAC_MD5, PRF_NONE, true},
+	{"0x2B", "EXP-KRB5-RC4-MD5", "TLS_KRB5_EXPORT_WITH_RC4_40_MD5", KEX_KRB5, AUTH_KRB5, ENC_RC4, 40, ENC_M_NONE, MAC_MD5, PRF_NONE, true},
+	{"0x2C", "PSK-NULL-SHA", "TLS_PSK_WITH_NULL_SHA", KEX_PSK, AUTH_PSK, ENC_NONE, 0, ENC_M_NONE, MAC_SHA1, PRF_NONE, false},
+	{"0x2D", "DHE-PSK-NULL-SHA", "TLS_DHE_PSK_WITH_NULL_SHA", KEX_DHE, AUTH_PSK, ENC_NONE, 0, ENC_M_NONE, MAC_SHA1, PRF_NONE, false},
+	{"0x2E", "RSA-PSK-NULL-SHA", "TLS_RSA_PSK_WITH_NULL_SHA", KEX_RSA, AUTH_PSK, ENC_NONE, 0, ENC_M_NONE, MAC_SHA1, PRF_NONE, false},
+	{"0x2F", "AES128-SHA", "TLS_RSA_WITH_AES_128_CBC_SHA", KEX_RSA, AUTH_RSA, ENC_AES, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x30", "DH-DSS-AES128-SHA", "TLS_DH_DSS_WITH_AES_128_CBC_SHA", KEX_DH, AUTH_DSS, ENC_AES, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x31", "DH-RSA-AES128-SHA", "TLS_DH_RSA_WITH_AES_128_CBC_SHA", KEX_DH, AUTH_RSA, ENC_AES, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x32", "DHE-DSS-AES128-SHA", "TLS_DHE_DSS_WITH_AES_128_CBC_SHA", KEX_DHE, AUTH_DSS, ENC_AES, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x33", "DHE-RSA-AES128-SHA", "TLS_DHE_RSA_WITH_AES_128_CBC_SHA", KEX_DHE, AUTH_RSA, ENC_AES, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x34", "ADH-AES128-SHA", "TLS_DH_anon_WITH_AES_128_CBC_SHA", KEX_DH, AUTH_NONE, ENC_AES, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x35", "AES256-SHA", "TLS_RSA_WITH_AES_256_CBC_SHA", KEX_RSA, AUTH_RSA, ENC_AES, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x36", "DH-DSS-AES256-SHA", "TLS_DH_DSS_WITH_AES_256_CBC_SHA", KEX_DH, AUTH_DSS, ENC_AES, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x37", "DH-RSA-AES256-SHA", "TLS_DH_RSA_WITH_AES_256_CBC_SHA", KEX_DH, AUTH_RSA, ENC_AES, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x38", "DHE-DSS-AES256-SHA", "TLS_DHE_DSS_WITH_AES_256_CBC_SHA", KEX_DHE, AUTH_DSS, ENC_AES, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x39", "DHE-RSA-AES256-SHA", "TLS_DHE_RSA_WITH_AES_256_CBC_SHA", KEX_DHE, AUTH_RSA, ENC_AES, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x3A", "ADH-AES256-SHA", "TLS_DH_anon_WITH_AES_256_CBC_SHA", KEX_DH, AUTH_NONE, ENC_AES, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x3B", "NULL-SHA256", "TLS_RSA_WITH_NULL_SHA256", KEX_RSA, AUTH_RSA, ENC_NONE, 0, ENC_M_NONE, MAC_SHA256, PRF_NONE, false},
+	{"0x3C", "AES128-SHA256", "TLS_RSA_WITH_AES_128_CBC_SHA256", KEX_RSA, AUTH_RSA, ENC_AES, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0x3D", "AES256-SHA256", "TLS_RSA_WITH_AES_256_CBC_SHA256", KEX_RSA, AUTH_RSA, ENC_AES, 256, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0x3E", "DH-DSS-AES128-SHA256", "TLS_DH_DSS_WITH_AES_128_CBC_SHA256", KEX_DH, AUTH_DSS, ENC_AES, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0x3F", "DH-RSA-AES128-SHA256", "TLS_DH_RSA_WITH_AES_128_CBC_SHA256", KEX_DH, AUTH_RSA, ENC_AES, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0x40", "DHE-DSS-AES128-SHA256", "TLS_DHE_DSS_WITH_AES_128_CBC_SHA256", KEX_DHE, AUTH_DSS, ENC_AES, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0x41", "CAMELLIA128-SHA", "TLS_RSA_WITH_CAMELLIA_128_CBC_SHA", KEX_RSA, AUTH_RSA, ENC_CAMELLIA, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x42", "DH-DSS-CAMELLIA128-SHA", "TLS_DH_DSS_WITH_CAMELLIA_128_CBC_SHA", KEX_DH, AUTH_DSS, ENC_CAMELLIA, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x43", "DH-RSA-CAMELLIA128-SHA", "TLS_DH_RSA_WITH_CAMELLIA_128_CBC_SHA", KEX_DH, AUTH_RSA, ENC_CAMELLIA, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x44", "DHE-DSS-CAMELLIA128-SHA", "TLS_DHE_DSS_WITH_CAMELLIA_128_CBC_SHA", KEX_DHE, AUTH_DSS, ENC_CAMELLIA, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x45", "DHE-RSA-CAMELLIA128-SHA", "TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA", KEX_DHE, AUTH_RSA, ENC_CAMELLIA, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x46", "ADH-CAMELLIA128-SHA", "TLS_DH_anon_WITH_CAMELLIA_128_CBC_SHA", KEX_DH, AUTH_NONE, ENC_CAMELLIA, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x60", "EXP1024-RC4-MD5", "TLS_RSA_EXPORT1024_WITH_RC4_56_MD5", KEX_RSA, AUTH_RSA, ENC_RC4, 56, ENC_M_NONE, MAC_MD5, PRF_NONE, true},
+	{"0x61", "EXP1024-RC2-CBC-MD5", "TLS_RSA_EXPORT1024_WITH_RC2_56_MD5", KEX_RSA, AUTH_RSA, ENC_RC2, 56, ENC_M_NONE, MAC_MD5, PRF_NONE, true},
+	{"0x62", "EXP1024-DES-CBC-SHA", "TLS_RSA_EXPORT1024_WITH_DES_CBC_SHA", KEX_RSA, AUTH_RSA, ENC_DES, 56, ENC_M_CBC, MAC_SHA1, PRF_NONE, true},
+	{"0x63", "EXP1024-DHE-DSS-DES-CBC-SHA", "TLS_DHE_DSS_EXPORT1024_WITH_DES_CBC_SHA", KEX_DHE, AUTH_DSS, ENC_DES, 56, ENC_M_CBC, MAC_SHA1, PRF_NONE, true},
+	{"0x64", "EXP1024-RC4-SHA", "TLS_RSA_EXPORT1024_WITH_RC4_56_SHA", KEX_RSA, AUTH_RSA, ENC_RC4, 56, ENC_M_NONE, MAC_SHA1, PRF_NONE, true},
+	{"0x65", "EXP1024-DHE-DSS-RC4-SHA", "TLS_DHE_DSS_EXPORT1024_WITH_RC4_56_SHA", KEX_DHE, AUTH_DSS, ENC_RC4, 56, ENC_M_NONE, MAC_SHA1, PRF_NONE, true},
+	{"0x66", "DHE-DSS-RC4-SHA", "TLS_DHE_DSS_WITH_RC4_128_SHA", KEX_DHE, AUTH_DSS, ENC_RC4, 128, ENC_M_NONE, MAC_SHA1, PRF_NONE, false},
+	{"0x67", "DHE-RSA-AES128-SHA256", "TLS_DHE_RSA_WITH_AES_128_CBC_SHA256", KEX_DHE, AUTH_RSA, ENC_AES, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0x68", "DH-DSS-AES256-SHA256", "TLS_DH_DSS_WITH_AES_256_CBC_SHA256", KEX_DH, AUTH_DSS, ENC_AES, 256, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0x69", "DH-RSA-AES256-SHA256", "TLS_DH_RSA_WITH_AES_256_CBC_SHA256", KEX_DH, AUTH_RSA, ENC_AES, 256, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0x6A", "DHE-DSS-AES256-SHA256", "TLS_DHE_DSS_WITH_AES_256_CBC_SHA256", KEX_DHE, AUTH_DSS, ENC_AES, 256, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0x6B", "DHE-RSA-AES256-SHA256", "TLS_DHE_RSA_WITH_AES_256_CBC_SHA256", KEX_DHE, AUTH_RSA, ENC_AES, 256, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0x6C", "ADH-AES128-SHA256", "TLS_DH_anon_WITH_AES_128_CBC_SHA256", KEX_DH, AUTH_NONE, ENC_AES, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0x6D", "ADH-AES256-SHA256", "TLS_DH_anon_WITH_AES_256_CBC_SHA256", KEX_DH, AUTH_NONE, ENC_AES, 256, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	// The next four cipher suites are described in the following RFC:
+	// https://tools.ietf.org/html/draft-chudov-cryptopro-cptls-04#section-2.3
+	{"0x80", "GOST94-GOST89-GOST89", "TLS_GOSTR341094_WITH_28147_CNT_IMIT", KEX_GOSTR341094, AUTH_GOSTR341094, ENC_GOST28147, 256, ENC_M_CNT, MAC_AEAD, PRF_GOST28147, false},
+	{"0x81", "GOST2001-GOST89-GOST89", "TLS_GOSTR341001_WITH_28147_CNT_IMIT", KEX_GOSTR341001, AUTH_GOSTR341001, ENC_GOST28147, 256, ENC_M_CNT, MAC_AEAD, PRF_GOST28147, false},
+	{"0x82", "GOST94-NULL-GOST94", "TLS_GOSTR341094_WITH_NULL_GOSTR3411", KEX_GOSTR341094, AUTH_GOSTR341094, ENC_NONE, 0, ENC_M_NONE, MAC_GOSTR341194, PRF_NONE, false},
+	{"0x83", "GOST2001-NULL-GOST94", "TLS_GOSTR341001_WITH_NULL_GOSTR3411", KEX_GOSTR341001, AUTH_GOSTR341001, ENC_NONE, 0, ENC_M_NONE, MAC_GOSTR341194, PRF_NONE, false},
+	{"0x84", "CAMELLIA256-SHA", "TLS_RSA_WITH_CAMELLIA_256_CBC_SHA", KEX_RSA, AUTH_RSA, ENC_CAMELLIA, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x85", "DH-DSS-CAMELLIA256-SHA", "TLS_DH_DSS_WITH_CAMELLIA_256_CBC_SHA", KEX_DH, AUTH_DSS, ENC_CAMELLIA, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x86", "DH-RSA-CAMELLIA256-SHA", "TLS_DH_RSA_WITH_CAMELLIA_256_CBC_SHA", KEX_DH, AUTH_RSA, ENC_CAMELLIA, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x87", "DHE-DSS-CAMELLIA256-SHA", "TLS_DHE_DSS_WITH_CAMELLIA_256_CBC_SHA", KEX_DHE, AUTH_DSS, ENC_CAMELLIA, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x88", "DHE-RSA-CAMELLIA256-SHA", "TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA", KEX_DHE, AUTH_RSA, ENC_CAMELLIA, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x89", "ADH-CAMELLIA256-SHA", "TLS_DH_anon_WITH_CAMELLIA_256_CBC_SHA", KEX_DH, AUTH_NONE, ENC_CAMELLIA, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x8A", "PSK-RC4-SHA", "TLS_PSK_WITH_RC4_128_SHA", KEX_PSK, AUTH_PSK, ENC_RC4, 128, ENC_M_NONE, MAC_SHA1, PRF_NONE, false},
+	{"0x8B", "PSK-3DES-EDE-CBC-SHA", "TLS_PSK_WITH_3DES_EDE_CBC_SHA", KEX_PSK, AUTH_PSK, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x8C", "PSK-AES128-CBC-SHA", "TLS_PSK_WITH_AES_128_CBC_SHA", KEX_PSK, AUTH_PSK, ENC_AES, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x8D", "PSK-AES256-CBC-SHA", "TLS_PSK_WITH_AES_256_CBC_SHA", KEX_PSK, AUTH_PSK, ENC_AES, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x8E", "DHE-PSK-RC4-SHA", "TLS_DHE_PSK_WITH_RC4_128_SHA", KEX_DHE, AUTH_PSK, ENC_RC4, 128, ENC_M_NONE, MAC_SHA1, PRF_NONE, false},
+	{"0x8F", "DHE-PSK-3DES-EDE-CBC-SHA", "TLS_DHE_PSK_WITH_3DES_EDE_CBC_SHA", KEX_DHE, AUTH_PSK, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x90", "DHE-PSK-AES128-CBC-SHA", "TLS_DHE_PSK_WITH_AES_128_CBC_SHA", KEX_DHE, AUTH_PSK, ENC_AES, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x91", "DHE-PSK-AES256-CBC-SHA", "TLS_DHE_PSK_WITH_AES_256_CBC_SHA", KEX_DHE, AUTH_PSK, ENC_AES, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x92", "RSA-PSK-RC4-SHA", "TLS_RSA_PSK_WITH_RC4_128_SHA", KEX_RSA, AUTH_PSK, ENC_RC4, 128, ENC_M_NONE, MAC_SHA1, PRF_NONE, false},
+	{"0x93", "RSA-PSK-3DES-EDE-CBC-SHA", "TLS_RSA_PSK_WITH_3DES_EDE_CBC_SHA", KEX_RSA, AUTH_PSK, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x94", "RSA-PSK-AES128-CBC-SHA", "TLS_RSA_PSK_WITH_AES_128_CBC_SHA", KEX_RSA, AUTH_PSK, ENC_AES, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x95", "RSA-PSK-AES256-CBC-SHA", "TLS_RSA_PSK_WITH_AES_256_CBC_SHA", KEX_RSA, AUTH_PSK, ENC_AES, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x96", "SEED-SHA", "TLS_RSA_WITH_SEED_CBC_SHA", KEX_RSA, AUTH_RSA, ENC_SEED, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x97", "DH-DSS-SEED-SHA", "TLS_DH_DSS_WITH_SEED_CBC_SHA", KEX_DH, AUTH_DSS, ENC_SEED, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x98", "DH-RSA-SEED-SHA", "TLS_DH_RSA_WITH_SEED_CBC_SHA", KEX_DH, AUTH_RSA, ENC_SEED, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x99", "DHE-DSS-SEED-SHA", "TLS_DHE_DSS_WITH_SEED_CBC_SHA", KEX_DHE, AUTH_DSS, ENC_SEED, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x9A", "DHE-RSA-SEED-SHA", "TLS_DHE_RSA_WITH_SEED_CBC_SHA", KEX_DHE, AUTH_RSA, ENC_SEED, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x9B", "ADH-SEED-SHA", "TLS_DH_anon_WITH_SEED_CBC_SHA", KEX_DH, AUTH_NONE, ENC_SEED, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0x9C", "AES128-GCM-SHA256", "TLS_RSA_WITH_AES_128_GCM_SHA256", KEX_RSA, AUTH_RSA, ENC_AES, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0x9D", "AES256-GCM-SHA384", "TLS_RSA_WITH_AES_256_GCM_SHA384", KEX_RSA, AUTH_RSA, ENC_AES, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0x9E", "DHE-RSA-AES128-GCM-SHA256", "TLS_DHE_RSA_WITH_AES_128_GCM_SHA256", KEX_DHE, AUTH_RSA, ENC_AES, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0x9F", "DHE-RSA-AES256-GCM-SHA384", "TLS_DHE_RSA_WITH_AES_256_GCM_SHA384", KEX_DHE, AUTH_RSA, ENC_AES, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xA0", "DH-RSA-AES128-GCM-SHA256", "TLS_DH_RSA_WITH_AES_128_GCM_SHA256", KEX_DH, AUTH_RSA, ENC_AES, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xA1", "DH-RSA-AES256-GCM-SHA384", "TLS_DH_RSA_WITH_AES_256_GCM_SHA384", KEX_DH, AUTH_RSA, ENC_AES, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xA2", "DHE-DSS-AES128-GCM-SHA256", "TLS_DHE_DSS_WITH_AES_128_GCM_SHA256", KEX_DHE, AUTH_DSS, ENC_AES, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xA3", "DHE-DSS-AES256-GCM-SHA384", "TLS_DHE_DSS_WITH_AES_256_GCM_SHA384", KEX_DHE, AUTH_DSS, ENC_AES, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xA4", "DH-DSS-AES128-GCM-SHA256", "TLS_DH_DSS_WITH_AES_128_GCM_SHA256", KEX_DH, AUTH_DSS, ENC_AES, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xA5", "DH-DSS-AES256-GCM-SHA384", "TLS_DH_DSS_WITH_AES_256_GCM_SHA384", KEX_DH, AUTH_DSS, ENC_AES, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xA6", "ADH-AES128-GCM-SHA256", "TLS_DH_anon_WITH_AES_128_GCM_SHA256", KEX_DH, AUTH_NONE, ENC_AES, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xA7", "ADH-AES256-GCM-SHA384", "TLS_DH_anon_WITH_AES_256_GCM_SHA384", KEX_DH, AUTH_NONE, ENC_AES, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xA8", "PSK-AES128-GCM-SHA256", "TLS_PSK_WITH_AES_128_GCM_SHA256", KEX_PSK, AUTH_PSK, ENC_AES, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xA9", "PSK-AES256-GCM-SHA384", "TLS_PSK_WITH_AES_256_GCM_SHA384", KEX_PSK, AUTH_PSK, ENC_AES, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xAA", "DHE-PSK-AES128-GCM-SHA256", "TLS_DHE_PSK_WITH_AES_128_GCM_SHA256", KEX_DHE, AUTH_PSK, ENC_AES, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xAB", "DHE-PSK-AES256-GCM-SHA384", "TLS_DHE_PSK_WITH_AES_256_GCM_SHA384", KEX_DHE, AUTH_PSK, ENC_AES, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xAC", "RSA-PSK-AES128-GCM-SHA256", "TLS_RSA_PSK_WITH_AES_128_GCM_SHA256", KEX_RSA, AUTH_PSK, ENC_AES, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xAD", "RSA-PSK-AES256-GCM-SHA384", "TLS_RSA_PSK_WITH_AES_256_GCM_SHA384", KEX_RSA, AUTH_PSK, ENC_AES, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xAE", "PSK-AES128-CBC-SHA256", "TLS_PSK_WITH_AES_128_CBC_SHA256", KEX_PSK, AUTH_PSK, ENC_AES, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xAF", "PSK-AES256-CBC-SHA384", "TLS_PSK_WITH_AES_256_CBC_SHA384", KEX_PSK, AUTH_PSK, ENC_AES, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+	{"0xB0", "PSK-NULL-SHA256", "TLS_PSK_WITH_NULL_SHA256", KEX_PSK, AUTH_PSK, ENC_NONE, 0, ENC_M_NONE, MAC_SHA256, PRF_NONE, false},
+	{"0xB1", "PSK-NULL-SHA384", "TLS_PSK_WITH_NULL_SHA384", KEX_PSK, AUTH_PSK, ENC_NONE, 0, ENC_M_NONE, MAC_SHA384, PRF_NONE, false},
+	{"0xB2", "DHE-PSK-AES128-CBC-SHA256", "TLS_DHE_PSK_WITH_AES_128_CBC_SHA256", KEX_DHE, AUTH_PSK, ENC_AES, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xB3", "DHE-PSK-AES256-CBC-SHA384", "TLS_DHE_PSK_WITH_AES_256_CBC_SHA384", KEX_DHE, AUTH_PSK, ENC_AES, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+	{"0xB4", "DHE-PSK-NULL-SHA256", "TLS_DHE_PSK_WITH_NULL_SHA256", KEX_DHE, AUTH_PSK, ENC_NONE, 0, ENC_M_NONE, MAC_SHA256, PRF_NONE, false},
+	{"0xB5", "DHE-PSK-NULL-SHA384", "TLS_DHE_PSK_WITH_NULL_SHA384", KEX_DHE, AUTH_PSK, ENC_NONE, 0, ENC_M_NONE, MAC_SHA384, PRF_NONE, false},
+	{"0xB6", "RSA-PSK-AES128-CBC-SHA256", "TLS_RSA_PSK_WITH_AES_128_CBC_SHA256", KEX_RSA, AUTH_PSK, ENC_AES, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xB7", "RSA-PSK-AES256-CBC-SHA384", "TLS_RSA_PSK_WITH_AES_256_CBC_SHA384", KEX_RSA, AUTH_PSK, ENC_AES, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+	{"0xB8", "RSA-PSK-NULL-SHA256", "TLS_RSA_PSK_WITH_NULL_SHA256", KEX_RSA, AUTH_PSK, ENC_NONE, 0, ENC_M_NONE, MAC_SHA256, PRF_NONE, false},
+	{"0xB9", "RSA-PSK-NULL-SHA384", "TLS_RSA_PSK_WITH_NULL_SHA384", KEX_RSA, AUTH_PSK, ENC_NONE, 0, ENC_M_NONE, MAC_SHA384, PRF_NONE, false},
+	{"0xBA", "CAMELLIA128-SHA256", "TLS_RSA_WITH_CAMELLIA_128_CBC_SHA256", KEX_RSA, AUTH_RSA, ENC_CAMELLIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xBB", "DH-DSS-CAMELLIA128-SHA256", "TLS_DH_DSS_WITH_CAMELLIA_128_CBC_SHA256", KEX_DH, AUTH_DSS, ENC_CAMELLIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xBC", "DH-RSA-CAMELLIA128-SHA256", "TLS_DH_RSA_WITH_CAMELLIA_128_CBC_SHA256", KEX_DH, AUTH_RSA, ENC_CAMELLIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xBD", "DHE-DSS-CAMELLIA128-SHA256", "TLS_DHE_DSS_WITH_CAMELLIA_128_CBC_SHA256", KEX_DHE, AUTH_DSS, ENC_CAMELLIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xBE", "DHE-RSA-CAMELLIA128-SHA256", "TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA256", KEX_DHE, AUTH_RSA, ENC_CAMELLIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xBF", "ADH-CAMELLIA128-SHA256", "TLS_DH_anon_WITH_CAMELLIA_128_CBC_SHA256", KEX_DH, AUTH_NONE, ENC_CAMELLIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC0", "CAMELLIA256-SHA256", "TLS_RSA_WITH_CAMELLIA_256_CBC_SHA256", KEX_RSA, AUTH_RSA, ENC_CAMELLIA, 256, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC1", "DH-DSS-CAMELLIA256-SHA256", "TLS_DH_DSS_WITH_CAMELLIA_256_CBC_SHA256", KEX_DH, AUTH_DSS, ENC_CAMELLIA, 256, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC2", "DH-RSA-CAMELLIA256-SHA256", "TLS_DH_RSA_WITH_CAMELLIA_256_CBC_SHA256", KEX_DH, AUTH_RSA, ENC_CAMELLIA, 256, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC3", "DHE-DSS-CAMELLIA256-SHA256", "TLS_DHE_DSS_WITH_CAMELLIA_256_CBC_SHA256", KEX_DHE, AUTH_DSS, ENC_CAMELLIA, 256, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC4", "DHE-RSA-CAMELLIA256-SHA256", "TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA256", KEX_DHE, AUTH_RSA, ENC_CAMELLIA, 256, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC5", "ADH-CAMELLIA256-SHA256", "TLS_DH_anon_WITH_CAMELLIA_256_CBC_SHA256", KEX_DH, AUTH_NONE, ENC_CAMELLIA, 256, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0x0016", "DHE-RSA-DES-CBC3-SHA", "TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA", KEX_DHE, AUTH_RSA, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC001", "ECDH-ECDSA-NULL-SHA", "TLS_ECDH_ECDSA_WITH_NULL_SHA", KEX_ECDH, AUTH_ECDSA, ENC_NONE, 0, ENC_M_NONE, MAC_SHA1, PRF_NONE, false},
+	{"0xC002", "ECDH-ECDSA-RC4-SHA", "TLS_ECDH_ECDSA_WITH_RC4_128_SHA", KEX_ECDH, AUTH_ECDSA, ENC_RC4, 128, ENC_M_NONE, MAC_SHA1, PRF_NONE, false},
+	{"0xC003", "ECDH-ECDSA-DES-CBC3-SHA", "TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA", KEX_ECDH, AUTH_ECDSA, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC004", "ECDH-ECDSA-AES128-SHA", "TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA", KEX_ECDH, AUTH_ECDSA, ENC_AES, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC005", "ECDH-ECDSA-AES256-SHA", "TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA", KEX_ECDH, AUTH_ECDSA, ENC_AES, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC006", "ECDHE-ECDSA-NULL-SHA", "TLS_ECDHE_ECDSA_WITH_NULL_SHA", KEX_ECDH, AUTH_ECDSA, ENC_NONE, 0, ENC_M_NONE, MAC_SHA1, PRF_NONE, false},
+	{"0xC007", "ECDHE-ECDSA-RC4-SHA", "TLS_ECDHE_ECDSA_WITH_RC4_128_SHA", KEX_ECDH, AUTH_ECDSA, ENC_RC4, 128, ENC_M_NONE, MAC_SHA1, PRF_NONE, false},
+	{"0xC008", "ECDHE-ECDSA-DES-CBC3-SHA", "TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA", KEX_ECDH, AUTH_ECDSA, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC009", "ECDHE-ECDSA-AES128-SHA", "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA", KEX_ECDH, AUTH_ECDSA, ENC_AES, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC00A", "ECDHE-ECDSA-AES256-SHA", "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA", KEX_ECDH, AUTH_ECDSA, ENC_AES, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC00B", "ECDH-RSA-NULL-SHA", "TLS_ECDH_RSA_WITH_NULL_SHA", KEX_ECDH, AUTH_RSA, ENC_NONE, 0, ENC_M_NONE, MAC_SHA1, PRF_NONE, false},
+	{"0xC00C", "ECDH-RSA-RC4-SHA", "TLS_ECDH_RSA_WITH_RC4_128_SHA", KEX_ECDH, AUTH_RSA, ENC_RC4, 128, ENC_M_NONE, MAC_SHA1, PRF_NONE, false},
+	{"0xC00D", "ECDH-RSA-DES-CBC3-SHA", "TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA", KEX_ECDH, AUTH_RSA, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC00E", "ECDH-RSA-AES128-SHA", "TLS_ECDH_RSA_WITH_AES_128_CBC_SHA", KEX_ECDH, AUTH_RSA, ENC_AES, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC00F", "ECDH-RSA-AES256-SHA", "TLS_ECDH_RSA_WITH_AES_256_CBC_SHA", KEX_ECDH, AUTH_RSA, ENC_AES, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC010", "ECDHE-RSA-NULL-SHA", "TLS_ECDHE_RSA_WITH_NULL_SHA", KEX_ECDH, AUTH_RSA, ENC_NONE, 0, ENC_M_NONE, MAC_SHA1, PRF_NONE, false},
+	{"0xC011", "ECDHE-RSA-RC4-SHA", "TLS_ECDHE_RSA_WITH_RC4_128_SHA", KEX_ECDH, AUTH_RSA, ENC_RC4, 128, ENC_M_NONE, MAC_SHA1, PRF_NONE, false},
+	{"0xC012", "ECDHE-RSA-DES-CBC3-SHA", "TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA", KEX_ECDH, AUTH_RSA, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC013", "ECDHE-RSA-AES128-SHA", "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA", KEX_ECDH, AUTH_RSA, ENC_AES, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC014", "ECDHE-RSA-AES256-SHA", "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA", KEX_ECDH, AUTH_RSA, ENC_AES, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC015", "AECDH-NULL-SHA", "TLS_ECDH_anon_WITH_NULL_SHA", KEX_ECDH, AUTH_NONE, ENC_NONE, 0, ENC_M_NONE, MAC_SHA1, PRF_NONE, false},
+	{"0xC016", "AECDH-RC4-SHA", "TLS_ECDH_anon_WITH_RC4_128_SHA", KEX_ECDH, AUTH_NONE, ENC_RC4, 128, ENC_M_NONE, MAC_SHA1, PRF_NONE, false},
+	{"0xC017", "AECDH-DES-CBC3-SHA", "TLS_ECDH_anon_WITH_3DES_EDE_CBC_SHA", KEX_ECDH, AUTH_NONE, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC018", "AECDH-AES128-SHA", "TLS_ECDH_anon_WITH_AES_128_CBC_SHA", KEX_ECDH, AUTH_NONE, ENC_AES, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC01A", "SRP-3DES-EDE-CBC-SHA", "TLS_SRP_SHA_WITH_3DES_EDE_CBC_SHA", KEX_SRP_SHA, AUTH_SRP_SHA, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC01B", "SRP-RSA-3DES-EDE-CBC-SHA", "TLS_SRP_SHA_RSA_WITH_3DES_EDE_CBC_SHA", KEX_SRP_SHA, AUTH_RSA, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC01C", "SRP-DSS-3DES-EDE-CBC-SHA", "TLS_SRP_SHA_DSS_WITH_3DES_EDE_CBC_SHA", KEX_SRP_SHA, AUTH_DSS, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC01D", "SRP-AES-128-CBC-SHA", "TLS_SRP_SHA_WITH_AES_128_CBC_SHA", KEX_SRP_SHA, AUTH_SRP_SHA, ENC_AES, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC01E", "SRP-RSA-AES-128-CBC-SHA", "TLS_SRP_SHA_RSA_WITH_AES_128_CBC_SHA", KEX_SRP_SHA, AUTH_RSA, ENC_AES, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC01F", "SRP-DSS-AES-128-CBC-SHA", "TLS_SRP_SHA_DSS_WITH_AES_128_CBC_SHA", KEX_SRP_SHA, AUTH_DSS, ENC_AES, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC020", "SRP-AES-256-CBC-SHA", "TLS_SRP_SHA_WITH_AES_256_CBC_SHA", KEX_SRP_SHA, AUTH_SRP_SHA, ENC_AES, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC021", "SRP-RSA-AES-256-CBC-SHA", "TLS_SRP_SHA_RSA_WITH_AES_256_CBC_SHA", KEX_SRP_SHA, AUTH_RSA, ENC_AES, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC022", "SRP-DSS-AES-256-CBC-SHA", "TLS_SRP_SHA_DSS_WITH_AES_256_CBC_SHA", KEX_SRP_SHA, AUTH_DSS, ENC_AES, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC023", "ECDHE-ECDSA-AES128-SHA256", "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256", KEX_ECDH, AUTH_ECDSA, ENC_AES, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC024", "ECDHE-ECDSA-AES256-SHA384", "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384", KEX_ECDH, AUTH_ECDSA, ENC_AES, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+	{"0xC025", "ECDH-ECDSA-AES128-SHA256", "TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA256", KEX_ECDH, AUTH_ECDSA, ENC_AES, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC026", "ECDH-ECDSA-AES256-SHA384", "TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA384", KEX_ECDH, AUTH_ECDSA, ENC_AES, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+	{"0xC027", "ECDHE-RSA-AES128-SHA256", "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256", KEX_ECDH, AUTH_RSA, ENC_AES, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC028", "ECDHE-RSA-AES256-SHA384", "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384", KEX_ECDH, AUTH_RSA, ENC_AES, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+	{"0xC029", "ECDH-RSA-AES128-SHA256", "TLS_ECDH_RSA_WITH_AES_128_CBC_SHA256", KEX_ECDH, AUTH_RSA, ENC_AES, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC02A", "ECDH-RSA-AES256-SHA384", "TLS_ECDH_RSA_WITH_AES_256_CBC_SHA384", KEX_ECDH, AUTH_RSA, ENC_AES, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+	{"0xC02B", "ECDHE-ECDSA-AES128-GCM-SHA256", "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256", KEX_ECDH, AUTH_ECDSA, ENC_AES, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC02C", "ECDHE-ECDSA-AES256-GCM-SHA384", "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384", KEX_ECDH, AUTH_ECDSA, ENC_AES, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xC02D", "ECDH-ECDSA-AES128-GCM-SHA256", "TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256", KEX_ECDH, AUTH_ECDSA, ENC_AES, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC02E", "ECDH-ECDSA-AES256-GCM-SHA384", "TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384", KEX_ECDH, AUTH_ECDSA, ENC_AES, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xC02F", "ECDHE-RSA-AES128-GCM-SHA256", "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", KEX_ECDH, AUTH_RSA, ENC_AES, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC030", "ECDHE-RSA-AES256-GCM-SHA384", "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384", KEX_ECDH, AUTH_RSA, ENC_AES, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xC031", "ECDH-RSA-AES128-GCM-SHA256", "TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256", KEX_ECDH, AUTH_RSA, ENC_AES, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC032", "ECDH-RSA-AES256-GCM-SHA384", "TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384", KEX_ECDH, AUTH_RSA, ENC_AES, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xC033", "ECDHE-PSK-RC4-SHA", "TLS_ECDHE_PSK_WITH_RC4_128_SHA", KEX_ECDHE, AUTH_PSK, ENC_RC4, 128, ENC_M_NONE, MAC_SHA1, PRF_NONE, false},
+	{"0xC034", "ECDHE-PSK-3DES-EDE-CBC-SHA", "TLS_ECDHE_PSK_WITH_3DES_EDE_CBC_SHA", KEX_ECDHE, AUTH_PSK, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC035", "ECDHE-PSK-AES128-CBC-SHA", "TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA", KEX_ECDHE, AUTH_PSK, ENC_AES, 128, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC036", "ECDHE-PSK-AES256-CBC-SHA", "TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA", KEX_ECDHE, AUTH_PSK, ENC_AES, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xC037", "ECDHE-PSK-AES128-CBC-SHA256", "TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256", KEX_ECDHE, AUTH_PSK, ENC_AES, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC038", "ECDHE-PSK-AES256-CBC-SHA384", "TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA384", KEX_ECDHE, AUTH_PSK, ENC_AES, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+	{"0xC039", "ECDHE-PSK-NULL-SHA", "TLS_ECDHE_PSK_WITH_NULL_SHA", KEX_ECDHE, AUTH_PSK, ENC_NONE, 0, ENC_M_NONE, MAC_SHA1, PRF_NONE, false},
+	{"0xC03A", "ECDHE-PSK-NULL-SHA256", "TLS_ECDHE_PSK_WITH_NULL_SHA256", KEX_ECDHE, AUTH_PSK, ENC_NONE, 0, ENC_M_NONE, MAC_SHA256, PRF_NONE, false},
+	{"0xC03B", "ECDHE-PSK-NULL-SHA384", "TLS_ECDHE_PSK_WITH_NULL_SHA384", KEX_ECDHE, AUTH_PSK, ENC_NONE, 0, ENC_M_NONE, MAC_SHA384, PRF_NONE, false},
+	{"0xC03C", "ARIA128-CBC-SHA256", "TLS_RSA_WITH_ARIA_128_CBC_SHA256", KEX_RSA, AUTH_RSA, ENC_ARIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC03D", "ARIA256-CBC-SHA384", "TLS_RSA_WITH_ARIA_256_CBC_SHA384", KEX_RSA, AUTH_RSA, ENC_ARIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+	{"0xC042", "DHE-DSS-ARIA128-CBC-SHA256", "TLS_DHE_DSS_WITH_ARIA_128_CBC_SHA256", KEX_DHE, AUTH_DSS, ENC_ARIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC043", "DHE-DSS-ARIA256-CBC-SHA384", "TLS_DHE_DSS_WITH_ARIA_256_CBC_SHA384", KEX_DHE, AUTH_DSS, ENC_ARIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+	{"0xC044", "DHE-RSA-ARIA128-CBC-SHA256", "TLS_DHE_RSA_WITH_ARIA_128_CBC_SHA256", KEX_DHE, AUTH_RSA, ENC_ARIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC045", "DHE-RSA-ARIA256-CBC-SHA384", "TLS_DHE_RSA_WITH_ARIA_256_CBC_SHA384", KEX_DHE, AUTH_RSA, ENC_ARIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+	{"0xC046", "DH-anon-ARIA128-CBC-SHA256", "TLS_DH_anon_WITH_ARIA_128_CBC_SHA256", KEX_DH, AUTH_NONE, ENC_ARIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC047", "DH-anon-ARIA256-CBC-SHA384", "TLS_DH_anon_WITH_ARIA_256_CBC_SHA384", KEX_DH, AUTH_NONE, ENC_ARIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+	{"0xC048", "ECDHE-ECDSA-ARIA128-CBC-SHA256", "TLS_ECDHE_ECDSA_WITH_ARIA_128_CBC_SHA256", KEX_ECDH, AUTH_ECDSA, ENC_ARIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC049", "ECDHE-ECDSA-ARIA256-CBC-SHA384", "TLS_ECDHE_ECDSA_WITH_ARIA_256_CBC_SHA384", KEX_ECDH, AUTH_ECDSA, ENC_ARIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+	{"0xC04C", "ECDHE-RSA-ARIA128-CBC-SHA256", "TLS_ECDHE_RSA_WITH_ARIA_128_CBC_SHA256", KEX_ECDH, AUTH_RSA, ENC_ARIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC04D", "ECDHE-RSA-ARIA256-CBC-SHA384", "TLS_ECDHE_RSA_WITH_ARIA_256_CBC_SHA384", KEX_ECDH, AUTH_RSA, ENC_ARIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+	{"0xC050", "ARIA128-GCM-SHA256", "TLS_RSA_WITH_ARIA_128_GCM_SHA256", KEX_RSA, AUTH_RSA, ENC_ARIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC051", "ARIA256-GCM-SHA384", "TLS_RSA_WITH_ARIA_256_GCM_SHA384", KEX_RSA, AUTH_RSA, ENC_ARIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xC052", "DHE-RSA-ARIA128-GCM-SHA256", "TLS_DHE_RSA_WITH_ARIA_128_GCM_SHA256", KEX_DHE, AUTH_RSA, ENC_ARIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC053", "DHE-RSA-ARIA256-GCM-SHA384", "TLS_DHE_RSA_WITH_ARIA_256_GCM_SHA384", KEX_DHE, AUTH_RSA, ENC_ARIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xC054", "DH-RSA-ARIA128-GCM-SHA256", "TLS_DH_RSA_WITH_ARIA_128_GCM_SHA256", KEX_DH, AUTH_RSA, ENC_ARIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC055", "DH-RSA-ARIA256-GCM-SHA384", "TLS_DH_RSA_WITH_ARIA_256_GCM_SHA384", KEX_DH, AUTH_RSA, ENC_ARIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xC056", "DHE-DSS-ARIA128-GCM-SHA256", "TLS_DHE_DSS_WITH_ARIA_128_GCM_SHA256", KEX_DHE, AUTH_DSS, ENC_ARIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC057", "DHE-DSS-ARIA256-GCM-SHA384", "TLS_DHE_DSS_WITH_ARIA_256_GCM_SHA384", KEX_DHE, AUTH_DSS, ENC_ARIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xC058", "DH-DSS-ARIA128-GCM-SHA256", "TLS_DH_DSS_WITH_ARIA_128_GCM_SHA256", KEX_DH, AUTH_DSS, ENC_ARIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC059", "DH-DSS-ARIA256-GCM-SHA384", "TLS_DH_DSS_WITH_ARIA_256_GCM_SHA384", KEX_DH, AUTH_DSS, ENC_ARIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xC05A", "ADH-ARIA128-GCM-SHA256", "TLS_DH_anon_WITH_ARIA_128_GCM_SHA256", KEX_DH, AUTH_NONE, ENC_ARIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC05B", "ADH-ARIA256-GCM-SHA384", "TLS_DH_anon_WITH_ARIA_256_GCM_SHA384", KEX_DH, AUTH_NONE, ENC_ARIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xC05C", "ECDHE-ECDSA-ARIA128-GCM-SHA256", "TLS_ECDHE_ECDSA_WITH_ARIA_128_GCM_SHA256", KEX_ECDH, AUTH_ECDSA, ENC_ARIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC05D", "ECDHE-ECDSA-ARIA256-GCM-SHA384", "TLS_ECDHE_ECDSA_WITH_ARIA_256_GCM_SHA384", KEX_ECDH, AUTH_ECDSA, ENC_ARIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xC05E", "ECDH-ECDSA-ARIA128-GCM-SHA256", "TLS_ECDH_ECDSA_WITH_ARIA_128_GCM_SHA256", KEX_ECDH, AUTH_ECDSA, ENC_ARIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC05F", "ECDH-ECDSA-ARIA256-GCM-SHA384", "TLS_ECDH_ECDSA_WITH_ARIA_256_GCM_SHA384", KEX_ECDH, AUTH_ECDSA, ENC_ARIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xC060", "ECDHE-ARIA128-GCM-SHA256", "TLS_ECDHE_RSA_WITH_ARIA_128_GCM_SHA256", KEX_ECDH, AUTH_RSA, ENC_ARIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC061", "ECDHE-ARIA256-GCM-SHA384", "TLS_ECDHE_RSA_WITH_ARIA_256_GCM_SHA384", KEX_ECDH, AUTH_RSA, ENC_ARIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xC062", "ECDH-ARIA128-GCM-SHA256", "TLS_ECDH_RSA_WITH_ARIA_128_GCM_SHA256", KEX_ECDH, AUTH_RSA, ENC_ARIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC063", "ECDH-ARIA256-GCM-SHA384", "TLS_ECDH_RSA_WITH_ARIA_256_GCM_SHA384", KEX_ECDH, AUTH_RSA, ENC_ARIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xC06A", "PSK-ARIA128-GCM-SHA256", "TLS_PSK_WITH_ARIA_128_GCM_SHA256", KEX_PSK, AUTH_PSK, ENC_ARIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC06B", "PSK-ARIA256-GCM-SHA384", "TLS_PSK_WITH_ARIA_256_GCM_SHA384", KEX_PSK, AUTH_PSK, ENC_ARIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xC06C", "DHE-PSK-ARIA128-GCM-SHA256", "TLS_DHE_PSK_WITH_ARIA_128_GCM_SHA256", KEX_DHE, AUTH_PSK, ENC_ARIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC06D", "DHE-PSK-ARIA256-GCM-SHA384", "TLS_DHE_PSK_WITH_ARIA_256_GCM_SHA384", KEX_DHE, AUTH_PSK, ENC_ARIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xC06E", "RSA-PSK-ARIA128-GCM-SHA256", "TLS_RSA_PSK_WITH_ARIA_128_GCM_SHA256", KEX_RSA, AUTH_PSK, ENC_ARIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC06F", "RSA-PSK-ARIA256-GCM-SHA384", "TLS_RSA_PSK_WITH_ARIA_256_GCM_SHA384", KEX_RSA, AUTH_PSK, ENC_ARIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+	{"0xC072", "ECDHE-ECDSA-CAMELLIA128-SHA256", "TLS_ECDHE_ECDSA_WITH_CAMELLIA_128_CBC_SHA256", KEX_ECDH, AUTH_ECDSA, ENC_CAMELLIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC073", "ECDHE-ECDSA-CAMELLIA256-SHA384", "TLS_ECDHE_ECDSA_WITH_CAMELLIA_256_CBC_SHA384", KEX_ECDH, AUTH_ECDSA, ENC_CAMELLIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+	{"0xC074", "ECDH-ECDSA-CAMELLIA128-SHA256", "TLS_ECDH_ECDSA_WITH_CAMELLIA_128_CBC_SHA256", KEX_ECDH, AUTH_ECDSA, ENC_CAMELLIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC075", "ECDH-ECDSA-CAMELLIA256-SHA384", "TLS_ECDH_ECDSA_WITH_CAMELLIA_256_CBC_SHA384", KEX_ECDH, AUTH_ECDSA, ENC_CAMELLIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+	{"0xC076", "ECDHE-RSA-CAMELLIA128-SHA256", "TLS_ECDHE_RSA_WITH_CAMELLIA_128_CBC_SHA256", KEX_ECDH, AUTH_RSA, ENC_CAMELLIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC077", "ECDHE-RSA-CAMELLIA256-SHA384", "TLS_ECDHE_RSA_WITH_CAMELLIA_256_CBC_SHA384", KEX_ECDH, AUTH_RSA, ENC_CAMELLIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+	{"0xC078", "ECDH-RSA-CAMELLIA128-SHA256", "TLS_ECDH_RSA_WITH_CAMELLIA_128_CBC_SHA256", KEX_ECDH, AUTH_RSA, ENC_CAMELLIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC079", "ECDH-RSA-CAMELLIA256-SHA384", "TLS_ECDH_RSA_WITH_CAMELLIA_256_CBC_SHA384", KEX_ECDH, AUTH_RSA, ENC_CAMELLIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+	{"0xC094", "PSK-CAMELLIA128-SHA256", "TLS_PSK_WITH_CAMELLIA_128_CBC_SHA256", KEX_PSK, AUTH_PSK, ENC_CAMELLIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC095", "PSK-CAMELLIA256-SHA384", "TLS_PSK_WITH_CAMELLIA_256_CBC_SHA384", KEX_PSK, AUTH_PSK, ENC_CAMELLIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+	{"0xC096", "DHE-PSK-CAMELLIA128-SHA256", "TLS_DHE_PSK_WITH_CAMELLIA_128_CBC_SHA256", KEX_DHE, AUTH_PSK, ENC_CAMELLIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC097", "DHE-PSK-CAMELLIA256-SHA384", "TLS_DHE_PSK_WITH_CAMELLIA_256_CBC_SHA384", KEX_DHE, AUTH_PSK, ENC_CAMELLIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+	{"0xC098", "RSA-PSK-CAMELLIA128-SHA256", "TLS_RSA_PSK_WITH_CAMELLIA_128_CBC_SHA256", KEX_RSA, AUTH_PSK, ENC_CAMELLIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC099", "RSA-PSK-CAMELLIA256-SHA384", "TLS_RSA_PSK_WITH_CAMELLIA_256_CBC_SHA384", KEX_RSA, AUTH_PSK, ENC_CAMELLIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+	{"0xC09A", "ECDHE-PSK-CAMELLIA128-SHA256", "TLS_ECDHE_PSK_WITH_CAMELLIA_128_CBC_SHA256", KEX_ECDHE, AUTH_PSK, ENC_CAMELLIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+	{"0xC09B", "ECDHE-PSK-CAMELLIA256-SHA384", "TLS_ECDHE_PSK_WITH_CAMELLIA_256_CBC_SHA384", KEX_ECDHE, AUTH_PSK, ENC_CAMELLIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+	{"0xC09C", "AES128-CCM", "TLS_RSA_WITH_AES_128_CCM", KEX_RSA, AUTH_RSA, ENC_AES, 128, ENC_M_CCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC09D", "AES256-CCM", "TLS_RSA_WITH_AES_256_CCM", KEX_RSA, AUTH_RSA, ENC_AES, 256, ENC_M_CCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC09E", "DHE-RSA-AES128-CCM", "TLS_DHE_RSA_WITH_AES_128_CCM", KEX_DHE, AUTH_RSA, ENC_AES, 128, ENC_M_CCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC09F", "DHE-RSA-AES256-CCM", "TLS_DHE_RSA_WITH_AES_256_CCM", KEX_DHE, AUTH_RSA, ENC_AES, 256, ENC_M_CCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC0A0", "AES128-CCM8", "TLS_RSA_WITH_AES_128_CCM_8", KEX_RSA, AUTH_RSA, ENC_AES, 128, ENC_M_CCM_8, MAC_AEAD, PRF_SHA256, false},
+	{"0xC0A1", "AES256-CCM8", "TLS_RSA_WITH_AES_256_CCM_8", KEX_RSA, AUTH_RSA, ENC_AES, 256, ENC_M_CCM_8, MAC_AEAD, PRF_SHA256, false},
+	{"0xC0A2", "DHE-RSA-AES128-CCM8", "TLS_DHE_RSA_WITH_AES_128_CCM_8", KEX_DHE, AUTH_RSA, ENC_AES, 128, ENC_M_CCM_8, MAC_AEAD, PRF_SHA256, false},
+	{"0xC0A3", "DHE-RSA-AES256-CCM8", "TLS_DHE_RSA_WITH_AES_256_CCM_8", KEX_DHE, AUTH_RSA, ENC_AES, 256, ENC_M_CCM_8, MAC_AEAD, PRF_SHA256, false},
+	{"0xC0A4", "PSK-AES128-CCM", "TLS_PSK_WITH_AES_128_CCM", KEX_PSK, AUTH_PSK, ENC_AES, 128, ENC_M_CCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC0A5", "PSK-AES256-CCM", "TLS_PSK_WITH_AES_256_CCM", KEX_PSK, AUTH_PSK, ENC_AES, 256, ENC_M_CCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC0A6", "DHE-PSK-AES128-CCM", "TLS_DHE_PSK_WITH_AES_128_CCM", KEX_DHE, AUTH_PSK, ENC_AES, 128, ENC_M_CCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC0A7", "DHE-PSK-AES256-CCM", "TLS_DHE_PSK_WITH_AES_256_CCM", KEX_DHE, AUTH_PSK, ENC_AES, 256, ENC_M_CCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC0A8", "PSK-AES128-CCM8", "TLS_PSK_WITH_AES_128_CCM_8", KEX_PSK, AUTH_PSK, ENC_AES, 128, ENC_M_CCM_8, MAC_AEAD, PRF_SHA256, false},
+	{"0xC0A9", "PSK-AES256-CCM8", "TLS_PSK_WITH_AES_256_CCM_8", KEX_PSK, AUTH_PSK, ENC_AES, 256, ENC_M_CCM_8, MAC_AEAD, PRF_SHA256, false},
+	// https://www.rfc-editor.org/errata_search.php?rfc=6655&eid=3987
+	{"0xC0AA", "DHE-PSK-AES128-CCM8", "TLS_PSK_DHE_WITH_AES_128_CCM_8", KEX_DHE, AUTH_PSK, ENC_AES, 128, ENC_M_CCM_8, MAC_AEAD, PRF_SHA256, false},
+	// https://www.rfc-editor.org/errata_search.php?rfc=6655&eid=3987
+	{"0xC0AB", "DHE-PSK-AES256-CCM8", "TLS_PSK_DHE_WITH_AES_256_CCM_8", KEX_DHE, AUTH_PSK, ENC_AES, 256, ENC_M_CCM_8, MAC_AEAD, PRF_SHA256, false},
+	{"0xCCAB", "PSK-CHACHA20-POLY1305", "TLS_PSK_WITH_CHACHA20_POLY1305_SHA256", KEX_PSK, AUTH_PSK, ENC_CHACHA20, 256, ENC_M_POLY1305, MAC_AEAD, PRF_SHA256, false},
+	{"0xC0AC", "ECDHE-ECDSA-AES128-CCM", "TLS_ECDHE_ECDSA_WITH_AES_128_CCM", KEX_ECDH, AUTH_ECDSA, ENC_AES, 128, ENC_M_CCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC0AD", "ECDHE-ECDSA-AES256-CCM", "TLS_ECDHE_ECDSA_WITH_AES_256_CCM", KEX_ECDH, AUTH_ECDSA, ENC_AES, 256, ENC_M_CCM, MAC_AEAD, PRF_SHA256, false},
+	{"0xC0AE", "ECDHE-ECDSA-AES128-CCM8", "TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8", KEX_ECDH, AUTH_ECDSA, ENC_AES, 128, ENC_M_CCM_8, MAC_AEAD, PRF_SHA256, false},
+	{"0xC0AF", "ECDHE-ECDSA-AES256-CCM8", "TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8", KEX_ECDH, AUTH_ECDSA, ENC_AES, 256, ENC_M_CCM_8, MAC_AEAD, PRF_SHA256, false},
+	{"0xCC13", "ECDHE-RSA-CHACHA20-POLY1305-OLD", "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256_OLD", KEX_ECDH, AUTH_RSA, ENC_CHACHA20, 256, ENC_M_POLY1305, MAC_AEAD, PRF_SHA256, false},
+	{"0xCC14", "ECDHE-ECDSA-CHACHA20-POLY1305-OLD", "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256_OLD", KEX_ECDH, AUTH_ECDSA, ENC_CHACHA20, 256, ENC_M_POLY1305, MAC_AEAD, PRF_SHA256, false},
+	{"0xCC15", "DHE-RSA-CHACHA20-POLY1305-OLD", "TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256_OLD", KEX_DHE, AUTH_RSA, ENC_CHACHA20, 256, ENC_M_POLY1305, MAC_AEAD, PRF_SHA256, false},
+	{"0xC019", "AECDH-AES256-SHA", "TLS_ECDH_anon_WITH_AES_256_CBC_SHA", KEX_ECDH, AUTH_NONE, ENC_AES, 256, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	{"0xCCA8", "ECDHE-RSA-CHACHA20-POLY1305", "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256", KEX_ECDH, AUTH_RSA, ENC_CHACHA20, 256, ENC_M_POLY1305, MAC_AEAD, PRF_SHA256, false},
+	{"0xCCA9", "ECDHE-ECDSA-CHACHA20-POLY1305", "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256", KEX_ECDH, AUTH_ECDSA, ENC_CHACHA20, 256, ENC_M_POLY1305, MAC_AEAD, PRF_SHA256, false},
+	{"0xCCAA", "DHE-RSA-CHACHA20-POLY1305", "TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256", KEX_DHE, AUTH_RSA, ENC_CHACHA20, 256, ENC_M_POLY1305, MAC_AEAD, PRF_SHA256, false},
+	{"0xCCAC", "ECDHE-PSK-CHACHA20-POLY1305", "TLS_ECDHE_PSK_WITH_CHACHA20_POLY1305_SHA256", KEX_ECDHE, AUTH_PSK, ENC_CHACHA20, 256, ENC_M_POLY1305, MAC_AEAD, PRF_SHA256, false},
+	{"0xCCAD", "DHE-PSK-CHACHA20-POLY1305", "TLS_DHE_PSK_WITH_CHACHA20_POLY1305_SHA256", KEX_DHE, AUTH_PSK, ENC_CHACHA20, 256, ENC_M_POLY1305, MAC_AEAD, PRF_SHA256, false},
+	{"0xCCAE", "RSA-PSK-CHACHA20-POLY1305", "TLS_RSA_PSK_WITH_CHACHA20_POLY1305_SHA256", KEX_RSA, AUTH_PSK, ENC_CHACHA20, 256, ENC_M_POLY1305, MAC_AEAD, PRF_SHA256, false},
+	{"0x010080", "RC4-MD5", "SSL_CK_RC4_128_WITH_MD5", KEX_RSA, AUTH_RSA, ENC_RC4, 128, ENC_M_NONE, MAC_MD5, PRF_NONE, false},
+	{"0x020080", "EXP-RC4-MD5", "SSL_CK_RC4_128_EXPORT40_WITH_MD5", KEX_RSA, AUTH_RSA, ENC_RC4, 40, ENC_M_NONE, MAC_MD5, PRF_NONE, true},
+	{"0x030080", "RC2-CBC-MD5", "SSL_CK_RC2_128_CBC_WITH_MD5", KEX_RSA, AUTH_RSA, ENC_RC2, 128, ENC_M_CBC, MAC_MD5, PRF_NONE, false},
+	{"0x040080", "EXP-RC2-CBC-MD5", "SSL_CK_RC2_128_CBC_EXPORT40_WITH_MD5", KEX_RSA, AUTH_RSA, ENC_RC2, 40, ENC_M_CBC, MAC_MD5, PRF_NONE, true},
+	{"0x050080", "IDEA-CBC-MD5", "SSL_CK_IDEA_128_CBC_WITH_MD5", KEX_RSA, AUTH_RSA, ENC_IDEA, 128, ENC_M_CBC, MAC_MD5, PRF_NONE, false},
+	{"0x060040", "DES-CBC-MD5", "SSL_CK_DES_64_CBC_WITH_MD5", KEX_RSA, AUTH_RSA, ENC_DES, 56, ENC_M_CBC, MAC_MD5, PRF_NONE, false},
+	{"0x0700C0", "DES-CBC3-MD5", "SSL_CK_DES_192_EDE3_CBC_WITH_MD5", KEX_RSA, AUTH_RSA, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_MD5, PRF_NONE, false},
+	{"0x080080", "RC4-64-MD5", "SSL_CK_RC4_64_WITH_MD5", KEX_RSA, AUTH_RSA, ENC_RC4, 64, ENC_M_NONE, MAC_MD5, PRF_NONE, false},
+
+	// I would have suggested that the next cipher suite use RSA only for authentication but OpenSSL uses RSA for the
+	// key exchange as well.
+	// See: https://github.com/openssl/openssl/blob/OpenSSL_1_0_0-stable/ssl/s3_lib.c
+	{"0xFF00", "GOST-MD5", "TLS_GOSTR341094_RSA_WITH_28147_CNT_MD5", KEX_RSA, AUTH_RSA, ENC_GOST28147, 256, ENC_M_CNT, MAC_MD5, PRF_NONE, false},
+	{"0xFF01", "GOST-GOST94", "TLS_RSA_WITH_28147_CNT_GOST94", KEX_RSA, AUTH_RSA, ENC_GOST28147, 256, ENC_M_CNT, MAC_GOSTR341194, PRF_NONE, false},
+	{"0xFF02", "GOST-GOST89MAC", "", KEX_RSA, AUTH_RSA, ENC_GOST28147, 256, ENC_M_CNT, MAC_GOST28147, PRF_NONE, false},
+	{"0xFF03", "GOST-GOST89STREAM", "", KEX_RSA, AUTH_RSA, ENC_GOST28147, 256, ENC_M_CNT, MAC_AEAD, PRF_GOST28147, false},
+	// The following website suggests that the following cipher suite is identical to the "GOST2001-GOST89-GOST89"
+	// cipher suite: https://tech.gh0stshell.com/linux/ssl/openssl-show-enabled-ciphers-from-cipher-list/
+	{"0xFF85", "GOST2012256-GOST89-GOST89", "", KEX_GOSTR341001, AUTH_GOSTR341001, ENC_GOST28147, 256, ENC_M_CNT, MAC_AEAD, PRF_GOST28147, false},
+	// Not so sure whether Streeborg is used as PRF or simple Mac - didn't find an answer to that.
+	{"0xFF87", "GOST2012256-NULL-STREEBOG256", "", KEX_GOSTR341001, AUTH_GOSTR341001, ENC_NONE, 0, ENC_M_NONE, MAC_STREEBOG256, PRF_NONE, false},
+
+	// The following cipher suites don't have an OpenSSL name and therefore won't be found by SSLyze. Therefore we'd
+	// don't have to bother loading the information about them everytime. Nonetheless I included them for future
+	// reference.
+	/*
+		{"0x16B7", "", "TLS_CECPQ1_RSA_WITH_CHACHA20_POLY1305_SHA256", KEX_CECPQ1, AUTH_RSA, ENC_CHACHA20, 256, ENC_M_POLY1305, MAC_AEAD, PRF_SHA256, false},
+		{"0x16B8", "", "TLS_CECPQ1_ECDSA_WITH_CHACHA20_POLY1305_SHA256", KEX_CECPQ1, AUTH_ECDSA, ENC_CHACHA20, 256, ENC_M_POLY1305, MAC_AEAD, PRF_SHA256, false},
+		{"0x16B9", "", "TLS_CECPQ1_RSA_WITH_AES_256_GCM_SHA384", KEX_CECPQ1, AUTH_RSA, ENC_AES, 256, ENC_M_CCM, MAC_AEAD, PRF_SHA384, false},
+		{"0x16BA", "", "TLS_CECPQ1_ECDSA_WITH_AES_256_GCM_SHA384", KEX_CECPQ1", AUTH_ECDSA, ENC_AES, 256, "ENC_M_CCM, MAC_AEAD, PRF_SHA384, false},
+		{"0xC03E", "", "TLS_DH_DSS_WITH_ARIA_128_CBC_SHA256", KEX_DH, AUTH_DSS, ENC_ARIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+		{"0xC03F", "", "TLS_DH_DSS_WITH_ARIA_256_CBC_SHA384", KEX_DH, AUTH_DSS, ENC_ARIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+		{"0xC040", "", "TLS_DH_RSA_WITH_ARIA_128_CBC_SHA256", KEX_DH, AUTH_RSA, ENC_ARIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+		{"0xC041", "", "TLS_DH_RSA_WITH_ARIA_256_CBC_SHA384", KEX_DH, AUTH_RSA, ENC_ARIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+		{"0xC04A", "", "TLS_ECDH_ECDSA_WITH_ARIA_128_CBC_SHA256", KEX_ECDH, AUTH_ECDSA, ENC_ARIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+		{"0xC04B", "", "TLS_ECDH_ECDSA_WITH_ARIA_256_CBC_SHA384", KEX_ECDH, AUTH_ECDSA, ENC_ARIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+		{"0xC04E", "", "TLS_ECDH_RSA_WITH_ARIA_128_CBC_SHA256", KEX_ECDH, AUTH_RSA, ENC_ARIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+		{"0xC04F", "", "TLS_ECDH_RSA_WITH_ARIA_256_CBC_SHA384", KEX_ECDH, AUTH_RSA, ENC_ARIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+		{"0xC064", "", "TLS_PSK_WITH_ARIA_128_CBC_SHA256", KEX_PSK, AUTH_PSK, ENC_ARIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+		{"0xC065", "", "TLS_PSK_WITH_ARIA_256_CBC_SHA384", KEX_PSK, AUTH_PSK, ENC_ARIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+		{"0xC066", "", "TLS_DHE_PSK_WITH_ARIA_128_CBC_SHA256", KEX_DHE, AUTH_PSK, ENC_ARIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+		{"0xC068", "", "TLS_RSA_PSK_WITH_ARIA_128_CBC_SHA256", KEX_RSA, AUTH_PSK, ENC_ARIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+		{"0xC067", "", "TLS_DHE_PSK_WITH_ARIA_256_CBC_SHA384", KEX_DHE, AUTH_PSK, ENC_ARIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+		{"0xC069", "", "TLS_RSA_PSK_WITH_ARIA_256_CBC_SHA384", KEX_RSA, AUTH_PSK, ENC_ARIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+		{"0xC070", "", "TLS_ECDHE_PSK_WITH_ARIA_128_CBC_SHA256", KEX_ECDHE, AUTH_PSK, ENC_ARIA, 128, ENC_M_CBC, MAC_SHA256, PRF_NONE, false},
+		{"0xC071", "", "TLS_ECDHE_PSK_WITH_ARIA_256_CBC_SHA384", KEX_ECDHE, AUTH_PSK, ENC_ARIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+		{"0xC07A", "", "TLS_RSA_WITH_CAMELLIA_128_GCM_SHA256", KEX_RSA, AUTH_RSA, ENC_CAMELLIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+		{"0xC07B", "", "TLS_RSA_WITH_CAMELLIA_256_GCM_SHA384", KEX_RSA, AUTH_RSA, ENC_CAMELLIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+		{"0xC07C", "", "TLS_DHE_RSA_WITH_CAMELLIA_128_GCM_SHA256", KEX_DHE, AUTH_RSA, ENC_CAMELLIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+		{"0xC07D", "", "TLS_DHE_RSA_WITH_CAMELLIA_256_GCM_SHA384", KEX_DHE, AUTH_RSA, ENC_CAMELLIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+		{"0xC07E", "", "TLS_DH_RSA_WITH_CAMELLIA_128_GCM_SHA256", KEX_DH, AUTH_RSA, ENC_CAMELLIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+		{"0xC07F", "", "TLS_DH_RSA_WITH_CAMELLIA_256_GCM_SHA384", KEX_DH, AUTH_RSA, ENC_CAMELLIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+		{"0xC080", "", "TLS_DHE_DSS_WITH_CAMELLIA_128_GCM_SHA256", KEX_DHE, AUTH_DSS, ENC_CAMELLIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+		{"0xC081", "", "TLS_DHE_DSS_WITH_CAMELLIA_256_GCM_SHA384", KEX_DHE, AUTH_DSS, ENC_CAMELLIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+		{"0xC082", "", "TLS_DH_DSS_WITH_CAMELLIA_128_GCM_SHA256", KEX_DH, AUTH_DSS, ENC_CAMELLIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+		{"0xC083", "", "TLS_DH_DSS_WITH_CAMELLIA_256_GCM_SHA384", KEX_DH, AUTH_DSS, ENC_CAMELLIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+		{"0xC084", "", "TLS_DH_anon_WITH_CAMELLIA_128_GCM_SHA256", KEX_DH, AUTH_NONE, ENC_CAMELLIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+		{"0xC085", "", "TLS_DH_anon_WITH_CAMELLIA_256_GCM_SHA384", KEX_DH, AUTH_NONE, ENC_CAMELLIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+		{"0xC086", "", "TLS_ECDHE_ECDSA_WITH_CAMELLIA_128_GCM_SHA256", KEX_ECDH, AUTH_ECDSA, ENC_CAMELLIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+		{"0xC087", "", "TLS_ECDHE_ECDSA_WITH_CAMELLIA_256_GCM_SHA384", KEX_ECDH, AUTH_ECDSA, ENC_CAMELLIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+		{"0xC088", "", "TLS_ECDH_ECDSA_WITH_CAMELLIA_128_GCM_SHA256", KEX_ECDH, AUTH_ECDSA, ENC_CAMELLIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+		{"0xC089", "", "TLS_ECDH_ECDSA_WITH_CAMELLIA_256_GCM_SHA384", KEX_ECDH, AUTH_ECDSA, ENC_CAMELLIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+		{"0xC08A", "", "TLS_ECDHE_RSA_WITH_CAMELLIA_128_GCM_SHA256", KEX_ECDH, AUTH_RSA, ENC_CAMELLIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+		{"0xC08B", "", "TLS_ECDHE_RSA_WITH_CAMELLIA_256_GCM_SHA384", KEX_ECDH, AUTH_RSA, ENC_CAMELLIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+		{"0xC08C", "", "TLS_ECDH_RSA_WITH_CAMELLIA_128_GCM_SHA256", KEX_ECDH, AUTH_RSA, ENC_CAMELLIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+		{"0xC08D", "", "TLS_ECDH_RSA_WITH_CAMELLIA_256_GCM_SHA384", KEX_ECDH, AUTH_RSA, ENC_CAMELLIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+		{"0xC08E", "", "TLS_PSK_WITH_CAMELLIA_128_GCM_SHA256", KEX_PSK, AUTH_PSK, ENC_CAMELLIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+		{"0xC08F", "", "TLS_PSK_WITH_CAMELLIA_256_GCM_SHA384", KEX_PSK, AUTH_PSK, ENC_CAMELLIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+		{"0xC090", "", "TLS_DHE_PSK_WITH_CAMELLIA_128_GCM_SHA256", KEX_DHE, AUTH_PSK, ENC_CAMELLIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+		{"0xC091", "", "TLS_DHE_PSK_WITH_CAMELLIA_256_GCM_SHA384", KEX_DHE, AUTH_PSK, ENC_CAMELLIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+		{"0xC092", "", "TLS_RSA_PSK_WITH_CAMELLIA_128_GCM_SHA256", KEX_RSA, AUTH_PSK, ENC_CAMELLIA, 128, ENC_M_GCM, MAC_AEAD, PRF_SHA256, false},
+		{"0xC093", "", "TLS_RSA_PSK_WITH_CAMELLIA_256_GCM_SHA384", KEX_RSA, AUTH_PSK, ENC_CAMELLIA, 256, ENC_M_GCM, MAC_AEAD, PRF_SHA384, false},
+		{"0xC065", "", "TLS_PSK_WITH_ARIA_256_CBC_SHA384", KEX_PSK, AUTH_PSK, ENC_ARIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+		{"0xC067", "", "TLS_DHE_PSK_WITH_ARIA_256_CBC_SHA384", KEX_DHE, AUTH_PSK, ENC_ARIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+		{"0xC069", "", "TLS_RSA_PSK_WITH_ARIA_256_CBC_SHA384", KEX_RSA, AUTH_PSK, ENC_ARIA, 256, ENC_M_CBC, MAC_SHA384, PRF_NONE, false},
+		{"0xFEFE", "", "SSL_RSA_FIPS_WITH_DES_CBC_SHA", KEX_RSA, AUTH_RSA, ENC_DES, 56, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+		{"0xFEFF", "", "SSL_RSA_FIPS_WITH_3DES_EDE_CBC_SHA", KEX_RSA, AUTH_RSA, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+		{"0xFFE0", "", "SSL_RSA_FIPS_WITH_3DES_EDE_CBC_SHA", KEX_RSA, AUTH_RSA, ENC_TRIPLE_DES, 168, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+		{"0xFFE1", "", "SSL_RSA_FIPS_WITH_DES_CBC_SHA", KEX_RSA, AUTH_RSA, ENC_DES, 56, ENC_M_CBC, MAC_SHA1, PRF_NONE, false},
+	*/
+}
