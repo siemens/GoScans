@@ -2,7 +2,7 @@
 .idea/workspace.xml
 
 # Unit test output
-_test/
+_test/tmp/
 
 # Compiled executables
 _test/*.exe
