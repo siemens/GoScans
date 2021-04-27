@@ -9,8 +9,8 @@ GoScans is a collection of network scan modules for infrastructure discovery and
 |   Port Enumeration                 | ✔️    | ✔️     | ✔️          |
 |   Service Detection                | ✔️    | ✔️     | ✔️          |
 |   Hostname Discovery               | ✔️    | ✔️     | ✔️          |
-|   Enumeration of Admin/RDP Users   | ❌️    | ❌️     | ✔️*         |
-|   Active Directory Enrichment      | ✔️    | ✔️**   | ✔️**        |
+|   Enumeration of Admin/RDP Users   | ❌️    | ❌️     | *✔️         |
+|   Active Directory Enrichment      | ✔️    | **✔️   | **✔️        |
 | **Banner Grabbing**                | ✔️    | ✔️     | ✔️          |
 | **SMB Crawling**                   | ❌️    | ✔️     | ✔️          |
 |   MIME Type Detection              |       | ✔️     | ✔️          |
