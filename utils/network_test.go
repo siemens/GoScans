@@ -80,8 +80,9 @@ func TestIsValidHostname(t *testing.T) {
 		hostname string
 		want     bool
 	}{
-		{"valid", "hostname", true}, // hostname without domain can be valid too in local environments, systems are automatically attaching the local domain
-		{"valid", "sub.domain.tld", true},
+		{"valid", "hostname", true},     // hostname without domain can be valid too in local environments, systems are automatically resolving to the local domain
+		{"valid2", "tfpr-a0-p03", true}, // hostname without domain can be valid too in local environments, systems are automatically resolving to the local domain
+		{"valid3", "sub.domain.tld", true},
 		{"valid-hyphen", "s-ub.domain.tld", true},
 		{"valid-localhost", "localhost", true},
 		{"valid-hostname", "hostname", true}, // within an AD domain it's also possible to contact hostnames, instead of fqdns

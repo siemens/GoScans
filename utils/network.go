@@ -96,7 +96,7 @@ func IsValidHostname(hostname string) bool {
 	}
 
 	// Return false if invalid end
-	lastCharRegex := regexp.MustCompile(`[[:alpha:]]$`)
+	lastCharRegex := regexp.MustCompile(`[[:alnum:]]$`)
 	if !lastCharRegex.MatchString(hostname) {
 		return false
 	}
