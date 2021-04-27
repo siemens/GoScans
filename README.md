@@ -3,7 +3,7 @@ GoScans is a collection of network scan modules for infrastructure discovery and
 
 # Available scan modules
 | Module                             | Linux | Windows | Windows (Domain) |
-| -----------------------------------|:-----:| -------:| ----------------:|
+| -----------------------------------|------:| -------:| ----------------:|
 | **Discovery Module**               | ✔️    | ✔️     | ✔️          |
 |   Device Discovery                 | ✔️    | ✔️     | ✔️          |
 |   Port Enumeration                 | ✔️    | ✔️     | ✔️          |
