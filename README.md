@@ -2,29 +2,29 @@
 GoScans is a collection of network scan modules for infrastructure discovery and information gathering. You can also visit [Large-Scale Discovery](https://github.com/siemens/large-scale-discovery) to see it applied.
 
 # Available scan modules
-| Module                                   | Linux | Windows | Windows (Domain) |
-| ---------------------------------------- |:-----:| -------:| ----------------:|
-| **Discovery Module**                     | ✔️ | ✔️    | ✔️          |
-|   Device Discovery                 | ✔️ | ✔️    | ✔️          |
-|   Port Enumeration                 | ✔️ | ✔️    | ✔️          |
-|   Service Detection                | ✔️ | ✔️    | ✔️          |
-|   Hostname Discovery               | ✔️ | ✔️    | ✔️          |
-|   Enumeration of Admin/RDP Users*  | ❌️ | ❌️    | ✔️          |
-|   Active Directory Enrichment      | ✔️ | ✔️** | ✔️** |
-| **Banner Grabbing**                      | ✔️    | ✔️    | ✔️         |
-| **SMB Crawling**                         | ❌️ | ✔️    | ✔️          |
-|   MIME Type Detection              |       | ✔️    | ✔️          |
-|   Microsoft Information Protection |       | ✔️    | ✔️          |
-| **NFS Crawling**                         | ✔️ | ✔️    | ✔️          |
-|   NFSv3                            | ✔️ | ✔️    | ✔️          |
-|   NFSv4                            | ✔️ | ❌️    | ❌️          |
-|   Unix ACL Flags                   | ✔️ | ✔️    | ✔️          |
-|   MIME Type Detection              | ✔️ | ✔️    | ✔️          |
-|   Microsoft Information Protection | ❌️ | ✔️    | ✔️          |
-| **Web Crawling**                         | ✔️ | ✔️    | ✔️          |
-| **Web Enumeration**                      | ✔️ | ✔️    | ✔️          |
-| **SSL Enumeration**                      | ✔️ | ✔️    | ✔️          |
-| **SSH Enumeration**                      | ✔️ | ✔️    | ✔️          |
+| Module                             | Linux | Windows | Windows (Domain) |
+| -----------------------------------|:-----:| -------:| ----------------:|
+| **Discovery Module**               | ✔️    | ✔️     | ✔️          |
+|   Device Discovery                 | ✔️    | ✔️     | ✔️          |
+|   Port Enumeration                 | ✔️    | ✔️     | ✔️          |
+|   Service Detection                | ✔️    | ✔️     | ✔️          |
+|   Hostname Discovery               | ✔️    | ✔️     | ✔️          |
+|   Enumeration of Admin/RDP Users   | ❌️    | ❌️     | ✔️*         |
+|   Active Directory Enrichment      | ✔️    | ✔️**   | ✔️**        |
+| **Banner Grabbing**                | ✔️    | ✔️     | ✔️          |
+| **SMB Crawling**                   | ❌️    | ✔️     | ✔️          |
+|   MIME Type Detection              |       | ✔️     | ✔️          |
+|   Microsoft Information Protection |       | ✔️     | ✔️          |
+| **NFS Crawling**                   | ✔️    | ✔️     | ✔️          |
+|   NFSv3                            | ✔️    | ✔️     | ✔️          |
+|   NFSv4                            | ✔️    | ❌️     | ❌️          |
+|   Unix ACL Flags                   | ✔️    | ✔️     | ✔️          |
+|   MIME Type Detection              | ✔️    | ✔️     | ✔️          |
+|   Microsoft Information Protection | ❌️    | ✔️     | ✔️          |
+| **Web Crawling**                   | ✔️    | ✔️     | ✔️          |
+| **Web Enumeration**                | ✔️    | ✔️     | ✔️          |
+| **SSL Enumeration**                | ✔️    | ✔️     | ✔️          |
+| **SSH Enumeration**                | ✔️    | ✔️     | ✔️          |
 
 &ast;&nbsp; Success generally depending on the domain configuration <br/>
 &ast;&ast;  The configuration of AD credentials is required. In contrast, on Windows domain member machines, AD requests can be handled transparently with implicit authentication.
