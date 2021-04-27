@@ -110,4 +110,13 @@ banner.NewScanner(wrpLogger ...)
 Similarly, if you do not want log from the modules, you can create a void logger doing nothing with log messages.
 
 # Result Data
-Please have a look at the respective module's _**Result**_ struct. `result.Data` (and possibly its child structs) contains all the attributes gathered by the scan module. 
+Please have a look at the respective module's _**Result**_ struct. `result.Data` (and possibly its child structs) contains all the attributes gathered by the scan module:
+
+- [Discovery](https://github.com/siemens/GoScans/blob/7b82dda3a0f1631ee7df672887242e93ce0b972a/discovery/discovery.go#L124)
+- [Banner](https://github.com/siemens/GoScans/blob/7b82dda3a0f1631ee7df672887242e93ce0b972a/banner/banner.go#L55)
+- [NFS](https://github.com/siemens/GoScans/blob/7b82dda3a0f1631ee7df672887242e93ce0b972a/nfs/nfs.go#L52)
+- [SMB](https://github.com/siemens/GoScans/blob/7b82dda3a0f1631ee7df672887242e93ce0b972a/smb/smb.go#L35)
+- [SSH](https://github.com/siemens/GoScans/blob/7b82dda3a0f1631ee7df672887242e93ce0b972a/ssh/ssh.go#L62)
+- [SSL](https://github.com/siemens/GoScans/blob/7b82dda3a0f1631ee7df672887242e93ce0b972a/ssl/ssl.go#L210)
+- [Webcrawler](https://github.com/siemens/GoScans/blob/7b82dda3a0f1631ee7df672887242e93ce0b972a/webcrawler/webcrawler.go#L41)
+- [Webenum](https://github.com/siemens/GoScans/blob/7b82dda3a0f1631ee7df672887242e93ce0b972a/webenum/webenum.go#L65)
