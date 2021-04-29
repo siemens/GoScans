@@ -20,7 +20,7 @@ GoScans is a collection of network scan modules for infrastructure discovery and
 |   NFSv4                            | ✔️    | ❌️     | ❌️          |
 |   Unix ACL Flags                   | ✔️    | ✔️     | ✔️          |
 |   MIME Type Detection              | ✔️    | ✔️     | ✔️          |
-|   Microsoft Information Protection | ❌️    | ✔️     | ✔️          |
+|   Microsoft Information Protection | ✔️    | ✔️     | ✔️          |
 | **Web Crawling**                   | ✔️    | ✔️     | ✔️          |
 | **Web Enumeration**                | ✔️    | ✔️     | ✔️          |
 | **SSL Enumeration**                | ✔️    | ✔️     | ✔️          |

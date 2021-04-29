@@ -168,3 +168,46 @@ func TestCrawler_processFolder(t *testing.T) {
 		})
 	}
 }
+
+func Test_getCustomProperties(t *testing.T) {
+
+	// Retrieve test settings
+	testSettings, errSettings := _test.GetSettings()
+	if errSettings != nil {
+		t.Errorf("Invalid test settings: %s", errSettings)
+		return
+	}
+
+	// Prepare test variables
+	crawlFolder := filepath.Join(testSettings.PathDataDir, "filecrawler")
+
+	type args struct {
+		filepath string
+		logger   utils.Logger
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    []string
+		wantErr bool
+	}{
+		{
+			"all value types",
+			args{filepath.Join(crawlFolder, "empty document.docx"), utils.NewTestLogger()},
+			[]string{"Document_Confidentiality: Unrestricted", "DateProp: 1970-01-01T10:00:00Z", "BoolProp: true", "IntegerProp: -10", "FloatProp: 1.2345"},
+			false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := getCustomProperties(tt.args.filepath, tt.args.logger)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("getCustomProperties() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("getCustomProperties() \ngot = %v, \nwant  %v", got, tt.want)
+			}
+		})
+	}
+}

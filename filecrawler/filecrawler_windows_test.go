@@ -2,17 +2,13 @@ package filecrawler
 
 import (
 	"github.com/davecgh/go-spew/spew"
-	"github.com/go-ole/go-ole"
 	"go-scans/_test"
 	"go-scans/utils"
-	"go-scans/utils/windows_systemcalls"
 	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
 )
-
-var PropkeyPerceivedType = windows_systemcalls.PROPERTYKEY{GUID: *ole.NewGUID("28636AA6-953D-11D2-B5D6-00C04FD918D0"), PID: 9}
 
 func TestCrawler_Crawl(t *testing.T) {
 
@@ -85,7 +81,7 @@ func TestCrawler_Crawl(t *testing.T) {
 					SizeKb:     12,
 					Depth:      1,
 					IsSymlink:  false,
-					Properties: []string{"MSIP_Label_6f75f480-7803-4ee9-bb54-84d0635fdbe7_Enabled: true", "MSIP_Label_6f75f480-7803-4ee9-bb54-84d0635fdbe7_SetDate: 2020-10-13T15:53:11Z", "MSIP_Label_6f75f480-7803-4ee9-bb54-84d0635fdbe7_Method: Privileged", "MSIP_Label_6f75f480-7803-4ee9-bb54-84d0635fdbe7_Name: unrestricted", "MSIP_Label_6f75f480-7803-4ee9-bb54-84d0635fdbe7_SiteId: 38ae3bcd-9579-4fd4-adda-b42e1495d55a", "MSIP_Label_6f75f480-7803-4ee9-bb54-84d0635fdbe7_ActionId: fde5ed73-1903-4bcf-8b1c-686fcb8beabe", "MSIP_Label_6f75f480-7803-4ee9-bb54-84d0635fdbe7_ContentBits: 0", "Document_Confidentiality: Unrestricted"},
+					Properties: []string{"Document_Confidentiality: Unrestricted", "DateProp: 1970-01-01T10:00:00Z", "BoolProp: true", "IntegerProp: -10", "FloatProp: 1.2345"},
 				},
 				{
 					Share:      "filecrawler",
@@ -202,7 +198,7 @@ func TestCrawler_Crawl(t *testing.T) {
 					SizeKb:     12,
 					Depth:      1,
 					IsSymlink:  false,
-					Properties: []string{"MSIP_Label_6f75f480-7803-4ee9-bb54-84d0635fdbe7_Enabled: true", "MSIP_Label_6f75f480-7803-4ee9-bb54-84d0635fdbe7_SetDate: 2020-10-13T15:53:11Z", "MSIP_Label_6f75f480-7803-4ee9-bb54-84d0635fdbe7_Method: Privileged", "MSIP_Label_6f75f480-7803-4ee9-bb54-84d0635fdbe7_Name: unrestricted", "MSIP_Label_6f75f480-7803-4ee9-bb54-84d0635fdbe7_SiteId: 38ae3bcd-9579-4fd4-adda-b42e1495d55a", "MSIP_Label_6f75f480-7803-4ee9-bb54-84d0635fdbe7_ActionId: fde5ed73-1903-4bcf-8b1c-686fcb8beabe", "MSIP_Label_6f75f480-7803-4ee9-bb54-84d0635fdbe7_ContentBits: 0", "Document_Confidentiality: Unrestricted"},
+					Properties: []string{"Document_Confidentiality: Unrestricted", "DateProp: 1970-01-01T10:00:00Z", "BoolProp: true", "IntegerProp: -10", "FloatProp: 1.2345"},
 				},
 			},
 			wantStatus:    utils.StatusCompleted,
@@ -267,7 +263,7 @@ func TestCrawler_Crawl(t *testing.T) {
 					SizeKb:     12,
 					Depth:      1,
 					IsSymlink:  false,
-					Properties: []string{"MSIP_Label_6f75f480-7803-4ee9-bb54-84d0635fdbe7_Enabled: true", "MSIP_Label_6f75f480-7803-4ee9-bb54-84d0635fdbe7_SetDate: 2020-10-13T15:53:11Z", "MSIP_Label_6f75f480-7803-4ee9-bb54-84d0635fdbe7_Method: Privileged", "MSIP_Label_6f75f480-7803-4ee9-bb54-84d0635fdbe7_Name: unrestricted", "MSIP_Label_6f75f480-7803-4ee9-bb54-84d0635fdbe7_SiteId: 38ae3bcd-9579-4fd4-adda-b42e1495d55a", "MSIP_Label_6f75f480-7803-4ee9-bb54-84d0635fdbe7_ActionId: fde5ed73-1903-4bcf-8b1c-686fcb8beabe", "MSIP_Label_6f75f480-7803-4ee9-bb54-84d0635fdbe7_ContentBits: 0", "Document_Confidentiality: Unrestricted"},
+					Properties: []string{"Document_Confidentiality: Unrestricted", "DateProp: 1970-01-01T10:00:00Z", "BoolProp: true", "IntegerProp: -10", "FloatProp: 1.2345"},
 				},
 			},
 			wantStatus:    utils.StatusCompleted,
@@ -381,77 +377,6 @@ func TestCrawler_Crawl(t *testing.T) {
 	}
 }
 
-func Test_getFileProperty(t *testing.T) {
-
-	// Retrieve test settings
-	testSettings, errSettings := _test.GetSettings()
-	if errSettings != nil {
-		t.Errorf("Invalid test settings: %s", errSettings)
-		return
-	}
-
-	// Prepare test variables
-	crawlFolder := filepath.Join(testSettings.PathDataDir, "filecrawler")
-	var PropkeyCustomSensitivityLabel = windows_systemcalls.PROPERTYKEY{ // User defined sensitivity property
-		GUID: *ole.NewGUID("D5CDD505-2E9C-101B-9397-08002B2CF9AE"),
-		PID:  9,
-	}
-
-	type args struct {
-		filepath    string
-		propertyKey windows_systemcalls.PROPERTYKEY
-		logger      utils.Logger
-	}
-	tests := []struct {
-		name    string
-		args    args
-		want    interface{}
-		wantErr bool
-	}{
-		{"sensitivity labels string",
-			args{
-				filepath:    filepath.Join(crawlFolder, "empty document.docx"),
-				propertyKey: PropkeyCustomSensitivityLabel,
-				logger:      utils.NewTestLogger(),
-			},
-			"Unrestricted",
-			false,
-		},
-		{"perceived Type int32",
-			args{
-				filepath:    filepath.Join(crawlFolder, "empty document.docx"),
-				propertyKey: PropkeyPerceivedType,
-				logger:      utils.NewTestLogger(),
-			},
-			int32(6),
-			false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-
-			// Prepare test
-			errPrepare := prepareCrawling(tt.args.logger)
-			if errPrepare != nil {
-				t.Errorf("Could not prepare test: %s", errPrepare)
-			}
-
-			// Prepare test cleanup
-			defer cleanupCrawling()
-
-			// Execute test
-			got, err := getFileProperty(tt.args.filepath, tt.args.propertyKey)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("getFileProperty() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("getFileProperty() got = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestCrawler_processFile(t *testing.T) {
 
 	// Retrieve test settings
@@ -506,6 +431,7 @@ func TestCrawler_processFile(t *testing.T) {
 				IsSymlink:       false,
 				IsDfs:           false,
 				NfsRestrictions: nil,
+				Properties:      []string{},
 			},
 			nil,
 		},

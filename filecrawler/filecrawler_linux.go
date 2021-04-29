@@ -7,20 +7,6 @@ import (
 	"path/filepath"
 )
 
-// prepareCrawling prepares the OS to crawl files
-func prepareCrawling(logger utils.Logger) error {
-	return nil
-}
-
-// cleanupCrawling restores preparations of the OS that were required to crawl files
-func cleanupCrawling() {
-}
-
-// extractSensitivity retrieves the sensitivity label of the file, but is not available on Linux
-func extractSensitivity(path string) string {
-	return ""
-}
-
 // getUnixFlags extracts unix file permissions of the fileMode
 func getUnixFlags(fm os.FileMode) string {
 	return fm.String()
@@ -56,9 +42,4 @@ func determineSymlinkPermissions(symlinkInfo *File, logger utils.Logger) {
 	} else {
 		symlinkInfo.Writable = true
 	}
-}
-
-// No custom properties determination implemented yet
-func getCustomProperties(filepath string, logger utils.Logger) ([]string, error) {
-	return []string{}, nil
 }
