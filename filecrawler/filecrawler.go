@@ -11,10 +11,14 @@
 package filecrawler
 
 import (
+	"archive/zip"
+	"bytes"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"github.com/gabriel-vasile/mimetype"
 	"go-scans/utils"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -75,6 +79,27 @@ type task struct {
 	isInsideDfs   bool // Shows if object was found in a dfs structure
 	depth         int  // depth of the resource
 	share         string
+}
+
+// OOXMLCustomPropertiesFile is the relative path to the metadata file of every Office file where the custom properties
+// (also the sensitivity-labels of the MS Information Protection) are stored
+const OOXMLCustomPropertiesFile = "docProps/custom.xml"
+
+// OOXMLProperties mirrors the xml structure of custom property metadata of Open Office Files
+type OOXMLProperties struct {
+	XMLName    xml.Name        `xml:"Properties"` // Important when adding attributes, always use uppercase for it, otherwise unmarshalling might not work
+	Properties []OOXMLProperty `xml:"property"`
+}
+
+type OOXMLProperty struct {
+	Fmtid    string  `xml:"fmtid,attr"`
+	Pid      string  `xml:"pid,attr"`
+	Name     string  `xml:"name,attr"`
+	ValStr   *string `xml:"lpwstr"`
+	ValInt   *string `xml:"i4"`
+	ValDate  *string `xml:"filetime"`
+	ValBool  *string `xml:"bool"`
+	ValFloat *string `xml:"r8"`
 }
 
 // The main crawler struct
@@ -147,15 +172,6 @@ func (c *Crawler) Crawl(entryPoint *EntryPoint) *Result {
 			c.logger.Debugf("Could not get root info of '%s': %s", pErr.Path, pErr.Err)
 		}
 		return result
-	}
-
-	// Prepare OS for crawling
-	errPrepare := prepareCrawling(c.logger)
-	if errPrepare != nil {
-		c.logger.Errorf("Error while preparing Crawling: %s", errPrepare)
-	} else {
-		// Prepare OS cleanup
-		defer cleanupCrawling()
 	}
 
 	// Log start of crawling
@@ -490,29 +506,111 @@ func accessFile(path string, flag int) (opened bool, err error) {
 	return true, nil
 }
 
-// TestProcessFolder just is a little exported helper functions to support unit tests
-func TestProcessFolder(c *Crawler, path string, insideDfs bool, isShare bool, depth int,
-	root string) (*File, []*task, int, int) {
-	var chProcessResults = make(chan *processResult)
-	var gotFolders []task
-	var gotFiles []task
+// getCustomProperties retrieves the custom properties of OOXML files, by extracting their docProps/custom.xml file and
+// returns a slice of strings in the form of "property: value"
+func getCustomProperties(filepath string, logger utils.Logger) ([]string, error) {
 
-	go c.processFolder(&task{
-		path:          path,
-		isFolder:      true,
-		isShareFolder: isShare,
-		isInsideDfs:   insideDfs,
-		depth:         depth,
-		share:         root,
-	}, 0, chProcessResults)
-	procRes := <-chProcessResults
+	//Get OOXMLProperties struct with the names and values of the custom properties
+	customFileProps, errOOXMLProps := getOOXMLProperties(filepath, logger)
+	if errOOXMLProps != nil {
+		return nil, fmt.Errorf("error while getting custom property names: %s [%s]", errOOXMLProps, filepath)
+	}
 
-	for _, obj := range procRes.newTasks {
-		if obj.isFolder {
-			gotFolders = append(gotFolders, *obj)
-		} else {
-			gotFiles = append(gotFiles, *obj)
+	// If no custom properties were determined, the function returns with an empty result
+	if customFileProps.Properties == nil {
+		return []string{}, nil
+	}
+
+	// Create a string slice with all properties mapped to their values
+	var customPropsResult []string
+	for _, prop := range customFileProps.Properties {
+		customPropsResult = append(customPropsResult, fmt.Sprintf("%s: %s", prop.Name, prop.GetVal()))
+	}
+
+	// Return found properties
+	return customPropsResult, nil
+}
+
+// This function gets the properties specified in the Metadata (docProps/custom.xml) file of an OOXML-file
+// (Office Open XML). It checks the OOXML-properties by opening them as a zip file and reading the docProps/custom.xml
+func getOOXMLProperties(filepath string, logger utils.Logger) (*OOXMLProperties, error) {
+
+	//Open file as zip
+	readerZip, errOpen := zip.OpenReader(filepath)
+	if errOpen != nil {
+		if errOpen.Error() == "zip: not a valid zip file" { // this is not an error
+			return &OOXMLProperties{}, nil
+		}
+		return nil, errOpen
+	}
+	defer func() {
+		errClose := readerZip.Close()
+		if errClose != nil {
+			logger.Debugf("Could not close zip reader of '%s': %s", filepath, errClose)
+		}
+	}()
+
+	// Get the docProps/custom.xml file
+	var customPropsXML *zip.File
+	for i := range readerZip.File {
+		if readerZip.File[i].Name == OOXMLCustomPropertiesFile {
+			customPropsXML = readerZip.File[i]
+			break
 		}
 	}
-	return procRes.data, procRes.newTasks, len(gotFolders), len(gotFiles)
+
+	// Return if file with custom properties was not found, this is not an error, not all files have custom properties
+	if customPropsXML == nil {
+		return &OOXMLProperties{}, nil
+	}
+
+	// Get reader for docProps/custom.xml
+	customPropsReader, errOpenProps := customPropsXML.Open()
+	if errOpenProps != nil {
+		return nil, fmt.Errorf("could not open '%s': %s", OOXMLCustomPropertiesFile, errOpenProps)
+	}
+	defer func() {
+		errPropReaderClose := customPropsReader.Close()
+		if errPropReaderClose != nil {
+			logger.Debugf("Could not close file reader for '%s' of '%s': %s",
+				OOXMLCustomPropertiesFile, filepath, errPropReaderClose)
+		}
+	}()
+
+	// Get all content of the docProps/custom.xml file
+	buf := &bytes.Buffer{}
+	_, errCopy := io.Copy(buf, customPropsReader)
+	if errCopy != nil {
+		return nil, fmt.Errorf("could not get content of '%s': %s", customPropsXML.Name, errCopy)
+	}
+
+	// Unmarshal XML content of the docProps/custom.xml file
+	var customProps OOXMLProperties
+	errUnmarshal := xml.Unmarshal(buf.Bytes(), &customProps)
+	if errUnmarshal != nil {
+		return nil, fmt.Errorf("could not Unmarshal %s: %s", OOXMLCustomPropertiesFile, errUnmarshal)
+	}
+
+	// Return struct with extracted properties
+	return &customProps, nil
+}
+
+// GetVal checks which tag was used for the property and returns its value as string
+func (p *OOXMLProperty) GetVal() string {
+	if p.ValStr != nil {
+		return *p.ValStr
+	}
+	if p.ValInt != nil {
+		return *p.ValInt
+	}
+	if p.ValDate != nil {
+		return *p.ValDate
+	}
+	if p.ValBool != nil {
+		return *p.ValBool
+	}
+	if p.ValFloat != nil {
+		return *p.ValFloat
+	}
+	return ""
 }
