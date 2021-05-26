@@ -65,7 +65,10 @@ func AppendUnique(slice []string, elements ...string) []string {
 func TrimToLower(slice []string) []string {
 	var trimmedLowerSlice []string
 	for _, item := range slice {
-		trimmedLowerSlice = append(trimmedLowerSlice, strings.ToLower(strings.TrimSpace(item)))
+		item = strings.TrimSpace(item)
+		item = strings.Trim(item, ".") // Remove . of DNS domain names
+		item = strings.ToLower(item)
+		trimmedLowerSlice = append(trimmedLowerSlice, item)
 	}
 	return trimmedLowerSlice
 }
