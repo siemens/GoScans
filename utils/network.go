@@ -16,7 +16,7 @@ import (
 	"strings"
 )
 
-// Resolves a given DNS name and checks whether the result matches the expected IP address.
+// ResolvesToIp resolves a given DNS name and checks whether the result matches the expected IP address.
 func ResolvesToIp(hostname string, expectedIp string) bool {
 
 	// Return false if expected IP is invalid

@@ -112,7 +112,7 @@ func Map(slice []string, fn func(string) string) []string {
 	return alteredElements
 }
 
-// Checks whether a given (exactly) value is contained within one or multiple given slices
+// StrContained checks whether a given (exact) value is contained within one or multiple given slices
 func StrContained(candidate string, slices ...[]string) bool {
 
 	// Translate strings into map for faster lookups

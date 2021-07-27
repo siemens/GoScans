@@ -71,7 +71,7 @@ func (l *TestLogger) Errorf(format string, v ...interface{}) {
 	l.Printf(format+"\n", v...)
 }
 
-// Returns a new standard golang logger compliant with the Logger interface
+// NewTestLogger returns a new standard golang logger compliant with the Logger interface
 func NewTestLogger() *TestLogger {
 	stdLogger := log.New(os.Stdout, "", log.LstdFlags)
 	return &TestLogger{

@@ -148,7 +148,7 @@ func TestNewScanner(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewScanner(tt.args.logger, tt.args.target, tt.args.nmap, tt.args.nmapParameters, tt.args.nmapVersionAll, tt.args.nmapBlacklist, tt.args.nmapBlacklistFile, []string{}, tt.args.ldapServer, tt.args.ldapDomain, tt.args.ldapUser, tt.args.ldapPassword, dialTimeout)
+			_, err := NewScanner(tt.args.logger, []string{tt.args.target}, tt.args.nmap, tt.args.nmapParameters, tt.args.nmapVersionAll, tt.args.nmapBlacklist, tt.args.nmapBlacklistFile, []string{}, tt.args.ldapServer, tt.args.ldapDomain, tt.args.ldapUser, tt.args.ldapPassword, dialTimeout)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewScanner() error = '%v', wantErr = '%v'", err, tt.wantErr)
 				return

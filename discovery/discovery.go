@@ -140,7 +140,7 @@ type Scanner struct {
 	Started           time.Time
 	Finished          time.Time
 	logger            utils.Logger  // Can be any logger implementing our minimalistic interface. Wrap your logger to satisfy the interface, if necessary (like utils.LoggerTest).
-	target            string        // Target to be scanned by Nmap (might be IPv4, IPv6, Hostname or range)
+	targetDescription string        // Target to be scanned by Nmap (might be IPv4, IPv6, Hostname or range)
 	domainOrder       []string      // List of potential (sub) domains, ordered by plausibility. This is used to chose the most likely discovered DNS name. E.g. allows to select domain.internal over domain.com.
 	nmapPath          string        // Path to the Nmap executable
 	nmapParameters    []string      // List of Nmap scan arguments
@@ -154,7 +154,7 @@ type Scanner struct {
 
 func NewScanner(
 	logger utils.Logger, // Can be any logger implementing our minimalistic interface. Wrap your logger to satisfy the interface, if necessary (like utils.LoggerTest).
-	target string,
+	targets []string,
 	nmapPath string,
 	nmapArgs []string,
 	nmapVersionAll bool,
@@ -169,8 +169,10 @@ func NewScanner(
 ) (*Scanner, error) {
 
 	// Check whether input target is valid
-	if !utils.IsValidAddress(target) && !utils.IsValidIpRange(target) {
-		return nil, fmt.Errorf("invalid target '%s'", target)
+	for _, target := range targets {
+		if !utils.IsValidAddress(target) && !utils.IsValidIpRange(target) {
+			return nil, fmt.Errorf("invalid target '%s'", target)
+		}
 	}
 
 	// Check whether LDAP server is plausible
@@ -225,7 +227,7 @@ func NewScanner(
 	if len(nmapBlacklistFile) != 0 {
 		options = append(options, nmap.WithTargetExclusionInput(nmapBlacklistFile))
 	}
-	options = append(options, nmap.WithTargets(target))
+	options = append(options, nmap.WithTargets(targets...))
 
 	// Prepare Nmap scan to receive direct feedback in case of errors
 	proc, errNew := nmap.NewScanner(options...)
@@ -239,7 +241,7 @@ func NewScanner(
 		time.Time{}, // zero time
 		time.Time{}, // zero time
 		logger,
-		target,
+		strings.Join(targets, ", "),
 		domainOrder,
 		nmapPath,
 		nmapArgs,
@@ -286,7 +288,7 @@ func (s *Scanner) Run(timeout time.Duration) (res *Result) {
 	// Set scan started flag and calculate deadline
 	s.Started = time.Now()
 	s.deadline = time.Now().Add(timeout)
-	s.logger.Infof("Started  scan of %s.", s.target)
+	s.logger.Infof("Started  scan of %s.", s.targetDescription)
 
 	// Execute scan logic
 	res = s.execute()
@@ -294,7 +296,7 @@ func (s *Scanner) Run(timeout time.Duration) (res *Result) {
 	// Log scan completion message
 	s.Finished = time.Now()
 	duration := s.Finished.Sub(s.Started).Minutes()
-	s.logger.Infof("Finished scan of %s in %fm.", s.target, duration)
+	s.logger.Infof("Finished scan of %s in %fm.", s.targetDescription, duration)
 
 	// Return result set
 	return res
@@ -455,7 +457,7 @@ func (s *Scanner) execute() *Result {
 	}
 
 	// Log successful scan
-	s.logger.Debugf("Extracting results for '%s'.", s.target)
+	s.logger.Debugf("Extracting results for '%s'.", s.targetDescription)
 
 	// Prepare processing throttles and return channels
 	counterPostprocessing := 0 // Number of goroutines to be waited for
