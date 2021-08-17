@@ -165,7 +165,7 @@ func NewScanner(
 	ldapDomain string,
 	ldapUser string,
 	ldapPassword string,
-	dialTimeout time.Duration,
+	dialTimeout time.Duration, // Timeout for e.g. AD queries to enrich data (used AD fqdn might not exist)
 ) (*Scanner, error) {
 
 	// Check whether input target is valid
@@ -506,6 +506,13 @@ func (s *Scanner) execute() *Result {
 		// Concatenate host and port scripts
 		scripts := append(hostScripts, portScripts...)
 
+		// If Nmap host discovery is disabled, all hosts are shown as "up", but we don't want to bloat our
+		// Result database with ghost host entries.
+		if len(services) == 0 && len(scripts) == 0 {
+			s.logger.Debugf("Ignoring unused network address '%s'.", ip)
+			continue
+		}
+
 		// Merge discovered hostnames
 		s.logger.Debugf("Merging discovered hostnames of '%s'.", ip)
 		hostnames = append(hostnames, hostnamesServices...)
@@ -547,17 +554,9 @@ func (s *Scanner) execute() *Result {
 			chDoneDns,
 		)
 
-		if len(services) == 0 && len(scripts) == 0 {
-
-			// If Nmap host discovery is disabled, all hosts are shown as "up", but we don't want to bloat our
-			// Result database with ghost host entries.
-			s.logger.Debugf("Ignoring unused network address '%s'.", ip)
-		} else {
-
-			// Add reference of host struct to results. The actual host struct may be altered subsequently by previously
-			// launched goroutines
-			results = append(results, &hData)
-		}
+		// Add reference of host struct to results. The actual host struct may be altered subsequently by previously
+		// launched goroutines
+		results = append(results, &hData)
 	}
 
 	// Continue postprocessing and wait for completion
