@@ -380,6 +380,9 @@ func (s *Scanner) execute() *Result {
 		// Check for errors
 		if errSslyze != nil {
 
+			// Release the resources associated with the context, if the timeout was not reached yet.
+			cancel()
+
 			// Check if the scan timed out
 			if errSslyze.Error() == "SSLyze scan timed out" {
 				s.logger.Debugf("SSLyze scan timout reached during SNI '%s'", target, errSslyze)
@@ -398,11 +401,20 @@ func (s *Scanner) execute() *Result {
 		// Parse the (raw) SSLyze scan result into our structs.
 		parsedData := parseSslyzeResult(s.logger, target, scanResult)
 
-		// Check if we already found the same result for a different vhost.
-		if !isDuplicate(result.Data, parsedData) {
-			result.Data = append(result.Data, parsedData)
+		// Check if the scan returned something at all and drop empty results
+		if len(parsedData.Ciphers) == 0 || len(parsedData.CertDeployments) == 0 {
+			s.logger.Debugf("Skipping empty result.")
+			continue
 		}
 
+		// Check if we already found the same result for a different vhost.
+		if isDuplicate(result.Data, parsedData) {
+			s.logger.Debugf("Skipping duplicate result.") // Different vhost same result
+			continue
+		}
+
+		// Append result
+		result.Data = append(result.Data, parsedData)
 	}
 
 	// Return pointer to result struct
