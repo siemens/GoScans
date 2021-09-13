@@ -24,7 +24,7 @@ import (
 
 const Label = "Webenum"
 const fingerprintBodySimilarity = 10
-const dummyUri = "testnotexistinguri.req"
+const dummyUri = "notexistingdummyuri.req"
 
 // Setup configures the environment accordingly, if the scan module has some special requirements. A successful setup
 // is required before a scan can be started.
@@ -258,9 +258,11 @@ func (s *Scanner) execute() *Result {
 			utils.ClientFactory,
 		)
 
+		// Prepare dummy request
+		currentRequestUrl.Path = dummyUri
+
 		// Send dummy request
 		s.logger.Debugf("Sending dummy request.")
-		currentRequestUrl.Path = dummyUri
 		dummyResp, _, _, errDummy := vhostReq.Get(currentRequestUrl.String(), currentVhost)
 		if errDummy != nil {
 			s.logger.Debugf("Endpoint not reachable, aborting scan.")
@@ -274,12 +276,42 @@ func (s *Scanner) execute() *Result {
 		// Read dummy request's body
 		dummyHtmlBytes, _, errDummyHtml := utils.ReadBody(dummyResp)
 		if errDummyHtml != nil {
-			s.logger.Infof("Could not read response body: %s", errDummyHtml)
+			s.logger.Debugf("Could not read response body: %s", errDummyHtml)
 			dummyHtmlBytes = []byte{}
 		}
 
 		// Close body reader. Needs to happen now, cannot be done with defer statement!
 		_ = dummyResp.Body.Close()
+
+		// Check for wrong HTTP protocol, sometimes SSL endpoints accept HTTP requests but return an error indicator
+		if utils.HttpsIndicated(dummyResp, dummyHtmlBytes) {
+
+			// Switch to HTTPS
+			s.logger.Debugf("Switching from HTTP to HTTPS due to response indicator.")
+			currentRequestUrl.Scheme = "https"
+
+			// Retry dummy request with https
+			s.logger.Debugf("Sending dummy request (https).")
+			dummyResp, _, _, errDummy = vhostReq.Get(currentRequestUrl.String(), currentVhost)
+			if errDummy != nil {
+				s.logger.Debugf("HTTPs endpoint not reachable, aborting scan.")
+				return &Result{
+					results,
+					utils.StatusNotReachable,
+					false,
+				}
+			}
+
+			// Read https dummy request's body
+			dummyHtmlBytes, _, errDummyHtml = utils.ReadBody(dummyResp)
+			if errDummyHtml != nil {
+				s.logger.Debugf("Could not read response body (https): %s", errDummyHtml)
+				dummyHtmlBytes = []byte{}
+			}
+
+			// Close https body reader. Needs to happen now, cannot be done with defer statement!
+			_ = dummyResp.Body.Close()
+		}
 
 		// Create fingerprint of website from dummy response
 		fingerprint := utils.NewHttpFingerprint(
@@ -305,12 +337,6 @@ func (s *Scanner) execute() *Result {
 				utils.StatusProxyError,
 				false,
 			}
-		}
-
-		// Check for wrong HTTP protocol, sometimes SSL endpoints accept HTTP requests but return an error indicator
-		if utils.HttpsIndicated(dummyResp, dummyHtmlBytes) {
-			s.logger.Debugf("Switching from HTTP to HTTPS due to response indicator.")
-			currentRequestUrl.Scheme = "https"
 		}
 
 		// Validate if dummy request returned 200 OK

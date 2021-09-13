@@ -319,6 +319,7 @@ func (s *Scanner) execute() *Result {
 	var vHostsRemaining = vHosts
 	var vHostsCompleted []string
 	for len(vHostsRemaining) > 0 {
+
 		// Prepare loop cycle
 		currentVhost := vHostsRemaining[0]
 		currentRequestUrl.Path = ""
@@ -355,13 +356,44 @@ func (s *Scanner) execute() *Result {
 		// Read test request's body
 		testHtmlBytes, _, errTestHtml := utils.ReadBody(testResp)
 		if errTestHtml != nil {
+			s.logger.Debugf("Could not read response body: %s", errTestHtml)
 			testHtmlBytes = []byte{}
 		}
 
 		// Close body reader. Needs to happen now, cannot be done with defer statement!
 		_ = testResp.Body.Close()
 
-		// Create fingerprint of website from dummy response
+		// Check for wrong HTTP protocol, sometimes SSL endpoints accept HTTP requests but return an error indicator
+		if utils.HttpsIndicated(testResp, testHtmlBytes) {
+
+			// Switch to HTTPS
+			s.logger.Debugf("Switching from HTTP to HTTPS due to response indicator.")
+			currentRequestUrl.Scheme = "https"
+
+			// Send test request (https)
+			s.logger.Debugf("Sending test request (https).")
+			testResp, _, _, errTest = vhostReq.Get(currentRequestUrl.String(), currentVhost)
+			if errTest != nil {
+				s.logger.Debugf("HTTPs endpoint not reachable, aborting scan.")
+				return &Result{
+					results,
+					utils.StatusNotReachable,
+					false,
+				}
+			}
+
+			// Read https test request's body
+			testHtmlBytes, _, errTestHtml = utils.ReadBody(testResp)
+			if errTestHtml != nil {
+				s.logger.Debugf("Could not read response body (https): %s", errTestHtml)
+				testHtmlBytes = []byte{}
+			}
+
+			// Close https body reader. Needs to happen now, cannot be done with defer statement!
+			_ = testResp.Body.Close()
+		}
+
+		// Create fingerprint of website from test response
 		fingerprint := utils.NewHttpFingerprint(
 			testResp.Request.URL.String(),
 			testResp.StatusCode,
@@ -389,12 +421,6 @@ func (s *Scanner) execute() *Result {
 				utils.StatusProxyError,
 				false,
 			}
-		}
-
-		// Check for wrong HTTP protocol, sometimes SSL endpoints accept HTTP requests but return an error indicator
-		if utils.HttpsIndicated(testResp, testHtmlBytes) {
-			s.logger.Debugf("Switching from HTTP to HTTPS due to response indicator.")
-			currentRequestUrl.Scheme = "https"
 		}
 
 		// Initiate web crawler for vhost

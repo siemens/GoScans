@@ -457,6 +457,7 @@ func ExtractHtmlTitle(body []byte) string {
 // web servers that allow HTTP connections to HTTPS ports, but indicate an error.
 func HttpsIndicated(resp *http.Response, respBody []byte) bool {
 	if resp.Request.URL.Scheme == "http" {
+
 		// Common byte sequence indicating wrong HTTP protocol
 		if bytes.HasPrefix(respBody, []byte{21, 3}) {
 			return true
