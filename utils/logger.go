@@ -39,16 +39,16 @@ func NewTaggedLogger(logger Logger, tag string) *TaggedLogger {
 	}
 }
 func (l *TaggedLogger) Debugf(format string, v ...interface{}) {
-	l.Logger.Debugf("["+l.tag+"]"+format, v)
+	l.Logger.Debugf("["+l.tag+"]"+format, v...)
 }
 func (l *TaggedLogger) Infof(format string, v ...interface{}) {
-	l.Logger.Infof("["+l.tag+"]"+format, v)
+	l.Logger.Infof("["+l.tag+"]"+format, v...)
 }
 func (l *TaggedLogger) Warningf(format string, v ...interface{}) {
-	l.Logger.Warningf("["+l.tag+"]"+format, v)
+	l.Logger.Warningf("["+l.tag+"]"+format, v...)
 }
 func (l *TaggedLogger) Errorf(format string, v ...interface{}) {
-	l.Logger.Errorf("["+l.tag+"]"+format, v)
+	l.Logger.Errorf("["+l.tag+"]"+format, v...)
 }
 
 // TestLogger wraps the default golang logger and extends it with the functions required to implement the

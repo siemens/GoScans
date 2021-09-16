@@ -394,6 +394,12 @@ func (s *Scanner) execute() *Result {
 		// Check whether same response was previously seen with other vhost
 		if seenWith := s.vhostResponseKnown(currentVhost, testResp, testHtmlBytes); seenWith != "" {
 			s.logger.Debugf("Skipping vhost '%s', because response is similar to vhost '%s'.", currentVhost, seenWith)
+
+			// Move first item from remaining (current vhost) to completed
+			vHostsRemaining = vHostsRemaining[1:]
+			vHostsCompleted = append(vHostsCompleted, currentVhost)
+
+			// Proceed with next vhost
 			continue
 		}
 
