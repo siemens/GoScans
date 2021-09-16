@@ -13,6 +13,7 @@ package webcrawler
 import (
 	"fmt"
 	"go-scans/utils"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -21,7 +22,8 @@ import (
 )
 
 const Label = "Webcrawler"
-const fingerprintBodySimilarity = 10
+const fingerprintBodySimilarity = 200
+
 const dlFileName = "download_urls.csv"
 const dlFileHeader = "Date;URL;Required Host Header"
 const timestampFormat = "2006-01-02 15:04:05.123 -0700"
@@ -85,7 +87,9 @@ type Scanner struct {
 	downloadTypes  []string
 	deadline       time.Time // Time when the scanner has to abort
 	requestTimeout time.Duration
-	running        bool // follow/download response content types can only be updated until running
+
+	running           bool                              // follow/download response content types can only be updated until running
+	knownFingerprints map[string]*utils.HttpFingerprint // Fingerprints are used to detect redundant responses with different vhosts
 }
 
 func NewScanner(
@@ -180,6 +184,7 @@ func NewScanner(
 		time.Time{}, // zero time (no deadline yet set)
 		requestTimeout,
 		false,
+		make(map[string]*utils.HttpFingerprint),
 	}
 
 	// Return scan struct
@@ -311,21 +316,22 @@ func (s *Scanner) execute() *Result {
 	// Add current target address as the first vhost be used
 	vHosts := append([]string{s.target}, s.vhosts...)
 
-	// Prepare storage of fingerprints. Fingerprints are used to detect redundant responses with different vhosts
-	knownFingerprints := make(map[string]*utils.HttpFingerprint)
+	// Prepare memory for remaining and completed vhosts
+	var vHostsRemaining = vHosts
+	var vHostsCompleted []string
 
 	// Execute scan with all vhosts. Iterate while there is something in vHosts, because the slice might shrink or
 	// expand during processing.
-	var vHostsRemaining = vHosts
-	var vHostsCompleted []string
 	for len(vHostsRemaining) > 0 {
 
-		// Prepare loop cycle
-		currentVhost := vHostsRemaining[0]
+		// Reset loop data
 		currentRequestUrl.Path = ""
 
+		// Select vhost for loop cycle
+		currentVhost := vHostsRemaining[0]
+
 		// Log cycle
-		s.logger.Debugf("Crawling '%s' (vhost '%s').", currentRequestUrl.String(), currentVhost)
+		s.logger.Debugf("Crawling '%s' with vhost '%s'.", currentRequestUrl.String(), currentVhost)
 
 		// Prepare requester for this vhost. As this requester will only send a single test request, we can directly
 		// set the operation mode to "reuse none", so no data or connection will be kept alive.
@@ -341,8 +347,9 @@ func (s *Scanner) execute() *Result {
 			utils.ClientFactory,
 		)
 
+	Start:
 		// Send test request
-		s.logger.Debugf("Sending test request.")
+		s.logger.Debugf("Sending test request (%s).", currentRequestUrl.Scheme)
 		testResp, _, _, errTest := vhostReq.Get(currentRequestUrl.String(), currentVhost)
 		if errTest != nil {
 			s.logger.Debugf("Endpoint not reachable, aborting scan.")
@@ -370,47 +377,8 @@ func (s *Scanner) execute() *Result {
 			s.logger.Debugf("Switching from HTTP to HTTPS due to response indicator.")
 			currentRequestUrl.Scheme = "https"
 
-			// Send test request (https)
-			s.logger.Debugf("Sending test request (https).")
-			testResp, _, _, errTest = vhostReq.Get(currentRequestUrl.String(), currentVhost)
-			if errTest != nil {
-				s.logger.Debugf("HTTPs endpoint not reachable, aborting scan.")
-				return &Result{
-					results,
-					utils.StatusNotReachable,
-					false,
-				}
-			}
-
-			// Read https test request's body
-			testHtmlBytes, _, errTestHtml = utils.ReadBody(testResp)
-			if errTestHtml != nil {
-				s.logger.Debugf("Could not read response body (https): %s", errTestHtml)
-				testHtmlBytes = []byte{}
-			}
-
-			// Close https body reader. Needs to happen now, cannot be done with defer statement!
-			_ = testResp.Body.Close()
-		}
-
-		// Create fingerprint of website from test response
-		fingerprint := utils.NewHttpFingerprint(
-			testResp.Request.URL.String(),
-			testResp.StatusCode,
-			utils.ExtractHtmlTitle(testHtmlBytes),
-			string(testHtmlBytes),
-		)
-
-		// Evaluate fingerprint, whether it was previously seen
-		if known, seenWith := utils.HttpFingerprintKnown(knownFingerprints, fingerprint, fingerprintBodySimilarity); known {
-			s.logger.Debugf("Same response as with vhost '%s', skipping '%s'.", seenWith, currentVhost)
-
-			// Move first item from remaining (current vhost) to completed
-			vHostsRemaining = vHostsRemaining[1:]
-			vHostsCompleted = append(vHostsCompleted, currentVhost)
-			continue
-		} else {
-			knownFingerprints[currentVhost] = fingerprint
+			// Send test request again
+			goto Start
 		}
 
 		// Check for proxy error
@@ -421,6 +389,12 @@ func (s *Scanner) execute() *Result {
 				utils.StatusProxyError,
 				false,
 			}
+		}
+
+		// Check whether same response was previously seen with other vhost
+		if seenWith := s.vhostResponseKnown(currentVhost, testResp, testHtmlBytes); seenWith != "" {
+			s.logger.Debugf("Skipping vhost '%s', because response is similar to vhost '%s'.", currentVhost, seenWith)
+			continue
 		}
 
 		// Initiate web crawler for vhost
@@ -528,6 +502,33 @@ func (s *Scanner) execute() *Result {
 		utils.StatusCompleted,
 		false,
 	}
+}
+
+// vhostResponseKnown checks whether a given vhost response was already seen with a previous vhost. Returns the
+// previous vhost, or an empty string if a response is new.
+func (s *Scanner) vhostResponseKnown(vhost string, resp *http.Response, respBody []byte) string {
+
+	// Create fingerprint of HTTP response
+	fingerprint := utils.NewHttpFingerprint(
+		resp.Request.URL.String(),
+		resp.StatusCode,
+		utils.ExtractHtmlTitle(respBody),
+		string(respBody),
+	)
+
+	// Compare if similar fingerprint was already observed
+	seenWith, known := fingerprint.KnownIn(s.knownFingerprints, fingerprintBodySimilarity)
+
+	// Return true if so
+	if known {
+		return seenWith
+	}
+
+	// If fingerprint is new, add it to memory
+	s.knownFingerprints[vhost] = fingerprint
+
+	// Return false as fingerprint is new
+	return ""
 }
 
 func prepareHrefsFile(filePath string, header string) error {

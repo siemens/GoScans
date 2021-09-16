@@ -294,7 +294,7 @@ func TestHttpFingerprint_String(t *testing.T) {
 	}
 }
 
-func TestFingerprintKnown(t *testing.T) {
+func TestHttpFingerprint_KnownIn(t *testing.T) {
 	fps := map[string]*HttpFingerprint{
 		"vname1": {RespUrl: "https://sub.domain.tld", ResponseCode: 200, HtmlTitle: "Title", HtmlLen: 100},
 		"vname2": {RespUrl: "https://sub.domain.tld", ResponseCode: 200, HtmlTitle: "Title", HtmlLen: 2000},
@@ -323,12 +323,12 @@ func TestFingerprintKnown(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, got1 := HttpFingerprintKnown(tt.args.fingerprints, tt.args.fingerprint, tt.args.lenThreshold)
-			if got != tt.wantKnown {
-				t.Errorf("HttpFingerprintKnown() = '%v', want = '%v'", got, tt.wantKnown)
+			got, got1 := tt.args.fingerprint.KnownIn(tt.args.fingerprints, tt.args.lenThreshold)
+			if got1 != tt.wantKnown {
+				t.Errorf("TestHttpFingerprint_KnownIn() = '%v', want = '%v'", got, tt.wantKnown)
 			}
-			if got1 != tt.want1 {
-				t.Errorf("HttpFingerprintKnown() got1 = '%v', want = '%v'", got1, tt.want1)
+			if got != tt.want1 {
+				t.Errorf("TestHttpFingerprint_KnownIn() got1 = '%v', want = '%v'", got1, tt.want1)
 			}
 		})
 	}

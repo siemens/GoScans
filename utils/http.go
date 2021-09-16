@@ -83,9 +83,9 @@ type Requester struct {
 	cFactory func(transport *http.Transport, timeout time.Duration) *http.Client
 }
 
-// Returns a reusable and thread safe HTTP requester, which can automatically take care of reusing or resetting the
-// underlying HTTP client/transport. Furthermore, the requester will automatically take care of NTLM authentication
-// if required.
+// NewRequester returns a reusable and thread safe HTTP requester, which can automatically take care of reusing or
+// resetting the underlying HTTP client/transport. Furthermore, the requester will automatically take care of NTLM
+// authentication if required.
 func NewRequester(
 	reuseMode int,
 	userAgent string,
@@ -316,7 +316,7 @@ func (r *Requester) yieldClient() *http.Client {
 		return client
 	}
 
-	// By default return fresh client with fresh transport (r.reuseMode == ReuseNone || invalid mode int)
+	// By default, return fresh client with fresh transport (r.reuseMode == ReuseNone || invalid mode int)
 	// Prepare fresh transport
 	transport := r.generateFreshTransport()
 
@@ -665,19 +665,14 @@ func (f *HttpFingerprint) String() string {
 	return f.RespUrl + "|" + strconv.Itoa(f.ResponseCode) + "|" + f.HtmlTitle + "|~" + strconv.Itoa(f.HtmlLen)
 }
 
-// HttpFingerprintKnown allows to match a new fingerprint against a list of fingerprints to find out whether it is
-// already known
-func HttpFingerprintKnown(
-	knownFingerprints map[string]*HttpFingerprint,
-	newFingerprint *HttpFingerprint,
-	lengthVariability int,
-) (bool, string) {
+// KnownIn checks whether the fingerprint is already part of a list of fingerprints
+func (f *HttpFingerprint) KnownIn(knownFingerprints map[string]*HttpFingerprint, lengthVariability int) (string, bool) {
 	for k, v := range knownFingerprints {
-		if v.Similar(newFingerprint, lengthVariability) {
-			return true, k
+		if v.Similar(f, lengthVariability) {
+			return k, true
 		}
 	}
-	return false, ""
+	return "", false
 }
 
 // ReadBody detects the response's content encoding and returns accordingly decoded response body bytes. The response

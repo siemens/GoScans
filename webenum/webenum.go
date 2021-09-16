@@ -23,8 +23,10 @@ import (
 )
 
 const Label = "Webenum"
-const fingerprintBodySimilarity = 10
-const dummyUri = "notexistingdummyuri.req"
+const fingerprintBodySimilarity = 200
+
+// Test URIs to test for to find out whether the server is reacting to anything and additional pattern matching is required
+var testUris = []string{"notexistingdummyuri.html", "notexistingdummyuri/"}
 
 // Setup configures the environment accordingly, if the scan module has some special requirements. A successful setup
 // is required before a scan can be started.
@@ -87,6 +89,8 @@ type Scanner struct {
 	proxy          *url.URL
 	deadline       time.Time // Time when the scanner has to abort
 	requestTimeout time.Duration
+
+	knownFingerprints map[string]*utils.HttpFingerprint // Fingerprints are used to detect redundant responses with different vhosts
 }
 
 func NewScanner(
@@ -167,6 +171,7 @@ func NewScanner(
 		proxyUrl,
 		time.Time{}, // zero time (no deadline yet set)
 		requestTimeout,
+		make(map[string]*utils.HttpFingerprint),
 	}
 
 	// Return scan struct
@@ -231,20 +236,17 @@ func (s *Scanner) execute() *Result {
 	// Add current target address as the first vhost be used
 	vHosts := append([]string{s.target}, s.vhosts...)
 
-	// Prepare storage of fingerprints. Fingerprints are used to detect redundant responses with different vhosts
-	knownFingerprints := make(map[string]*utils.HttpFingerprint)
-
 	// Execute scan with all vhosts
 	for i, currentVhost := range vHosts {
 
-		// Prepare loop cycle
+		// Reset loop data
 		currentRequestUrl.Path = ""
 
 		// Log step
 		s.logger.Debugf("Enumerating with vhost '%s'.", currentVhost)
 
 		// Prepare requester for crawling this vhost. Use a fresh client for each request but reuse the transport.
-		// Reusing a transport layer allows to keep connection states alive and to reuse them. We do NOT want to use
+		// Reusing a transport layer allows keeping connection states alive and to reuse them. We do NOT want to use
 		// cached application data (e.g. cookies), so we will just reuse the transport layer, not the client layer.
 		vhostReq := utils.NewRequester(
 			utils.ReuseTransport,
@@ -258,43 +260,29 @@ func (s *Scanner) execute() *Result {
 			utils.ClientFactory,
 		)
 
-		// Prepare dummy request
-		currentRequestUrl.Path = dummyUri
+		// Prepare flag whether web server is always responding 200 OK
+		testIs200 := false
 
-		// Send dummy request
-		s.logger.Debugf("Sending dummy request.")
-		dummyResp, _, _, errDummy := vhostReq.Get(currentRequestUrl.String(), currentVhost)
-		if errDummy != nil {
-			s.logger.Debugf("Endpoint not reachable, aborting scan.")
-			return &Result{
-				results,
-				utils.StatusNotReachable,
-				false,
-			}
-		}
+		// Prepare memory for last test response data, will be used later to fingerprint vhost response
+		var testHtmlBytes []byte
+		var testResp *http.Response
 
-		// Read dummy request's body
-		dummyHtmlBytes, _, errDummyHtml := utils.ReadBody(dummyResp)
-		if errDummyHtml != nil {
-			s.logger.Debugf("Could not read response body: %s", errDummyHtml)
-			dummyHtmlBytes = []byte{}
-		}
+		// Detect whether website is responding to any URI with 200 OK
+		for _, testUri := range testUris {
 
-		// Close body reader. Needs to happen now, cannot be done with defer statement!
-		_ = dummyResp.Body.Close()
+		Start:
+			// Prepare request
+			currentRequestUrl.Path = testUri
 
-		// Check for wrong HTTP protocol, sometimes SSL endpoints accept HTTP requests but return an error indicator
-		if utils.HttpsIndicated(dummyResp, dummyHtmlBytes) {
+			// Prepare error variables
+			var errTest error
+			var errTestHtml error
 
-			// Switch to HTTPS
-			s.logger.Debugf("Switching from HTTP to HTTPS due to response indicator.")
-			currentRequestUrl.Scheme = "https"
-
-			// Retry dummy request with https
-			s.logger.Debugf("Sending dummy request (https).")
-			dummyResp, _, _, errDummy = vhostReq.Get(currentRequestUrl.String(), currentVhost)
-			if errDummy != nil {
-				s.logger.Debugf("HTTPs endpoint not reachable, aborting scan.")
+			// Send test request
+			s.logger.Debugf("Sending test request '%s' (%s).", testUri, currentRequestUrl.Scheme)
+			testResp, _, _, errTest = vhostReq.Get(currentRequestUrl.String(), currentVhost)
+			if errTest != nil {
+				s.logger.Debugf("Endpoint not reachable, aborting scan.")
 				return &Result{
 					results,
 					utils.StatusNotReachable,
@@ -302,48 +290,49 @@ func (s *Scanner) execute() *Result {
 				}
 			}
 
-			// Read https dummy request's body
-			dummyHtmlBytes, _, errDummyHtml = utils.ReadBody(dummyResp)
-			if errDummyHtml != nil {
-				s.logger.Debugf("Could not read response body (https): %s", errDummyHtml)
-				dummyHtmlBytes = []byte{}
+			// Read test request's body
+			testHtmlBytes, _, errTestHtml = utils.ReadBody(testResp)
+			if errTestHtml != nil {
+				s.logger.Debugf("Could not read response body: %s", errTestHtml)
+				testHtmlBytes = []byte{}
 			}
 
-			// Close https body reader. Needs to happen now, cannot be done with defer statement!
-			_ = dummyResp.Body.Close()
+			// Close body reader. Needs to happen now, cannot be done with defer statement!
+			_ = testResp.Body.Close()
+
+			// Check for wrong HTTP protocol, sometimes SSL endpoints accept HTTP requests but return an error indicator
+			if utils.HttpsIndicated(testResp, testHtmlBytes) {
+
+				// Switch to HTTPS
+				s.logger.Debugf("Switching from HTTP to HTTPS due to response indicator.")
+				currentRequestUrl.Scheme = "https"
+
+				// Send test request again
+				goto Start
+			}
+
+			// Check for proxy error
+			if s.proxy != nil && testResp.StatusCode == 502 {
+				s.logger.Debugf("Sending request via proxy failed.")
+				return &Result{
+					results,
+					utils.StatusProxyError,
+					false,
+				}
+			}
+
+			// Check if test request returned 200 OK
+			if testResp.StatusCode == 200 {
+				s.logger.Debugf("Target always responds 200 OK.")
+				testIs200 = true
+				break
+			}
 		}
 
-		// Create fingerprint of website from dummy response
-		fingerprint := utils.NewHttpFingerprint(
-			dummyResp.Request.URL.String(),
-			dummyResp.StatusCode,
-			utils.ExtractHtmlTitle(dummyHtmlBytes),
-			string(dummyHtmlBytes),
-		)
-
-		// Evaluate fingerprint, whether it was previously seen
-		if known, seenWith := utils.HttpFingerprintKnown(knownFingerprints, fingerprint, fingerprintBodySimilarity); known {
-			s.logger.Debugf("Same response as with vhost '%s', skipping '%s'.", seenWith, currentVhost)
+		// Check whether same response was previously seen with other vhost
+		if seenWith := s.vhostResponseKnown(currentVhost, testResp, testHtmlBytes); seenWith != "" {
+			s.logger.Debugf("Skipping vhost '%s', because response is similar to vhost '%s'.", currentVhost, seenWith)
 			continue
-		} else {
-			knownFingerprints[currentVhost] = fingerprint
-		}
-
-		// Check for proxy error
-		if s.proxy != nil && dummyResp.StatusCode == 502 {
-			s.logger.Debugf("Sending request via proxy failed.")
-			return &Result{
-				results,
-				utils.StatusProxyError,
-				false,
-			}
-		}
-
-		// Validate if dummy request returned 200 OK
-		dummyIs200 := false
-		if dummyResp.StatusCode == 200 {
-			s.logger.Debugf("Target always responds 200 OK.")
-			dummyIs200 = true
 		}
 
 		// Discover additional probes reading robots.txt
@@ -388,7 +377,7 @@ func (s *Scanner) execute() *Result {
 			// Skip probe if it can't be validated. If host always responds with 200 OK, we cannot decide based on
 			// response status codes and need other measures, such as string matches. If no string matches are
 			// available, we cannot validate the response without causing a lot of false-positives.
-			if dummyIs200 && len(probe.Matches) == 0 {
+			if testIs200 && len(probe.Matches) == 0 {
 				continue
 			}
 
@@ -438,9 +427,9 @@ func (s *Scanner) execute() *Result {
 			}
 
 			// Validate probe response
-			if !dummyIs200 && (resp.StatusCode >= 200 && resp.StatusCode <= 399) {
+			if !testIs200 && (resp.StatusCode >= 200 && resp.StatusCode <= 399) {
 
-				// Decision can be based on status code as dummy request indicated working status codes
+				// Decision can be based on status code as test request indicated working status codes
 				s.logger.Debugf("Probe request succeeded by status code.")
 				results = append(results, &EnumItem{
 					Name:                probe.Name,
@@ -459,9 +448,9 @@ func (s *Scanner) execute() *Result {
 					HtmlTitle:           utils.ExtractHtmlTitle(htmlBytes),
 					HtmlContent:         htmlBytes,
 				})
-			} else if dummyIs200 && len(probe.Matches) > 0 {
+			} else if testIs200 && len(probe.Matches) > 0 {
 
-				// Decision must be based on string matches as dummy request did not indicate working status codes
+				// Decision must be based on string matches as test request did not indicate working status codes
 				for _, stringMatch := range probe.Matches {
 
 					// Check if string match is contained within HTML body
@@ -505,6 +494,33 @@ func (s *Scanner) execute() *Result {
 		utils.StatusCompleted,
 		false,
 	}
+}
+
+// vhostResponseKnown checks whether a given vhost response was already seen with a previous vhost. Returns the
+// previous vhost, or an empty string if a response is new.
+func (s *Scanner) vhostResponseKnown(vhost string, resp *http.Response, respBody []byte) string {
+
+	// Create fingerprint of HTTP response
+	fingerprint := utils.NewHttpFingerprint(
+		resp.Request.URL.String(),
+		resp.StatusCode,
+		utils.ExtractHtmlTitle(respBody),
+		string(respBody),
+	)
+
+	// Compare if similar fingerprint was already observed
+	seenWith, known := fingerprint.KnownIn(s.knownFingerprints, fingerprintBodySimilarity)
+
+	// Return true if so
+	if known {
+		return seenWith
+	}
+
+	// If fingerprint is new, add it to memory
+	s.knownFingerprints[vhost] = fingerprint
+
+	// Return false as fingerprint is new
+	return ""
 }
 
 func loadProbes(path string) ([]Probe, error) {
