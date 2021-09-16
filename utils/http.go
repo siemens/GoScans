@@ -165,6 +165,9 @@ func (r *Requester) Get(url_ string, vhost string) (resp *http.Response, redirec
 		return nil, redirects, auth, errNew
 	}
 
+	// Set initial vhost to use
+	vhostToUse := vhost
+
 	// Loop until all redirects are followed or the max redirects are reached
 	for {
 		// Close the previous response's body. But read at least some of the body so if it's small the underlying
@@ -183,10 +186,7 @@ func (r *Requester) Get(url_ string, vhost string) (resp *http.Response, redirec
 		// 	- On subsequent requests, we need to decide. The server might redirect to another site or try to redirect
 		// 	  to a correct vhost. Hence, on subsequent redirect requests, we (only) want to preserve the original host
 		// 	  header in case of a relative redirect. Otherwise, we take over the new hostname.
-		vhostToUse := ""
-		if redirects == 0 {
-			vhostToUse = vhost
-		} else {
+		if redirects > 0 {
 			if req.Host != req.URL.Host {
 				// If the caller specified a custom Host header and the redirect location is relative, preserve the
 				// Host header through the redirect. See issue #22233.
