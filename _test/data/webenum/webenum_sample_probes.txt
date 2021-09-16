@@ -1,0 +1,16 @@
+#
+# Web App|URL Path|Optional: String matches checked if host always responds with 200 OK (Multiple strings separated by pipe ("|"))
+#
+# [1]   Application Name   : First column is the name of the application to be found.
+# [2]   Application Path   : Second column is the path where the application is expected to be found.
+# [3-n] Application Strings: Subsequent columns are string matches. If the dummy URL returns 200 OK a string 
+#                            match is required to identify an application. If any of those matches is found 
+#                            at the URL, it is considered to be the application named in column 1. String 
+#                            matches are case insensitive
+#
+Apache default content|/icons/
+Git|/git/
+Git|/users/sign_in|href="https://about.gitlab.com/"|GitLab
+PhpMyAdmin|/php-myadmin/|
+PhpMyAdmin|/phpmyadmin/index.php|<input type="text" name="pma_username" id="input_username"|<label for="select_server">|function PMA_focusInput()
+Entitlement POST Form|/wahtever/|<input type="hidden" name="SAMLRequest"

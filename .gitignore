@@ -1,0 +1,13 @@
+# Goland (developer-specific stuff)
+.idea/workspace.xml
+
+# Unit test output
+_test/tmp/
+
+# Compiled executables
+_test/*.exe
+_test/*.bin
+
+# Log files, no matter where
+*.log
+*.log.*

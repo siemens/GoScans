@@ -1,0 +1,1565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+    <meta charset="utf-8">
+    <meta http-equiv="refresh" content="3; URL=http://www.google.de/">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>Service</title>
+
+    <link rel="stylesheet" href="/static/css/fonts.css">
+
+    <link rel="stylesheet" href="/static/css/bootstrap-3.3.6.min.css">
+    <link rel="stylesheet" href="/static/css/bootstrap-colors.css">
+
+    <link href="/admin/static/vendor/select2/select2.css?v=3.5.2" rel="stylesheet">
+    <link href="/admin/static/vendor/select2/select2-bootstrap3.css?v=1.4.6" rel="stylesheet">
+
+    <link rel="stylesheet" type="text/css" href="/static/css/dataTables.bootstrap.min.css"/>
+    <link rel="stylesheet" type="text/css" href="/static/css/dataTables.buttons.bootstrap.min.css"/>
+    <link rel="stylesheet" type="text/css" href="/static/css/dataTables.fixedColumns.bootstrap.min.css"/>
+
+
+    <style>
+        /* General styles */
+        html {
+            font-family: Roboto, Tahoma, Helvetica Neue, Helvetica, Arial, sans-serif;
+            -ms-text-size-adjust: 100%;
+            -webkit-text-size-adjust: 100%;
+            overflow-y: scroll;
+        }
+
+        body {
+            font-family: Roboto, Tahoma, Helvetica Neue, Helvetica, Arial, sans-serif;
+            font-size: 13px;
+            font-weight: 300;
+            line-height: 1.5;
+            color: #555555;
+            background-color: #ffffff;
+            padding-top: 20px;
+            margin: 0;
+        }
+
+        b, strong {
+            font-weight: 500;
+        }
+
+        label {
+            display: inline-block;
+            max-width: 100%;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+
+        h1, h2, h3, h4, h5, h6, h7 {
+            /* global spacing overrides */
+            margin-top: 0;
+        }
+
+
+        /* Layout element styles */
+        .header {
+            height: 100px;
+            position: fixed;
+            top: 0px;
+            right: 0px;
+            left: 0px;
+            overflow: hidden;
+            z-index: 1030;
+            background-image: linear-gradient(to bottom, #FFF 0px, #F8F8F8 100%);
+            background-repeat: repeat-x;
+            border-radius: 4px;
+            box-shadow: 0px 1px 0px rgba(255, 255, 255, 0.15) inset, 0px 1px 5px rgba(0, 0, 0, 0.075);
+            background-color: #F8F8F8;
+            border-color: #E7E7E7;
+            border-width: 0px 0px 1px;
+        / / Animation -webkit-transition: all 0.4 s ease-out;
+            transition: all 0.4s ease-out;
+            transition-delay: 0s;
+        }
+
+        .brand {
+            height: 100px;
+            width: 23%;
+            padding-top: 8px;
+            padding-left: 15px;
+            padding-right: 15px;
+        / / Animation -webkit-transition: all 0.4 s ease-out;
+            transition: all 0.4s ease-out;
+            transition-delay: 0s;
+        }
+
+        .container-content {
+            margin-top: 150px;
+        }
+
+        .navigation {
+            padding-bottom: 15px;
+        }
+
+        .headline {
+            height: 90px;
+            margin-bottom: 20px;
+        }
+
+        .headline_small {
+            height: 60px;
+        }
+
+        .content {
+            padding-top: 7px;
+            min-height: 400px;
+        }
+
+        .section {
+            margin-bottom: 50px;
+        }
+
+        .section_small {
+            width: 100%;
+            margin-bottom: 30px;
+        }
+
+        .section_terms {
+            width: 100%;
+            margin-bottom: 50px;
+            padding-left: 80px;
+            padding-right: 80px;
+            text-align: justify;
+        }
+
+        .canvas {
+            width: 33.1%;
+            display: inline-block;
+            vertical-align: top;
+        }
+
+        .footer {
+            min-height: 30px;
+            padding-top: 5px;
+            padding-bottom: 5px;
+            background-color: white;
+            position: fixed;
+            bottom: 0px;
+            left: 0px;
+            right: 0px;
+            margin-bottom: 0px;
+        }
+
+        .anchor {
+            display: block;
+            position: relative;
+            top: -90px;
+        }
+
+        .clear {
+            clear: both;
+        }
+
+        .blur {
+            color: rgba(0, 0, 0, 0.2);
+            text-shadow: 0 0 5px rgba(0, 0, 0, 0.95);
+        }
+
+
+        /* HTML styles */
+        .brand-subtitle {
+            font-size: 22px;
+            font-weight: 300;
+            float: right;
+        }
+
+        h2 {
+            font-weight: 300;
+        }
+
+        h6 {
+            margin-bottom: 5px;
+            font-weight: normal;
+            font-size: 85%;
+            color: #AEAEAE;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        h7 {
+            margin-bottom: 5px;
+            font-weight: normal;
+            font-size: 85%;
+            color: #BBBBBB;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .h6-spacer {
+            padding-top: 12px;
+        }
+
+        .nopadding-left {
+            padding: 0px;
+        }
+
+        .modal-content {
+            height: 90vh;
+            overflow: auto;
+        }
+
+        body.modal-open {
+            overflow: hidden;
+            position: fixed;
+            margin-left: 9px;
+            width: 100%;
+        }
+
+        .justify {
+            text-align: justify;
+        }
+
+
+        /* Bootstrap default setting overrides */
+        .nav > li {
+            line-height: 1;
+        }
+
+        /* Sizing and item wrap configuration for top menu bar */
+        .topnavbar > .nav > li {
+            line-height: 1.1;
+        }
+
+        .topnavbar > .navbar-nav > li > a {
+            height: 100px;
+            display: table-cell;
+            vertical-align: bottom;
+        / / Animation -webkit-transition: all 0.4 s ease-out;
+            transition: all 0.4s ease-out;
+            transition-delay: 0s;
+        }
+
+        .topnavbar > .nav, .topnavbar > navbar-nav, .topnavbar > .navbar {
+            float: left !important;
+        }
+
+        .topnavbar > .navbar-collapse.collapse {
+            display: block !important;
+        }
+
+        .topnavbar > .navbar-nav > li, .topnavbar > .navbar-nav {
+            float: left !important;
+            margin: 0px;
+        }
+
+        .topnavbar > .navbar-right {
+            float: right !important;
+        }
+
+        /* Screen size dependant settings */
+        @media (max-width: 767px) {
+            .affix {
+                position: static;
+            }
+        }
+
+        @media (min-width: 768px) {
+            .affix {
+                position: static;
+            }
+        }
+
+        @media (min-width: 992px) {
+            .affix {
+                position: fixed;
+                width: 210px;
+            }
+        }
+
+        @media (min-width: 1200px) {
+            .affix {
+                position: fixed;
+                width: 260px;
+            }
+        }
+
+        /* Styles for input boxes with included glyphicons */
+        .inner-addon {
+            position: relative;
+        }
+
+        .inner-addon .glyphicon {
+            position: absolute;
+            padding: 10px;
+            pointer-events: none;
+        }
+
+        .left-addon .glyphicon {
+            left: 0px;
+        }
+
+        .right-addon .glyphicon {
+            right: 0px;
+        }
+
+        .left-addon input, .left-addon textarea, .left-addon select {
+            padding-left: 30px;
+        }
+
+        .right-addon input, .right-addon textarea {
+            padding-right: 30px;
+        }
+
+        .nav > li > a {
+            font-size: 13px;
+            color: #337ab7;
+        }
+
+        .nav > li > a:focus {
+            color: #337ab7;
+        }
+
+        .nav > li > a:hover {
+            color: #23527c;
+        }
+
+        .dropdown-menu > .active > a, .dropdown-menu > .active > a:focus, .dropdown-menu > .active > a:hover {
+            background-color: #e7e7e7;
+            color: #555;
+        }
+
+        .nav > .active > a, .nav > .active > a:focus, .nav > .active > a:hover, .active > a, .active > a:focus, .active > a:hover {
+            background-color: #e7e7e7;
+            color: #337ab7;
+        }
+
+        .form-cluster {
+            border-radius: 4px;
+            border: 1px solid #ccc;
+            padding: 10px;
+            padding-bottom: 0px;
+        }
+
+        a[aria-expanded='true'] > .caret {
+            transform: rotate(180deg);
+        }
+
+        .form-control {
+            display: block;
+            width: 100%;
+            height: 34px;
+            padding: 6px 12px;
+            font-size: 13px;
+            line-height: 1.42857143;
+            color: #555;
+            background-color: #fff;
+            background-image: none;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            -webkit-box-shadow: inset 0 1px 1px rgba(0, 0, 0, .075);
+            box-shadow: None;
+            -webkit-transition: border-color ease-in-out .15s, -webkit-box-shadow ease-in-out .15s;
+            -o-transition: border-color ease-in-out .15s, box-shadow ease-in-out .15s;
+            transition: border-color ease-in-out .15s, box-shadow ease-in-out .15s
+        }
+
+        .heatmapButton {
+            display: block;
+            float: left;
+            height: 30px;
+            color: #565656;
+            cursor: pointer;
+            font-family: Roboto, Helvetica Neue, Helvetica, Arial, sans-serif;
+            font-size: 11px;
+            font-weight: 400;
+            background-color: white;
+            border: none;
+            border-right: 1px solid #eeeeee;
+            box-shadow: 0 0 4px 0 #cccccc, 0 0 0 0 rgba(31, 73, 125, 0.8), 0 0 0 0 rgba(31, 73, 125, 0.8), 0 0 0 0 rgba(31, 73, 125, 0.8);
+        }
+
+        .heatmapButton:hover {
+            background-color: #EBEBEB;
+        }
+
+        .spin {
+            -webkit-transform-origin: 50% 58%;
+            transform-origin: 50% 58%;
+            -ms-transform-origin: 50% 58%; /* IE 9 */
+            -webkit-animation: spin .8s infinite linear;
+            -moz-animation: spin .8s infinite linear;
+            -o-animation: spin .8s infinite linear;
+            animation: spin .8s infinite linear;
+            z-index: 10000;
+        }
+
+        @-moz-keyframes spin {
+            from {
+                -moz-transform: rotate(0deg);
+            }
+            to {
+                -moz-transform: rotate(360deg);
+            }
+        }
+
+        @-webkit-keyframes spin {
+            from {
+                -webkit-transform: rotate(0deg);
+            }
+            to {
+                -webkit-transform: rotate(360deg);
+            }
+        }
+
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+
+        /* In the dashboard jobs list the tooltips might need to be bigger (e.g. for the args) */
+        div.tooltip-inner {
+            max-width: 700px;
+        }
+
+        .mutedRed {
+            background-color: rgba(241, 221, 221, 1);
+        }
+
+        .mutedGray {
+            background-color: rgba(244, 244, 244, 1);
+        }
+
+
+    </style>
+
+    <script type="text/javascript" src="/static/js/jquery-3.1.1.min.js"></script>
+    <script src="/admin/static/vendor/moment.min.js?v=2.9.0" type="text/javascript"></script>
+    <script src="/admin/static/vendor/select2/select2.min.js?v=3.5.2" type="text/javascript"></script>
+    <script type="text/javascript" src="/static/js/bootstrap-3.3.5.min.js"></script>
+    <script type="text/javascript" src="/static/js/Chart.js"></script>
+
+    <script type="text/javascript" src="/static/js/dataTables.jquery.min.js"></script>
+    <script type="text/javascript" src="/static/js/dataTables.bootstrap.min.js"></script>
+    <script type="text/javascript" src="/static/js/dataTables.buttons.min.js"></script>
+    <script type="text/javascript" src="/static/js/dataTables.buttons.bootstrap.min.js"></script>
+    <script type="text/javascript" src="/static/js/dataTables.buttons.colVis.min.js"></script>
+    <script type="text/javascript" src="/static/js/dataTables.buttons.html5.min.js"></script>
+    <script type="text/javascript" src="/static/js/dataTables.jszip.min.js"></script>
+    <script type="text/javascript" src="/static/js/dataTables.fixedColumns.min.js"></script>
+    <script type="text/javascript" src="/static/js/dataTables.fixedHeader.min.js"></script>
+    <script type="text/javascript" src="/static/js/dataTables.scroller.min.js"></script>
+
+
+</head>
+
+<body>
+
+
+<div class="row header">
+    <div class="container">
+        <a href="/" style="color:#555555;">
+            <div class="pull-left col-lg-3 visible-lg brand" onmouseover="this.style.background='#eeeeee';"
+                 onmouseout="this.style.background='';">
+                <span class="brand-subtitle"><nobr>Service</nobr></span>
+            </div>
+        </a>
+        <div class="pull-right col-lg-9 col-md-12 " style="padding: 0px; width: 77%;">
+            <table cellspacing="0" cellpadding="0" style="border: none; width: 100%;">
+                <tr>
+
+                    <td class="text-right">
+                        <div class="topnavbar">
+                            <ul class="nav navbar-nav">
+                                <li class="active">
+                                    <a href="/">
+                                        <span class="glyphicon glyphicon-home"></span>
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="topnavbar">
+                            <ul class="nav navbar-nav" style="width: 100%;">
+
+
+                                <li class="">
+                                    <a href="/scanning/monitor/" target="" alt="Infrastructure Scanning">Infrastructure
+                                        Scanning</a>
+                                </li>
+
+
+                                <li class="">
+                                    <a href="/inventory/progress/" target="" alt="Infrastructure Inventory">Infrastructure
+                                        Inventory</a>
+                                </li>
+
+
+                                <li class="">
+                                    <a href="/software/firmware/" target="" alt="Software Scanning">Software
+                                        Scanning</a>
+                                </li>
+
+
+                                <li class="">
+                                    <a href="/statistics/year/" target="" alt="Global Statistics">Global Statistics</a>
+                                </li>
+
+
+                                <li>
+                                    <a id="menu_dropdown" class="dropdown-toggle" data-toggle="dropdown" href="#"
+                                       style="padding-left: 5px;padding-right: 5px;"><span class="caret"></span></a>
+                                    <ul class="nav dropdown-menu" role="menu"
+                                        style="background-color: rgba(247, 247, 247, 1);">
+
+                                        <li class="">
+                                            <a href="/pentestor/hashcat/" target="" alt="Interactive Pentestor"
+                                               style="font-weight: 300;">Interactive Pentestor</a>
+                                        </li>
+
+                                    </ul>
+                                </li>
+
+
+                            </ul>
+                        </div>
+                    </td>
+
+                    <td class="text-right">
+                        <div class="topnavbar">
+                            <ul class="nav navbar-nav">
+
+                                <li class="">
+                                    <a href="/profile/" alt="Profile" data-toggle="tooltip" data-placement="bottom"
+                                       data-container="body" title="Profile"><span
+                                                class="glyphicon glyphicon-user"></span></a>
+                                </li>
+
+                                <li class="">
+                                    <a href="/voucher/generate/" alt="Tools" data-toggle="tooltip"
+                                       data-placement="bottom" data-container="body" title="Tools"><span
+                                                class="glyphicon glyphicon-wrench"></span></a>
+                                </li>
+
+
+                                <li class="">
+                                    <a href="/admin/" alt="Admin Area" data-toggle="tooltip" data-placement="bottom"
+                                       data-container="body" title="Admin&nbsp;Area"><span
+                                                class="glyphicon glyphicon-cog"></span></a>
+                                </li>
+
+                                <li>
+                                    <a href="/logout/" alt="Logout" data-toggle="tooltip" data-placement="bottom"
+                                       data-container="body" title="Logout"><span
+                                                class="glyphicon glyphicon-log-out"></span></a>
+                                </li>
+
+                            </ul>
+                        </div>
+                    </td>
+                </tr>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="container container-content">
+    <div class="row">
+
+
+        <div class="" style="margin-left: 15px; margin-right:15px;">
+
+            <div class="content">
+
+
+                <div class="text-right">
+
+                    <a href="/toggle_admin_privileges/top/" class="text-muted"><span
+                                class="glyphicon glyphicon-arrow-down" data-original-title="Downgrade admin privileges"
+                                data-toggle="tooltip" data-container="body" data-placement="left"></span></a>&nbsp;
+
+                    <b>Welcome back, User!</b>
+
+                    <br/>
+                    Your time is UTC+2
+
+                    <br/>
+                    <br/>
+                </div>
+
+
+                <div class="headline_small">
+                    <div class="pull-right" style="padding-right: 15px;">
+                        <a href="/toggle_fy_filter/top/" class="">
+                            <span class="glyphicon glyphicon-stats text-muted"
+                                  data-original-title="Previous fiscal year(s) hidden" data-toggle="tooltip"
+                                  data-container="body" data-placement="top"></span>
+                        </a>
+
+                        &nbsp;&nbsp;
+                        <a href="/toggle_class_filter/top/" class="">
+                            <span class="glyphicon glyphicon-filter text-muted" data-original-title="No jobs filtered"
+                                  data-toggle="tooltip" data-container="body" data-placement="top"></span>
+                        </a>
+
+                    </div>
+                    <h6>
+
+                        Stats
+
+                    </h6>
+                    <hr>
+                </div>
+                <div class="section text-center">
+                    <div class="canvas">
+                        <div>
+                            <canvas id="graph_job_states"
+                                    data-url="stats/job_states/"
+                                    data-type="doughnut"
+                                    data-legend="False"
+                                    data-tooltip="index"
+                                    data-dynamicLabelsThroughSkipping="False"
+                                    data-y_axis_is_percentage="False"
+                                    data-borderWidth="1.2"
+                                    data-colorsBySequence="False"
+
+
+                                    data-backgroundColors='["rgba(236, 112, 99, 1)", "rgba(91, 144, 191, 1)", "rgba(247, 220, 111, 1)", "rgba(148, 159, 177, 1)", "rgba(76, 175, 80, 1)", "rgba(76, 170, 174, 1)", "rgba(236, 112, 99, 1)"]'
+                                    data-backgroundColorsHover='["rgba(236, 112, 99, 0.8)", "rgba(91, 144, 191, 0.8)", "rgba(247, 220, 111, 0.8)", "rgba(148, 159, 177, 0.8)", "rgba(76, 175, 80, 0.8)", "rgba(76, 170, 174, 0.8)", "rgba(236, 112, 99, 0.8)"]'
+
+                            ></canvas>
+                        </div>
+                        <div class="text-center">
+                            <h7>
+
+                                Jobs States
+
+                            </h7>
+                        </div>
+                    </div>
+                    <div class="canvas">
+                        <div>
+                            <canvas id="graph_type_usage"
+                                    data-url="stats/job_types/"
+                                    data-type="radar"
+                                    data-legend="False"
+                                    data-tooltip="nearest"
+                                    data-dynamicLabelsThroughSkipping="False"
+                                    data-y_axis_is_percentage="False"
+                                    data-borderWidth="1.5"
+                                    data-colorsBySequence="True"
+
+                                    data-borderColors='["rgba(85, 172, 204, 1)", "rgba(252, 179, 92, 1)", "rgba(182, 51, 158, 1)"]'
+                                    data-backgroundColors='["rgba(85, 172, 204, 0.2)", "rgba(252, 179, 92, 0.2)", "rgba(182, 51, 158, 0.2)"]'
+
+
+                            ></canvas>
+                        </div>
+                        <div class="text-center">
+                            <h7>
+
+                                Module Usage
+
+                            </h7>
+                        </div>
+                    </div>
+                    <div class="canvas">
+                        <div>
+                            <canvas id="graph_departments"
+                                    data-url="stats/departments/"
+                                    data-type="pie"
+                                    data-legend="False"
+                                    data-tooltip="index"
+                                    data-dynamicLabelsThroughSkipping="False"
+                                    data-y_axis_is_percentage="False"
+                                    data-borderWidth="1.2"
+                                    data-colorsBySequence="False"
+
+
+                                    data-backgroundColors='["rgba(236, 112, 99, 1)", "rgba(91, 144, 191, 1)", "rgba(247, 220, 111, 1)", "rgba(148, 159, 177, 1)", "rgba(151, 62, 156, 1)", "rgba(203, 67, 53, 1)", "rgba(76, 175, 80, 1)", "rgba(252, 179, 92, 1)", "rgba(76, 170, 174, 1)", "rgba(77, 83, 96, 1)"]'
+                                    data-backgroundColorsHover='["rgba(236, 112, 99, 0.8)", "rgba(91, 144, 191, 0.8)", "rgba(247, 220, 111, 0.8)", "rgba(148, 159, 177, 0.8)", "rgba(151, 62, 156, 0.8)", "rgba(203, 67, 53, 0.8)", "rgba(76, 175, 80, 0.8)", "rgba(252, 179, 92, 0.8)", "rgba(76, 170, 174, 0.8)", "rgba(77, 83, 96, 0.8)"]'
+
+                            ></canvas>
+                        </div>
+                        <div class="text-center">
+                            <h7>User Distribution</h7>
+                        </div>
+                    </div>
+                    <div style="clear:both;"></div>
+                </div>
+
+                <div class="anchor scroll-anchor" id="anchor_jobs"></div>
+                <div class="headline_small">
+                    <div class="pull-right" style="padding-right: 15px;">
+                        <a href="/toggle_wiped_filter/anchor_jobs/" class="">
+                            <span class="glyphicon glyphicon-eye-open text-muted"
+                                  data-original-title="Wiped jobs hidden" data-toggle="tooltip" data-container="body"
+                                  data-placement="top"></span>
+                        </a>
+                        &nbsp;&nbsp;
+                        <a href="/toggle_fy_filter/anchor_jobs/" class="">
+                            <span class="glyphicon glyphicon-stats text-muted"
+                                  data-original-title="Previous fiscal year(s) hidden" data-toggle="tooltip"
+                                  data-container="body" data-placement="top"></span>
+                        </a>
+
+                        &nbsp;&nbsp;
+                        <a href="/toggle_class_filter/anchor_jobs/" class="">
+                            <span class="glyphicon glyphicon-filter text-muted" data-original-title="No jobs filtered"
+                                  data-toggle="tooltip" data-container="body" data-placement="top"></span>
+                        </a>
+
+                    </div>
+                    <h6>
+
+                        Jobs
+
+                        &nbsp;&nbsp;
+                        <a data-remoteDataTableId='jobs'>
+                            <span class="glyphicon glyphicon glyphicon-floppy-remove text-muted"
+                                  data-original-title="Reset datatable filters and sortings" data-toggle="tooltip"
+                                  data-container="body" data-placement="top"></span>
+                        </a>
+                    </h6>
+                    <hr>
+                </div>
+
+
+                <div class="section"
+                     data-remoteDataTableId='jobs'
+                     data-contentUrl='jobs/'
+                     data-pageLength='5'
+                     data-pageLengthMenue='[[5, 10, 15, -1], [5, 10, 15, "All"]]'
+                     data-autoWidth='False'
+                     data-columnDefinitions='[{ "targets": 0 , "width": "100px" }, { "targets": [5,6,9,-1], "orderable": false }]'
+                     data-saveState='True'
+                     data-removeEmptyColumns='True'
+                     data-scrollX='False'
+                     data-fixedColumns='[]'
+                     data-buttons='[]'>
+                </div>
+
+
+                <div class="anchor scroll-anchor" id="anchor_jobs_continuing"></div>
+                <div class="headline_small">
+
+                    <div class="pull-right" style="padding-right: 15px;">
+                        <a href="/toggle_wiped_filter/anchor_jobs_continuing/" class="">
+                            <span class="glyphicon glyphicon-eye-open text-muted"
+                                  data-original-title="Wiped jobs hidden" data-toggle="tooltip" data-container="body"
+                                  data-placement="top"></span>
+                        </a>
+                        &nbsp;&nbsp;
+                        <a href="/toggle_fy_filter/anchor_jobs_continuing/" class="">
+                            <span class="glyphicon glyphicon-stats text-muted"
+                                  data-original-title="Previous fiscal year(s) hidden" data-toggle="tooltip"
+                                  data-container="body" data-placement="top"></span>
+                        </a>
+                        &nbsp;&nbsp;
+                        <a href="/toggle_class_filter/anchor_jobs_continuing/" class="">
+                            <span class="glyphicon glyphicon-filter text-muted" data-original-title="No jobs filtered"
+                                  data-toggle="tooltip" data-container="body" data-placement="top"></span>
+                        </a>
+                    </div>
+
+                    <h6>
+
+                        Constant Jobs
+
+                        &nbsp;&nbsp;
+                        <a data-remoteDataTableId='jobs_continuing'>
+                            <span class="glyphicon glyphicon glyphicon-floppy-remove text-muted"
+                                  data-original-title="Reset datatable filters and sortings" data-toggle="tooltip"
+                                  data-container="body" data-placement="top"></span>
+                        </a>
+                    </h6>
+                    <hr>
+                </div>
+
+
+                <div class="section"
+                     data-remoteDataTableId='jobs_continuing'
+                     data-contentUrl='jobs_secondary/'
+                     data-pageLength='5'
+                     data-pageLengthMenue='[[5, 10, 15, -1], [5, 10, 15, "All"]]'
+                     data-autoWidth='False'
+                     data-columnDefinitions='[{ "targets": 0 , "width": "100px" }, { "targets": [5,6,9,-1], "orderable": false }]'
+                     data-saveState='True'
+                     data-removeEmptyColumns='True'
+                     data-scrollX='False'
+                     data-fixedColumns='[]'
+                     data-buttons='[]'>
+                </div>
+
+
+                <div class="anchor scroll-anchor" id="anchor_last_logins"></div>
+                <div class="headline_small">
+                    <div class="pull-right" style="padding-right: 15px;">
+                        <a href="/toggle_we_filter/anchor_last_logins/" class="">
+                            <span class="glyphicon glyphicon-adjust text-muted" data-original-title="Weekends hidden"
+                                  data-toggle="tooltip" data-container="body" data-placement="top"></span>
+                        </a>
+                    </div>
+                    <h6>Last Logins</h6>
+                    <hr>
+                </div>
+                <div class="section">
+
+
+                    <div>
+
+
+                        <div class="canvas" style="width:33.03333333333334%;">
+
+                        </div>
+
+
+                        <div style="clear:both;"></div>
+                    </div>
+                </div>
+                <div class="section">
+                    <div class="canvas" style="width:100%;">
+                        <div>
+                            <canvas id="graph_logins"
+                                    data-url="stats/logins/"
+                                    data-type="line"
+                                    data-legend="False"
+                                    data-tooltip="index"
+                                    data-dynamicLabelsThroughSkipping="False"
+                                    data-y_axis_is_percentage="False"
+                                    data-borderWidth="1.5"
+                                    data-colorsBySequence="True"
+
+                                    data-borderColors='["rgba(85, 172, 204, 1)"]'
+                                    data-backgroundColors='["rgba(85, 172, 204, 0.2)"]'
+
+                                    height="40px"
+                            ></canvas>
+                        </div>
+                    </div>
+                    <div class="text-center">
+                        <h7>
+                            Users Online
+                        </h7>
+                    </div>
+                    <div style="clear:both;"></div>
+                </div>
+
+
+                <div class="anchor scroll-anchor" id="anchor_history"></div>
+                <div class="headline_small">
+                    <div class="pull-right" style="padding-right: 15px;">
+
+                        <a href="/toggle_class_filter/anchor_history/" class="">
+                            <span class="glyphicon glyphicon-filter text-muted" data-original-title="No jobs filtered"
+                                  data-toggle="tooltip" data-container="body" data-placement="top"></span>
+                        </a>
+
+                    </div>
+                    <h6>
+
+                        Activity
+
+                    </h6>
+                    <hr>
+                </div>
+                <div class="section">
+                    <div class="canvas" style="width:100%;">
+                        <div>
+                            <canvas id="graph_recent_activity"
+                                    data-url="stats/recent_activity/"
+                                    data-type="line"
+                                    data-legend="False"
+                                    data-tooltip="index"
+                                    data-dynamicLabelsThroughSkipping="False"
+                                    data-y_axis_is_percentage="False"
+                                    data-borderWidth="1.5"
+                                    data-colorsBySequence="True"
+
+                                    data-borderColors='["rgba(85, 172, 204, 1)", "rgba(164, 187, 199, 1)", "rgba(220, 220, 220, 1)"]'
+                                    data-backgroundColors='["rgba(85, 172, 204, 0.2)", "rgba(164, 187, 199, 0.2)", "rgba(220, 220, 220, 0.2)"]'
+
+                                    height="40px"
+                            ></canvas>
+                        </div>
+                    </div>
+                    <div class="text-center">
+                        <h7>
+
+                            Recent Activity
+
+                        </h7>
+                    </div>
+                    <div style="clear:both;"></div>
+                </div>
+                <div class="section">
+                    <div class="canvas" style="width:100%;">
+                        <div>
+                            <canvas id="graph_activity_by_month"
+                                    data-url="stats/activity_month/"
+                                    data-type="line"
+                                    data-legend="False"
+                                    data-tooltip="index"
+                                    data-dynamicLabelsThroughSkipping="False"
+                                    data-y_axis_is_percentage="False"
+                                    data-borderWidth="1.5"
+                                    data-colorsBySequence="True"
+
+                                    data-borderColors='["rgba(85, 172, 204, 1)", "rgba(164, 187, 199, 1)", "rgba(220, 220, 220, 1)"]'
+                                    data-backgroundColors='["rgba(85, 172, 204, 0.2)", "rgba(164, 187, 199, 0.2)", "rgba(220, 220, 220, 0.2)"]'
+
+                                    height="40px"
+                            ></canvas>
+                        </div>
+                    </div>
+                    <div class="text-center">
+                        <h7>
+
+                            Activity By Month
+
+                        </h7>
+                    </div>
+                    <div style="clear:both;"></div>
+                </div>
+
+                <div class="anchor scroll-anchor" id="anchor_distribution"></div>
+                <div class="headline_small">
+                    <div class="pull-right" style="padding-right: 15px;">
+                        <a href="/toggle_we_filter/anchor_distribution/" class="">
+                            <span class="glyphicon glyphicon-adjust text-muted" data-original-title="Weekends hidden"
+                                  data-toggle="tooltip" data-container="body" data-placement="top"></span>
+                        </a>
+                        &nbsp;&nbsp;
+                        <a href="/toggle_fy_filter/anchor_distribution/" class="">
+                            <span class="glyphicon glyphicon-stats text-muted"
+                                  data-original-title="Previous fiscal year(s) hidden" data-toggle="tooltip"
+                                  data-container="body" data-placement="top"></span>
+                        </a>
+
+                        &nbsp;&nbsp;
+                        <a href="/toggle_class_filter/anchor_distribution/" class="">
+                            <span class="glyphicon glyphicon-filter text-muted" data-original-title="No jobs filtered"
+                                  data-toggle="tooltip" data-container="body" data-placement="top"></span>
+                        </a>
+
+                    </div>
+                    <h6>
+
+                        Busy Times
+
+                    </h6>
+                    <hr>
+                </div>
+                <div class="section">
+                    <div class="canvas" style="width:66.2%;">
+                        <div>
+                            <canvas id="graph_activity_by_hours"
+                                    data-url="stats/activity_hour/"
+                                    data-type="bar"
+                                    data-legend="False"
+                                    data-tooltip="index"
+                                    data-dynamicLabelsThroughSkipping="False"
+                                    data-y_axis_is_percentage="False"
+                                    data-borderWidth="1.2"
+                                    data-colorsBySequence="True"
+
+                                    data-borderColors='["rgba(85, 172, 204, 1)", "rgba(164, 187, 199, 1)", "rgba(220, 220, 220, 1)"]'
+                                    data-backgroundColors='["rgba(85, 172, 204, 0.2)", "rgba(164, 187, 199, 0.2)", "rgba(220, 220, 220, 0.2)"]'
+
+                                    height="75px"
+                            ></canvas>
+                        </div>
+                        <div class="text-center">
+                            <h7>
+
+                                Jobs by Hour
+
+                            </h7>
+                        </div>
+                    </div>
+                    <div class="canvas" style="width:33.1%;">
+                        <div>
+                            <canvas id="graph_activity_by_weekday"
+                                    data-url="stats/activity_weekday/"
+                                    data-type="polarArea"
+                                    data-legend="False"
+                                    data-tooltip="index"
+                                    data-dynamicLabelsThroughSkipping="False"
+                                    data-y_axis_is_percentage="False"
+                                    data-borderWidth="1.5"
+                                    data-colorsBySequence="False"
+
+
+                                    data-backgroundColors='["rgba(236, 112, 99, 1)", "rgba(76, 175, 80, 1)", "rgba(247, 220, 111, 1)", "rgba(85, 172, 204, 1)", "rgba(152, 62, 157, 1)", "rgba(148, 159, 177, 1)", "rgba(77, 83, 96, 1)"]'
+                                    data-backgroundColorsHover='["rgba(236, 112, 99, 0.8)", "rgba(76, 175, 80, 0.8)", "rgba(247, 220, 111, 0.8)", "rgba(85, 172, 204, 0.8)", "rgba(152, 62, 157, 0.8)", "rgba(148, 159, 177, 0.8)", "rgba(77, 83, 96, 0.8)"]'
+
+                            ></canvas>
+                        </div>
+                        <div class="text-center">
+                            <h7>
+
+                                Jobs by Week Day
+
+                            </h7>
+                        </div>
+                    </div>
+                    <div style="clear:both;"></div>
+                </div>
+
+
+                <div class="headline_small">
+                    <h6>Latest News</h6>
+                    <hr>
+                </div>
+                <div class="section">
+
+
+                    <div style="width:49.8%; display: inline-block; vertical-align:top;">
+                        <div class=""
+                             style="background-color:#F4F4F4;border-radius: 3px; margin:2px; padding:1px; color:#aaaaaa">
+                            <div style="margin:2px; ">
+                                <table>
+                                    <tr>
+                                        <td style="vertical-align:top; padding-left: 6px;">
+                                            <nobr><span class=""><b>1970-01-01 00:00</b></span></nobr>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td style="vertical-align:top; padding-left: 6px;">The <a
+                                                    href="https://www.domain.tld/service1/">Service1</a> and <a
+                                                    href="https://www.domain.tld/service2/">Service2</a> services can
+                                            now be served.
+                                        </td>
+                                    </tr>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+
+                    <div style="width:49.8%; display: inline-block; vertical-align:top;">
+                        <div class=""
+                             style="background-color:#F4F4F4;border-radius: 3px; margin:2px; padding:1px; color:#aaaaaa">
+                            <div style="margin:2px; ">
+                                <table>
+                                    <tr>
+                                        <td style="vertical-align:top; padding-left: 6px;">
+                                            <nobr><span class=""><b>1970-01-01 00:00</b></span></nobr>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td style="vertical-align:top; padding-left: 6px;">Our first <a
+                                                    href="https://www.domain.tld/service3/">Service3</a> module is now
+                                            available.
+                                        </td>
+                                    </tr>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+
+                    <div style="width:49.8%; display: inline-block; vertical-align:top;">
+                        <div class=""
+                             style="background-color:#F4F4F4;border-radius: 3px; margin:2px; padding:1px; color:#aaaaaa">
+                            <div style="margin:2px; ">
+                                <table>
+                                    <tr>
+                                        <td style="vertical-align:top; padding-left: 6px;">
+                                            <nobr><span class=""><b>1970-01-01 00:00</b></span></nobr>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td style="vertical-align:top; padding-left: 6px;">A new <a
+                                                    href="https://www.domain.tld/service4/">Service4 </a> is now
+                                            available.
+                                        </td>
+                                    </tr>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+
+                    <div style="width:49.8%; display: inline-block; vertical-align:top;">
+                        <div class=""
+                             style="background-color:#F4F4F4;border-radius: 3px; margin:2px; padding:1px; color:#aaaaaa">
+                            <div style="margin:2px; ">
+                                <table>
+                                    <tr>
+                                        <td style="vertical-align:top; padding-left: 6px;">
+                                            <nobr><span class=""><b>1970-01-01 00:00</b></span></nobr>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td style="vertical-align:top; padding-left: 6px;">A check to <a
+                                                    href="https://www.domain.tld/service5/">Service5</a> is now
+                                            available.
+                                        </td>
+                                    </tr>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+
+                    <div style="width:49.8%; display: inline-block; vertical-align:top;">
+                        <div class=""
+                             style="background-color:#F4F4F4;border-radius: 3px; margin:2px; padding:1px; color:#aaaaaa">
+                            <div style="margin:2px; ">
+                                <table>
+                                    <tr>
+                                        <td style="vertical-align:top; padding-left: 6px;">
+                                            <nobr><span class=""><b>1970-01-01 00:00</b></span></nobr>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td style="vertical-align:top; padding-left: 6px;">Stay informed with our
+                                            passive news system accessible on your dashboard now.
+                                        </td>
+                                    </tr>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="clear:both;"></div>
+                </div>
+
+
+                <div class="anchor scroll-anchor" id="anchor_agent_status"></div>
+                <div class="headline_small">
+                    <h6>Status&nbsp;&nbsp;
+                        <span title="" class="glyphicon glyphicon-info-sign text-muted" data-original-title="text"
+                              data-toggle="tooltip" data-container="body" data-placement="top"></span>
+                    </h6>
+                    <hr>
+                </div>
+                <div class="section text-center"
+                     style="min-height: 135px"
+                     data-remoteContentUrl="agent_states/">
+                    <div class="text-center">Loading...</div>
+                </div>
+                <div style="clear:both;"></div>
+
+
+                <div class="headline_small">
+                    <h6>Status2
+                        <span title="" class="glyphicon glyphicon-info-sign text-muted" data-original-title="text"
+                              data-toggle="tooltip" data-container="body" data-placement="top"></span>
+                    </h6>
+                    <hr>
+                </div>
+                <div class="section text-center"
+                     data-remoteContentUrl="bgjobs_states/">
+                    <div class="text-center">Loading...</div>
+                </div>
+
+
+                <div class="anchor scroll-anchor" id="anchor_admins"></div>
+                <div class="headline_small">
+                    <h6>Admin Users</h6>
+                    <hr>
+                </div>
+                <div class="section text-center">
+
+                    <div class="canvas bg-info text-center"
+                         style="width:15.22%; display: inline-block; border-radius: 3px; margin:5px; padding:5px;"
+                         data-html="true" data-original-title='' data-toggle="tooltip" data-container="body"
+                         data-placement="bottom">
+                        <span><nobr>User1</nobr><br/><small>()</small></span>
+                    </div>
+
+                    <div class="canvas bg-info text-center"
+                         style="width:15.22%; display: inline-block; border-radius: 3px; margin:5px; padding:5px;"
+                         data-html="true" data-original-title='' data-toggle="tooltip" data-container="body"
+                         data-placement="bottom">
+                        <span><nobr>User2</nobr><br/><small>()</small></span>
+                    </div>
+
+                    <div class="canvas bg-info text-center"
+                         style="width:15.22%; display: inline-block; border-radius: 3px; margin:5px; padding:5px;"
+                         data-html="true" data-original-title='' data-toggle="tooltip" data-container="body"
+                         data-placement="bottom">
+                        <span><nobr>User3</nobr><br/><small>()</small></span>
+                    </div>
+
+                    <div style="clear:both;"></div>
+                </div>
+
+
+                <div class="anchor scroll-anchor" id="anchor_application_config"></div>
+                <div class="headline_small">
+                    <h6>Application Configuration</h6>
+                    <hr>
+                </div>
+                <div class="section">
+
+                    <div style="clear:both;"></div>
+                </div>
+
+
+            </div>
+        </div>
+
+
+    </div>
+    <br/>
+    <br/>
+</div>
+
+<div class="container">
+    <br/><br/><br/>
+</div>
+
+<div id="terms_modal" class="modal fade" role="dialog" data-backdrop="true" data-keyboard="false">
+    <div class="modal-dialog modal-lg">
+        <!-- Modal content-->
+        <div class="modal-content">
+            <div class="modal-body">
+                <div class="section_small">
+                    <h3 class="modal-title">Terms And Conditions</h3>
+                </div>
+
+                <div class="section_terms">
+                    The <b>Service</b> is an offer provided by <b>us</b>.
+                    Text
+                </div>
+
+                <div class="headline_small">
+                    <h6>Most Important</h6>
+                    <hr>
+                </div>
+                <div class="section" style="padding-left:55px; padding-right: 80px; text-align: justify;">
+                    <ul>
+                        <li>This is an <b>text</b> and as such.</li>
+                    </ul>
+                </div>
+
+                <div class="headline_small">
+                    <h6>Not Less Important</h6>
+                    <hr>
+                </div>
+                <div class="section_terms panel-group" id="terms_accordion">
+                    <div class="panel panel-default">
+                        <div class="panel-heading" data-toggle="collapse" data-parent="#terms_accordion"
+                             href="#terms_collapse_1">
+                            <h4 class="panel-title">
+                                <a>1</a>
+                            </h4>
+                        </div>
+                        <div id="terms_collapse_1" class="panel-collapse collapse">
+                            <div class="panel-body">
+                                <p>
+                                    paragraph
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="panel panel-default">
+                        <div class="panel-heading" data-toggle="collapse" data-parent="#terms_accordion"
+                             href="#terms_collapse_4">
+                            <h4 class="panel-title">
+                                <a>2</a>
+                            </h4>
+                        </div>
+                        <div id="terms_collapse_4" class="panel-collapse collapse">
+                            <div class="panel-body">
+                                <p>
+                                    Paragraph
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="panel panel-default">
+                        <div class="panel-heading" data-toggle="collapse" data-parent="#terms_accordion"
+                             href="#terms_collapse_2">
+                            <h4 class="panel-title">
+                                <a>3</a>
+                            </h4>
+                        </div>
+                        <div id="terms_collapse_2" class="panel-collapse collapse">
+                            <div class="panel-body">
+                                <p>
+                                    Paragraph
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="panel panel-default">
+                        <div class="panel-heading" data-toggle="collapse" data-parent="#terms_accordion"
+                             href="#terms_collapse_3">
+                            <h4 class="panel-title">
+                                <a>4</a>
+                            </h4>
+                        </div>
+                        <div id="terms_collapse_3" class="panel-collapse collapse">
+                            <div class="panel-body">
+                                <p>
+                                    The availability of this service is not guaranteed.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="panel panel-default">
+                        <div class="panel-heading" data-toggle="collapse" data-parent="#terms_accordion"
+                             href="#terms_collapse_5">
+                            <h4 class="panel-title">
+                                <a>Limits</a>
+                            </h4>
+                        </div>
+                        <div id="terms_collapse_5" class="panel-collapse collapse">
+                            <div class="panel-body">
+                                <p>
+                                    Paragraph
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding-bottom: 30px; padding-right: 90px;">
+                <button type="button" class="btn btn-success glyphicon glyphicon-ok" data-dismiss="modal"
+                        style="width: 80px;"></button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="faq_modal" class="modal fade" role="dialog" data-backdrop="true" data-keyboard="false">
+    <div class="modal-dialog modal-lg">
+        <!-- Modal content-->
+        <div class="modal-content">
+            <div class="modal-body">
+                <div class="section_small">
+                    <h3 class="modal-title">Frequently Asked Questions</h3>
+                    <hr>
+                </div>
+                <div class="section_terms panel-group" id="faq_accordion">
+                    <div class="panel panel-default">
+                        <div class="panel-heading">
+                            <h4 class="panel-title" data-toggle="collapse" data-parent="#faq_accordion"
+                                href="#faq_collapse_1">
+                                <a>What is the <b>Service</b> and how does it work</a>
+                            </h4>
+                        </div>
+                        <div id="faq_collapse_1" class="panel-collapse collapse">
+                            <div class="panel-body">
+                                <p>
+                                    text
+                                </p>
+                                <p>
+                                    text
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="panel panel-default">
+                        <div class="panel-heading">
+                            <h4 class="panel-title" data-toggle="collapse" data-parent="#faq_accordion"
+                                href="#faq_collapse_2">
+                                <a>Is it possible to?</a>
+                            </h4>
+                        </div>
+                        <div id="faq_collapse_2" class="panel-collapse collapse">
+                            <div class="panel-body">
+                                text
+                            </div>
+                        </div>
+                    </div>
+                    <div class="panel panel-default">
+                        <div class="panel-heading">
+                            <h4 class="panel-title" data-toggle="collapse" data-parent="#faq_accordion"
+                                href="#faq_collapse_3">
+                                <a>Can I ?</a>
+                            </h4>
+                        </div>
+                        <div id="faq_collapse_3" class="panel-collapse collapse">
+                            <div class="panel-body">
+                                text
+                            </div>
+                        </div>
+                    </div>
+                    <div class="panel panel-default">
+                        <div class="panel-heading">
+                            <h4 class="panel-title" data-toggle="collapse" data-parent="#faq_accordion"
+                                href="#faq_collapse_4">
+                                <a>How are the ?</a>
+                            </h4>
+                        </div>
+                        <div id="faq_collapse_4" class="panel-collapse collapse">
+                            <div class="panel-body">
+                                text <a href="https://www.domain2.tld/1">link1</a>.
+                                text2<a href="https://www.domain2.tld/2">link2</a>
+                                text3 <a href="https://www.domain2.tld/3">link3</a>.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding-bottom: 30px; padding-right: 90px;">
+                <button type="button" class="btn btn-success glyphicon glyphicon-ok" data-dismiss="modal"
+                        style="width: 80px;"></button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="contact_modal" class="modal fade" role="dialog" data-backdrop="true" data-keyboard="false">
+    <div class="modal-dialog modal-lg">
+        <!-- Modal content-->
+        <div class="modal-content">
+            <div class="modal-body">
+                <div class="section_small">
+                    <h3 class="modal-title">Contact Addresses</h3>
+                </div>
+                <div class="section_terms panel-group" id="contact_accordion">
+                    <div class="panel panel-default">
+                        <div class="panel-heading" data-toggle="collapse" data-parent="#contact_accordion"
+                             href="#contact_collapse_1">
+                            <h4 class="panel-title">
+                                <a>General Questions &amp; Questions regarding IT policies</a>
+                            </h4>
+                        </div>
+                        <div id="contact_collapse_1" class="panel-collapse collapse">
+                            <div class="panel-body">
+                                <p>
+                                    For general questions:
+                                    <a href="https://www.domain3.tld/1" target="_blank">link</a>.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="panel panel-default">
+                        <div class="panel-heading" data-toggle="collapse" data-parent="#contact_accordion"
+                             href="#contact_collapse_2">
+                            <h4 class="panel-title">
+                                <a>Point</a>
+                            </h4>
+                        </div>
+                        <div id="contact_collapse_2" class="panel-collapse collapse in">
+                            <div class="panel-body">
+                                <p>
+                                    please contact:
+                                </p>
+                                <h6>user</h6>
+                                <p>
+                                    <a href="mailto:user@domain.tld?subject=Service">mail</a>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="panel panel-default">
+                        <div class="panel-heading" data-toggle="collapse" data-parent="#contact_accordion"
+                             href="#contact_collapse_3">
+                            <h4 class="panel-title">
+                                <a>Software Development</a>
+                            </h4>
+                        </div>
+                        <div id="contact_collapse_3" class="panel-collapse collapse">
+                            <div class="panel-body">
+                                <p>
+                                    If you require , please contact:
+                                </p>
+                                <h6>user2</h6>
+                                <p>
+                                    <a href="mailto:user2@domain.tld?subject=Service">mail2</a>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="panel panel-default">
+                        <div class="panel-heading" data-toggle="collapse" data-parent="#contact_accordion"
+                             href="#contact_collapse_4">
+                            <h4 class="panel-title">
+                                <a>Architecture</a>
+                            </h4>
+                        </div>
+                        <div id="contact_collapse_4" class="panel-collapse collapse">
+                            <div class="panel-body">
+                                <p>
+                                    If you require, please contact:
+                                </p>
+                                <h6>user3</h6>
+                                <p>
+                                    <a href="mailto:user3@domain.tld?subject=Service">mail3</a>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="panel panel-default">
+                        <div class="panel-heading" data-toggle="collapse" data-parent="#contact_accordion"
+                             href="#contact_collapse_5">
+                            <h4 class="panel-title">
+                                <a>Service</a>
+                            </h4>
+                        </div>
+                        <div id="contact_collapse_5" class="panel-collapse collapse">
+                            <div class="panel-body">
+                                <p>
+                                    If you are experiencing technical issues with the Service, please contact:
+                                </p>
+                                <h6>Head of nothing</h6>
+                                <p>
+                                    <a href="mailto:user4@domain.tld?subject=Service">mail4</a>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding-bottom: 30px; padding-right: 90px;">
+                <button type="button" class="btn btn-success glyphicon glyphicon-ok" data-dismiss="modal"
+                        style="width: 80px;"></button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="description_modal" class="modal fade" role="dialog" data-backdrop="true" data-keyboard="true">
+    <div class="modal-dialog">
+        <!-- Modal content-->
+        <div class="modal-content">
+            <div class="modal-body">
+                <div class="section_small">
+                    <h3 class="modal-title">Description</h3>
+                </div>
+
+                <div class="text-right">
+                    <button type="button" class="btn btn-success glyphicon glyphicon-ok" data-dismiss="modal"
+                            style="width: 80px;"></button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container footer text-center" style="z-index:1000;">
+    <span class="glyphicon glyphicon glyphicon-tasks"></span>
+    <a href="#" data-toggle="modal" data-target="#terms_modal">Terms And Conditions</a>
+    &nbsp;|&nbsp;
+    <span class="glyphicon glyphicon glyphicon-book"></span>
+    <a href="#" data-toggle="modal" data-target="#faq_modal">FAQ</a>
+    &nbsp;|&nbsp;
+    <span class="glyphicon glyphicon-tag"></span>
+    &nbsp;
+    department
+    &nbsp;|&nbsp;
+    <span class="glyphicon glyphicon-map-marker"></span>
+    &nbsp;
+    Adress
+    &nbsp;|&nbsp;
+    <span class="glyphicon glyphicon glyphicon-piggy-bank "></span>
+    <a href="/voucher/">Voucher</a>
+    &nbsp;|&nbsp;
+    <span class="glyphicon glyphicon-envelope"></span>
+    &nbsp;
+    <a href="#" data-toggle="modal" data-target="#contact_modal">Contact Addresses</a>
+</div>
+
+
+</body>
+</html>

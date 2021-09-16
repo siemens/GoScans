@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="https://svn.nmap.org/nmap/docs/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.70 scan initiated Thu Feb 21 15:32:45 2019 as: &quot;C:\\nmap-7.70\\nmap.exe&quot; -PE -PP -PS21,22,25,23,80,111,179,443,445,1433,1521,3189,3306,3389,5800,5900,8000,8008,8080,8443 -PA80,21000 -sS -O -&#45;top-ports 10 -sV -T4 -&#45;min-hostgroup 64 -&#45;randomize-hosts -&#45;host-timeout 6h -&#45;max-retries 2 -&#45;script address-info,afp-serverinfo,ajp-auth,ajp-methods,amqp-info,auth-owners,backorifice-info,bitcoinrpc-info,cassandra-info,clock-skew,creds-summary,dns-nsid,dns-recursion,dns-service-discovery,epmd-info,finger,flume-master-info,freelancer-info,ftp-anon,ftp-bounce,ganglia-info,giop-info,gopher-ls,hadoop-datanode-info,hadoop-jobtracker-info,hadoop-namenode-info,hadoop-secondary-namenode-info,hadoop-tasktracker-info,hbase-master-info,hbase-region-info,hddtemp-info,hnap-info,http-auth,http-cisco-anyconnect,http-cors,http-generator,http-git,http-open-proxy,http-robots.txt,http-svn-enum,http-webdav-scan,ike-version,imap-capabilities,imap-ntlm-info,ip-https-discover,ipv6-node-info,irc-info,iscsi-info,jdwp-info,knx-gateway-info,maxdb-info,mongodb-databases,mongodb-info,ms-sql-info,ms-sql-ntlm-info,mysql-info,nat-pmp-info,nbstat,ncp-serverinfo,netbus-info,nntp-ntlm-info,openlookup-info,pop3-capabilities,pop3-ntlm-info,quake1-info,quake3-info,quake3-master-getservers,realvnc-auth-bypass,rmi-dumpregistry,rpcinfo,rtsp-methods,servicetags,sip-methods,smb-security-mode,smb-protocols,smtp-commands,smtp-ntlm-info,snmp-hh3c-logins,snmp-info,snmp-interfaces,snmp-netstat,snmp-processes,snmp-sysdescr,snmp-win32-services,snmp-win32-shares,snmp-win32-software,snmp-win32-users,socks-auth-info,socks-open-proxy,ssh-hostkey,sshv1,ssl-known-key,sstp-discover,telnet-ntlm-info,tls-nextprotoneg,upnp-info,ventrilo-info,vnc-info,wdb-version,weblogic-t3-info,wsdd-discover,x11-access,xmlrpc-methods,xmpp-info,vnc-title,acarsd-info,afp-showmount,ajp-headers,ajp-request,allseeingeye-info,bitcoin-getaddr,bitcoin-info,citrix-enum-apps,citrix-enum-servers-xml,citrix-enum-servers,coap-resources,couchdb-databases,couchdb-stats,daytime,db2-das-info,dict-info,drda-info,duplicates,gpsd-info,http-affiliate-id,http-apache-negotiation,http-apache-server-status,http-cross-domain-policy,http-frontpage-login,http-gitweb-projects-enum,http-php-version,http-qnap-nas-info,http-vlcstreamer-ls,http-vuln-cve2010-0738,http-vmware-path-vuln,http-vuln-cve2011-3192,http-vuln-cve2014-2126,http-vuln-cve2014-2127,http-vuln-cve2014-2128,ip-forwarding,ipmi-cipher-zero,ipmi-version,membase-http-info,memcached-info,mqtt-subscribe,msrpc-enum,ncp-enum-users,netbus-auth-bypass,nfs-ls,nfs-showmount,nfs-statfs,omp2-enum-targets,oracle-tns-version,rdp-enum-encryption,redis-info,rfc868-time,riak-http-info,rsync-list-modules,rusers,smb-mbenum,ssh2-enum-algos,stun-info,telnet-encryption,tn3270-screen,versant-info,voldemort-info,vuze-dht-info,xdmcp-discover,supermicro-ipmi-conf,cccam-version,docker-version,enip-info,fox-info,iax2-version,jdwp-version,netbus-version,pcworx-info,s7-info,teamspeak2-version -&#45;script vmware-version,tls-ticketbleed,smb2-time,smb2-security-mode,smb2-capabilities,smb-vuln-ms17-010,smb-double-pulsar-backdoor,openwebnet-discovery,http-vuln-cve2017-1001000,http-security-headers,http-cookie-flags,ftp-syst,cics-info -&#45;open -&#45;reason -&#45;webxml -&#45;script=smb-os-discovery,ssl-cert,http-ntlm-info -&#45;version-all -&#45;excludefile &quot;C:\\go\\src\\large-scale-discovery-v5\\_test\\data\\discovery\\blacklist_valid.txt&quot; -oX - host123.sub.domain.tld -->
+<nmaprun scanner="nmap"
+         args="&quot;C:\\nmap\\nmap.exe&quot; -PE -PP -PS21,22,25,23,80,111,179,443,445,1433,1521,3189,3306,3389,5800,5900,8000,8008,8080,8443 -PA80,21000 -sS -O -&#45;top-ports 10 -sV -T4 -&#45;min-hostgroup 64 -&#45;randomize-hosts -&#45;host-timeout 6h -&#45;max-retries 2 -&#45;script address-info,afp-serverinfo,ajp-auth,ajp-methods,amqp-info,auth-owners,backorifice-info,bitcoinrpc-info,cassandra-info,clock-skew,creds-summary,dns-nsid,dns-recursion,dns-service-discovery,epmd-info,finger,flume-master-info,freelancer-info,ftp-anon,ftp-bounce,ganglia-info,giop-info,gopher-ls,hadoop-datanode-info,hadoop-jobtracker-info,hadoop-namenode-info,hadoop-secondary-namenode-info,hadoop-tasktracker-info,hbase-master-info,hbase-region-info,hddtemp-info,hnap-info,http-auth,http-cisco-anyconnect,http-cors,http-generator,http-git,http-open-proxy,http-robots.txt,http-svn-enum,http-webdav-scan,ike-version,imap-capabilities,imap-ntlm-info,ip-https-discover,ipv6-node-info,irc-info,iscsi-info,jdwp-info,knx-gateway-info,maxdb-info,mongodb-databases,mongodb-info,ms-sql-info,ms-sql-ntlm-info,mysql-info,nat-pmp-info,nbstat,ncp-serverinfo,netbus-info,nntp-ntlm-info,openlookup-info,pop3-capabilities,pop3-ntlm-info,quake1-info,quake3-info,quake3-master-getservers,realvnc-auth-bypass,rmi-dumpregistry,rpcinfo,rtsp-methods,servicetags,sip-methods,smb-security-mode,smb-protocols,smtp-commands,smtp-ntlm-info,snmp-hh3c-logins,snmp-info,snmp-interfaces,snmp-netstat,snmp-processes,snmp-sysdescr,snmp-win32-services,snmp-win32-shares,snmp-win32-software,snmp-win32-users,socks-auth-info,socks-open-proxy,ssh-hostkey,sshv1,ssl-known-key,sstp-discover,telnet-ntlm-info,tls-nextprotoneg,upnp-info,ventrilo-info,vnc-info,wdb-version,weblogic-t3-info,wsdd-discover,x11-access,xmlrpc-methods,xmpp-info,vnc-title,acarsd-info,afp-showmount,ajp-headers,ajp-request,allseeingeye-info,bitcoin-getaddr,bitcoin-info,citrix-enum-apps,citrix-enum-servers-xml,citrix-enum-servers,coap-resources,couchdb-databases,couchdb-stats,daytime,db2-das-info,dict-info,drda-info,duplicates,gpsd-info,http-affiliate-id,http-apache-negotiation,http-apache-server-status,http-cross-domain-policy,http-frontpage-login,http-gitweb-projects-enum,http-php-version,http-qnap-nas-info,http-vlcstreamer-ls,http-vuln-cve2010-0738,http-vmware-path-vuln,http-vuln-cve2011-3192,http-vuln-cve2014-2126,http-vuln-cve2014-2127,http-vuln-cve2014-2128,ip-forwarding,ipmi-cipher-zero,ipmi-version,membase-http-info,memcached-info,mqtt-subscribe,msrpc-enum,ncp-enum-users,netbus-auth-bypass,nfs-ls,nfs-showmount,nfs-statfs,omp2-enum-targets,oracle-tns-version,rdp-enum-encryption,redis-info,rfc868-time,riak-http-info,rsync-list-modules,rusers,smb-mbenum,ssh2-enum-algos,stun-info,telnet-encryption,tn3270-screen,versant-info,voldemort-info,vuze-dht-info,xdmcp-discover,supermicro-ipmi-conf,cccam-version,docker-version,enip-info,fox-info,iax2-version,jdwp-version,netbus-version,pcworx-info,s7-info,teamspeak2-version -&#45;script vmware-version,tls-ticketbleed,smb2-time,smb2-security-mode,smb2-capabilities,smb-vuln-ms17-010,smb-double-pulsar-backdoor,openwebnet-discovery,http-vuln-cve2017-1001000,http-security-headers,http-cookie-flags,ftp-syst,cics-info -&#45;open -&#45;reason -&#45;webxml -&#45;script=smb-os-discovery,ssl-cert,http-ntlm-info -&#45;version-all -&#45;excludefile &quot;C:\\go\\src\\large-scale-discovery-v5\\_test\\data\\discovery\\blacklist_valid.txt&quot; -oX - host123.sub.domain.tld"
+         start="1550759565" startstr="Thu Feb 21 15:32:45 2019" version="7.70" xmloutputversion="1.04">
+    <scaninfo type="syn" protocol="tcp" numservices="10" services="21-23,25,80,110,139,443,445,3389"/>
+    <verbose level="0"/>
+    <debugging level="0"/>
+    <host starttime="1550759569" endtime="1550759966">
+        <status state="up" reason="echo-reply" reason_ttl="118"/>
+        <address addr="139.25.33.65" addrtype="ipv4"/>
+        <hostnames>
+            <hostname name="host123.sub.domain.tld" type="user"/>
+            <hostname name="HOST123.sub.domain.tld" type="PTR"/>
+        </hostnames>
+        <ports>
+            <extraports state="filtered" count="8">
+                <extrareasons reason="no-responses" count="8"/>
+            </extraports>
+            <port protocol="tcp" portid="445">
+                <state state="open" reason="syn-ack" reason_ttl="118"/>
+                <service name="microsoft-ds" product="Windows 7 Enterprise 7601 Service Pack 1 microsoft-ds"
+                         extrainfo="workgroup: SUB" hostname="HOST123" ostype="Windows" method="probed" conf="10">
+                    <cpe>cpe:/o:microsoft:windows</cpe>
+                </service>
+            </port>
+            <port protocol="tcp" portid="3389">
+                <state state="open" reason="syn-ack" reason_ttl="118"/>
+                <service name="ms-wbt-server" tunnel="ssl" method="table" conf="3"/>
+                <script id="rdp-enum-encryption" output="&#xa;  Security layer&#xa;    CredSSP: SUCCESS&#xa;"/>
+                <script id="ssl-cert"
+                        output="Subject: commonName=HOST123.sub.domain.tld&#xa;Issuer: commonName=HOST123.sub.domain.tld&#xa;Public Key type: rsa&#xa;Public Key bits: 2048&#xa;Signature Algorithm: sha1WithRSAEncryption&#xa;Not valid before: 2018-10-17T11:24:39&#xa;Not valid after:  2019-04-18T11:24:39&#xa;MD5:   58ce c5a4 eabb d148 6145 062d 42f3 303f&#xa;SHA-1: e2a1 89b5 ac66 63ba 506c d7ef 6222 4842 7b32 d432">
+                    <table key="subject">
+                        <elem key="commonName">HOST123.sub.domain.tld</elem>
+                    </table>
+                    <table key="issuer">
+                        <elem key="commonName">HOST123.sub.domain.tld</elem>
+                    </table>
+                    <table key="pubkey">d
+                        <elem key="type">rsa</elem>
+                        <elem key="exponent">userdata: 051D8BB8</elem>
+                        <elem key="modulus">userdata: 051D8F50</elem>
+                        <elem key="bits">2048</elem>
+                    </table>
+                    <table key="extensions">
+                        <table>
+                            <elem key="value">TLS Web Server Authentication</elem>
+                            <elem key="name">X509v3 Extended Key Usage</elem>
+                        </table>
+                        <table>
+                            <elem key="value">Key Encipherment, Data Encipherment</elem>
+                            <elem key="name">X509v3 Key Usage</elem>
+                        </table>
+                    </table>
+                    <elem key="sig_algo">sha1WithRSAEncryption</elem>
+                    <table key="validity">
+                        <elem key="notAfter">2019-04-18T11:24:39</elem>
+                        <elem key="notBefore">2018-10-17T11:24:39</elem>
+                    </table>
+                    <elem key="md5">58cec5a4eabbd1486145062d42f3303f</elem>
+                    <elem key="sha1">e2a189b5ac6663ba506cd7ef622248427b32d432</elem>
+                    <elem key="pem">-&#45;&#45;&#45;&#45;BEGIN CERTIFICATE-&#45;&#45;&#45;&#45;&#xa;MIIC+DCCAeCgAwIBAgIQQp9KLx18gIFCRoPHngJGhTANBgkqhkiG9w0BAQUFADAl&#xa;MSMwIQYDVQQDExpNRDFIRUMxQy5hZDAwMS5zaWVtZW5zLm5ldDAeFw0xODEwMTcx&#xa;MTI0MzlaFw0xOTA0MTgxMTI0MzlaMCUxIzAhBgNVBAMTGk1EMUhFQzFDLmFkMDAx&#xa;LnNpZW1lbnMubmV0MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA01rA&#xa;H0nrXvBIQDYrtlOWNjero/I+w2eqi8iI2ATEOSeS23AOjPMOpytuSlPZ6cSXGBnT&#xa;JfdHTXQv70Sp9NeOpmkwTxmDg5dZ3l6D5mTInFWS3lWQvZDAJsSoqKtTEOzcOQcZ&#xa;SvUcJ43jN4uVUig9KtGabwVsUFkf7PXAiSMSRci3OSQ1sbOdPudzp9GxVFV66ksz&#xa;dSoQHuroKbgOx0FbTMcUCw3fykK/pieUJGtwsDNvCMX6cLUu1QqyLuwDycuA2Sr7&#xa;U3K+GdUrkwB+wZZ64+SQz8WJdANF+7d3SpxzivaHb7hM5k7tI+CozBCyZqjLVmhE&#xa;ZIiGuIdIh9wQCJg3FwIDAQABoyQwIjATBgNVHSUEDDAKBggrBgEFBQcDATALBgNV&#xa;HQ8EBAMCBDAwDQYJKoZIhvcNAQEFBQADggEBAKNKvy0p5flwNfmrS3N7WwIhGx/4&#xa;r/onKKEksViN8VIL6rmjtd4yZhoL3NG98Ij+FZ3sdfA2/PZ3qtoWTjo/1/uJ0kAM&#xa;+F5vGtnN1pOG5rOCoUrtVdd4ZxQuIJ6LxgRIGp2tp+sdL3ibrsc+k+gimA80nney&#xa;VqFYO1Ct7iwTo22bOuvLSm2BDZt+eZSBVRrPgRgcHB1PPefC+gSWMU0+DzpTic9B&#xa;Hxd+YiYWUIeuiRShWpoVbKUvXA7IYbgeBZD8npxzPl2FsPp21lRo7e3ZqtpVrt4W&#xa;nRQ4txWON2LZbAZlYJlgoMbQYYZBx9DXg3YTFQ9Wl/uuc3SV4RSklba6lUw=&#xa;-&#45;&#45;&#45;&#45;END
+                        CERTIFICATE-&#45;&#45;&#45;&#45;&#xa;
+                    </elem>
+                </script>
+            </port>
+        </ports>
+        <os>
+            <portused state="open" proto="tcp" portid="445"/>
+            <osmatch name="Microsoft Windows 7 SP1" accuracy="96" line="76935">
+                <osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="7" accuracy="96">
+                    <cpe>cpe:/o:microsoft:windows_7::sp1</cpe>
+                </osclass>
+            </osmatch>
+            <osmatch name="Microsoft Windows 8.1 Update 1" accuracy="92" line="77581">
+                <osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="8" accuracy="92">
+                    <cpe>cpe:/o:microsoft:windows_8</cpe>
+                </osclass>
+            </osmatch>
+            <osmatch name="Microsoft Windows Phone 7.5 or 8.0" accuracy="92" line="78869">
+                <osclass type="phone" vendor="Microsoft" osfamily="Windows" osgen="Phone" accuracy="92">
+                    <cpe>cpe:/o:microsoft:windows</cpe>
+                </osclass>
+            </osmatch>
+            <osmatch name="Microsoft Windows 7 or Windows Server 2008 R2" accuracy="91" line="73917">
+                <osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2008" accuracy="91">
+                    <cpe>cpe:/o:microsoft:windows_server_2008:r2</cpe>
+                </osclass>
+                <osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="7" accuracy="91">
+                    <cpe>cpe:/o:microsoft:windows_7</cpe>
+                </osclass>
+            </osmatch>
+            <osmatch name="Microsoft Windows Server 2008 R2" accuracy="91" line="74136">
+                <osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2008" accuracy="91">
+                    <cpe>cpe:/o:microsoft:windows_server_2008:r2</cpe>
+                </osclass>
+            </osmatch>
+            <osmatch name="Microsoft Windows Server 2008 R2 or Windows 8.1" accuracy="91" line="74462">
+                <osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2008" accuracy="91">
+                    <cpe>cpe:/o:microsoft:windows_server_2008:r2</cpe>
+                </osclass>
+                <osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="8.1" accuracy="91">
+                    <cpe>cpe:/o:microsoft:windows_8.1</cpe>
+                </osclass>
+            </osmatch>
+            <osmatch name="Microsoft Windows Server 2008 R2 SP1 or Windows 8" accuracy="91" line="74646">
+                <osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2008" accuracy="91">
+                    <cpe>cpe:/o:microsoft:windows_server_2008:r2:sp1</cpe>
+                </osclass>
+                <osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="8" accuracy="91">
+                    <cpe>cpe:/o:microsoft:windows_8</cpe>
+                </osclass>
+            </osmatch>
+            <osmatch name="Microsoft Windows 7" accuracy="91" line="75992">
+                <osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="7" accuracy="91">
+                    <cpe>cpe:/o:microsoft:windows_7</cpe>
+                </osclass>
+            </osmatch>
+            <osmatch name="Microsoft Windows 7 Professional or Windows 8" accuracy="91" line="76543">
+                <osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="7" accuracy="91">
+                    <cpe>cpe:/o:microsoft:windows_7::-:professional</cpe>
+                </osclass>
+                <osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="8" accuracy="91">
+                    <cpe>cpe:/o:microsoft:windows_8</cpe>
+                </osclass>
+            </osmatch>
+            <osmatch name="Microsoft Windows 7 SP1 or Windows Server 2008 R2" accuracy="91" line="77209">
+                <osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="7" accuracy="91">
+                    <cpe>cpe:/o:microsoft:windows_7</cpe>
+                </osclass>
+                <osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2008" accuracy="91">
+                    <cpe>cpe:/o:microsoft:windows_server_2008:r2</cpe>
+                </osclass>
+            </osmatch>
+        </os>
+        <uptime seconds="20776" lastboot="Thu Feb 21 09:53:10 2019"/>
+        <tcpsequence index="258" difficulty="Good luck!"
+                     values="4AFA2AAE,EDF77E2E,BE9A4646,A6723D53,73B668BD,D2D88EE8"/>
+        <ipidsequence class="Randomized" values="72C5,72C6,72C7,72C8,72CA,72C9"/>
+        <tcptssequence class="100HZ" values="1F9C5E,1F9C6D,1F9C6D,1F9C7D,1F9C8C,1F9C8C"/>
+        <hostscript>
+            <script id="clock-skew" output="mean: -19m59s, deviation: 34m37s, median: 0s">
+                <elem key="median">0</elem>
+                <elem key="stddev">2077</elem>
+                <elem key="mean">-1199</elem>
+            </script>
+            <script id="msrpc-enum" output="NT_STATUS_ACCESS_DENIED">false</script>
+            <script id="smb-mbenum" output="&#xa;  ERROR: Call to Browser Service failed with status = 2184"/>
+            <script id="smb-os-discovery"
+                    output="&#xa;  OS: Windows 7 Enterprise 7601 Service Pack 1 (Windows 7 Enterprise 6.1)&#xa;  OS CPE: cpe:/o:microsoft:windows_7::sp1&#xa;  Computer name: HOST123&#xa;  NetBIOS computer name: HOST123\x00&#xa;  Domain name: sub.domain.tld&#xa;  Forest name: sub.domain.tld&#xa;  FQDN: HOST123.sub.domain.tld&#xa;  System time: 2019-02-21T15:38:29+01:00&#xa;">
+                <elem key="os">Windows 7 Enterprise 7601 Service Pack 1</elem>
+                <elem key="lanmanager">Windows 7 Enterprise 6.1</elem>
+                <elem key="server">HOST123\x00</elem>
+                <elem key="date">2019-02-21T15:38:29+01:00</elem>
+                <elem key="fqdn">HOST123.sub.domain.tld</elem>
+                <elem key="domain_dns">sub.domain.tld</elem>
+                <elem key="forest_dns">sub.domain.tld</elem>
+                <elem key="workgroup">SUB\x00</elem>
+                <elem key="cpe">cpe:/o:microsoft:windows_7::sp1</elem>
+            </script>
+            <script id="smb-protocols"
+                    output="&#xa;  dialects: &#xa;    NT LM 0.12 (SMBv1) [dangerous, but default]&#xa;    2.02&#xa;    2.10">
+                <table key="dialects">
+                    <elem>NT LM 0.12 (SMBv1) [dangerous, but default]</elem>
+                    <elem>2.02</elem>
+                    <elem>2.10</elem>
+                </table>
+            </script>
+            <script id="smb-security-mode"
+                    output="&#xa;  account_used: &lt;blank&gt;&#xa;  authentication_level: user&#xa;  challenge_response: supported&#xa;  message_signing: supported">
+                <elem key="account_used">&lt;blank&gt;</elem>
+                <elem key="authentication_level">user</elem>
+                <elem key="challenge_response">supported</elem>
+                <elem key="message_signing">supported</elem>
+            </script>
+            <script id="smb2-capabilities"
+                    output="&#xa;  2.02: &#xa;    Distributed File System&#xa;  2.10: &#xa;    Distributed File System&#xa;    Leasing&#xa;    Multi-credit operations">
+                <table key="2.02">
+                    <elem>Distributed File System</elem>
+                </table>
+                <table key="2.10">
+                    <elem>Distributed File System</elem>
+                    <elem>Leasing</elem>
+                    <elem>Multi-credit operations</elem>
+                </table>
+            </script>
+            <script id="smb2-security-mode" output="&#xa;  2.02: &#xa;    Message signing enabled but not required">
+                <table key="2.02">
+                    <elem>Message signing enabled but not required</elem>
+                </table>
+            </script>
+            <script id="smb2-time" output="&#xa;  date: 2019-02-21 15:38:33&#xa;  start_date: 2019-02-21 09:53:29">
+                <elem key="date">2019-02-21 15:38:33</elem>
+                <elem key="start_date">2019-02-21 09:53:29</elem>
+            </script>
+        </hostscript>
+        <times srtt="63075" rttvar="59928" to="302787"/>
+    </host>
+    <runstats>
+        <finished time="1550759966" timestr="Thu Feb 21 15:39:26 2019" elapsed="401.58"
+                  summary="Nmap done at Thu Feb 21 15:39:26 2019; 1 IP address (1 host up) scanned in 401.58 seconds"
+                  exit="success"/>
+        <hosts up="1" down="0" total="1"/>
+    </runstats>
+</nmaprun>
