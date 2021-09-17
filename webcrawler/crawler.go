@@ -500,7 +500,7 @@ func (c *Crawler) processTask(
 	crawlerBaseUrl := *c.baseUrl // Prepare copy for better isolation to avoid global manipulation
 
 	// Request URL
-	processLogger.Debugf("Requesting '%s'.", requestUrl)
+	processLogger.Debugf("Requesting '%s' (vhost %s).", requestUrl, c.vhost)
 	resp, redirects, foundAuth, errReq := requester.Get(requestUrl, c.vhost)
 	if errReq != nil {
 
