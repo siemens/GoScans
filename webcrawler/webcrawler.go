@@ -454,7 +454,7 @@ func (s *Scanner) execute() *Result {
 
 		// Add newly discovered subdomains to remaining vhosts
 		for _, discoveredVhost := range r.DiscoveredVhosts {
-			if utils.StrContained(discoveredVhost, vHostsRemaining, vHostsCompleted) {
+			if !utils.StrContained(discoveredVhost, vHostsRemaining, vHostsCompleted) {
 				vHostsRemaining = append(vHostsRemaining, discoveredVhost)
 			}
 		}

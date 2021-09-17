@@ -530,12 +530,14 @@ func (c *Crawler) processTask(
 	// Check whether final response left the scope
 	if !utils.SameScope(resp.Request.URL, &crawlerBaseUrl) {
 
-		// Check if redirect to other hostname on same endpoint (host) might have happened
-		var newVhosts []string
+		// Check if redirect to other hostname on same endpoint (vhost) might have happened
+		newVhosts := make([]string, 0, 1)
 		if utils.SameEndpoint(resp.Request.URL, c.targetIp, -1) {
-			vHost, _ := utils.ExtractHostPort(resp.Request.URL)
-			newVhosts = append(newVhosts, vHost)
-			processLogger.Debugf("Response indicates other vhost (%s).", vHost)
+			newVhost, _ := utils.ExtractHostPort(resp.Request.URL)
+			if newVhost != "" && newVhost != c.vhost {
+				newVhosts = append(newVhosts, newVhost)
+				processLogger.Debugf("Response indicates other vhost (%s).", newVhosts)
+			}
 		} else {
 			processLogger.Debugf("Response out of scope (%s).", resp.Request.URL.String())
 		}
@@ -562,8 +564,8 @@ func (c *Crawler) processTask(
 	if strings.Contains(contentDisposition, "attachment") || utils.StrContained(responseType, c.downloadTypes) {
 
 		// Execute download if desired
+		processLogger.Debugf("Download response.")
 		var partial, complete = 1, 0
-		processLogger.Debugf("Download content.")
 		if c.download {
 			fileName := utils.SanitizeFilename(requestUrl, "_")
 			errDl := streamToFile(resp.Body, c.outputFolder, fileName)
