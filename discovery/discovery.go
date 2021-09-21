@@ -93,7 +93,8 @@ type Script struct {
 type Service struct {
 	Port       int
 	Protocol   string
-	Name       string
+	Name       string // ATTENTION: Nmap sometimes uses the tunnel attribute to indicate an encrypted service port
+	Tunnel     string // ATTENTION: Sometimes Nmap describes a service like "https" as "http" in combination with the tunnel attribute set to "SSL"!
 	Product    string
 	Version    string
 	DeviceType string
@@ -635,21 +636,12 @@ func extractPortData(ports []nmap.Port) ([]Service, []string) {
 			cpes = append(cpes, string(cpe))
 		}
 
-		// In some cases Nmap uses the additional tunnel attribute in XML output, instead of setting the correct
-		// associated service name. E.g. instead of "https" it might discover a service as "http" and additionally
-		// setting the tunnel attribute to "ssl". In that its necessary to manually reflect the SSL characteristic
-		// by building a service name string similar to Nmap's console output, e.g. "ssl/http". "ssl/http" is not
-		// further translated to https, because it's unclear what other services might be affected.
-		service := port.Service.Name
-		if port.Service.Tunnel != "" && !strings.Contains(port.Service.Name, port.Service.Tunnel) {
-			service = port.Service.Tunnel + "/" + port.Service.Name
-		}
-
 		// Create and append Service struct filled with data
 		services = append(services, Service{
 			int(port.ID),
 			port.Protocol,
-			service,
+			port.Service.Name,
+			port.Service.Tunnel, // Sometimes Nmap doesn't set a service to HTTPs, but HTTP in combination with the tunnel attribute set to "SSL"
 			port.Service.Product,
 			port.Service.Version,
 			port.Service.DeviceType,
