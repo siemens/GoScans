@@ -93,8 +93,8 @@ type Script struct {
 type Service struct {
 	Port       int
 	Protocol   string
-	Name       string // ATTENTION: Nmap sometimes uses the tunnel attribute to indicate an encrypted service port
-	Tunnel     string // ATTENTION: Sometimes Nmap describes a service like "https" as "http" in combination with the tunnel attribute set to "SSL"!
+	Name       string // ATTENTION: Nmap sometimes uses the tunnel attribute (XML output) to indicate an encrypted service port.
+	Tunnel     string // ATTENTION: Nmap sometimes describes a service like "https" as "http" in combination with the tunnel attribute set to "SSL"!
 	Product    string
 	Version    string
 	DeviceType string
