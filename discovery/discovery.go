@@ -149,8 +149,10 @@ type Scanner struct {
 	nmapBlacklistFile string        // Path to blacklist list of targets to be skipped at any case
 	ldapConf          ldapConf      // Struct holding LDAP configuration data, ready to be passed on as single value
 	dialTimeout       time.Duration // The duration a dial is allowed to take before it will be canceled.
-	deadline          time.Time     // Time when the scanner has to abort
-	proc              *nmap.Scanner // Actual Nmap scanner object to be executed
+
+	deadline       time.Time         // Time when the scanner has to abort
+	proc           *nmap.Scanner     // Actual Nmap scanner object to be executed
+	inputHostnames map[string]string // Map of original input hostnames
 }
 
 func NewScanner(
@@ -169,10 +171,22 @@ func NewScanner(
 	dialTimeout time.Duration, // Timeout for e.g. AD queries to enrich data (used AD fqdn might not exist)
 ) (*Scanner, error) {
 
+	// Prepare map of original input hostnames referenced by IP for later lookup
+	inputHostnames := make(map[string]string, len(targets))
+
 	// Check whether input target is valid
 	for _, target := range targets {
 		if !utils.IsValidAddress(target) && !utils.IsValidIpRange(target) {
 			return nil, fmt.Errorf("invalid target '%s'", target)
+		}
+
+		// Resolve hostname's IP addresses and remember associations
+		if utils.IsValidHostname(target) {
+			if ips, err := net.LookupIP(target); err == nil {
+				for _, ip := range ips {
+					inputHostnames[ip.String()] = target
+				}
+			}
 		}
 	}
 
@@ -255,8 +269,10 @@ func NewScanner(
 			ldapPassword,
 		},
 		dialTimeout,
+
 		time.Time{}, // zero time (no deadline yet set)
 		proc,
+		inputHostnames,
 	}
 
 	// Return scan struct
@@ -519,6 +535,14 @@ func (s *Scanner) execute() *Result {
 		hostnames = append(hostnames, hostnamesServices...)
 		hostnames = append(hostnames, hostnamesHostScripts...)
 		hostnames = append(hostnames, hostnamesPortScripts...)
+
+		// Add original discovery input hostname if Nmap hasn't discovered it. Nmap first resolves input
+		// hostnames to IP addresses and proceeds ignoring the original input hostname. It might not be able to
+		// rediscover it throughout the scan.
+		originalHostname, _ := s.inputHostnames[ip]
+		if len(originalHostname) != 0 && !utils.StrContained(originalHostname, hostnames) {
+			hostnames = append(hostnames, originalHostname)
+		}
 
 		// Create host struct
 		hData := Host{

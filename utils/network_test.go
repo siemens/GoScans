@@ -102,6 +102,7 @@ func TestIsValidHostname(t *testing.T) {
 		{"invalid-end2", "tld ", false},
 		{"invalid-end3", "tld-", false},
 		{"invalid-ipv4", "127.0.0.1", false},
+		{"invalid-ipv4", "8.8.8.8", false},
 		{"invalid-ipv6", "1::", false},
 	}
 	for _, tt := range tests {
