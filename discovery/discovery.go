@@ -108,6 +108,7 @@ type Host struct {
 	Ip              string
 	DnsName         string
 	OtherNames      []string
+	Hops            []string // Traceroute hops to the target host
 	OsGuesses       []string
 	OsSmb           string
 	LastBoot        time.Time
@@ -490,7 +491,7 @@ func (s *Scanner) execute() *Result {
 
 		// Extract host details
 		s.logger.Debugf("Extracting host data of '%s'.", ip)
-		hostnames, osGuesses, lastBoot, uptime := extractHostData(h)
+		hostnames, hops, osGuesses, lastBoot, uptime := extractHostData(h)
 
 		// Extract host's services
 		s.logger.Debugf("Extracting port data of '%s'.", ip)
@@ -524,6 +525,7 @@ func (s *Scanner) execute() *Result {
 			ip,
 			"",        // To be decided later after extracting SANs
 			hostnames, // To be updated later after deciding DNS name from it
+			hops,
 			osGuesses,
 			osSmb,
 			lastBoot,
@@ -583,13 +585,19 @@ func (s *Scanner) execute() *Result {
 	}
 }
 
-func extractHostData(h nmap.Host) ([]string, []string, time.Time, time.Duration) {
+func extractHostData(h nmap.Host) ([]string, []string, []string, time.Time, time.Duration) {
 
 	var hostnames []string
+	var hops []string
 
 	// Extract host details
-	for _, Hostname := range h.Hostnames {
-		hostnames = append(hostnames, Hostname.String())
+	for _, hostname := range h.Hostnames {
+		hostnames = append(hostnames, hostname.String())
+	}
+
+	// Extract traceroute hops
+	for _, hop := range h.Trace.Hops {
+		hops = append(hops, hop.IPAddr)
 	}
 
 	// Extract OS matches
@@ -614,7 +622,7 @@ func extractHostData(h nmap.Host) ([]string, []string, time.Time, time.Duration)
 	uptime := time.Duration(h.Uptime.Seconds) * time.Second
 
 	// Return host details
-	return hostnames, osGuesses, lastBoot, uptime
+	return hostnames, hops, osGuesses, lastBoot, uptime
 }
 
 func extractPortData(ports []nmap.Port) ([]Service, []string) {
