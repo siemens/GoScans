@@ -46,7 +46,11 @@ func parseCiphers(
 				continue
 			}
 			ciphers[Sslv2.String()+"|"+cipher.Id] = cipher
-			lowest = Sslv2
+
+			// Set lowest protocol if there wasn't a lower one before
+			if lowest == PROTO_Unknown {
+				lowest = Sslv2
+			}
 		}
 	}
 
@@ -62,7 +66,11 @@ func parseCiphers(
 				continue
 			}
 			ciphers[Sslv3.String()+"|"+cipher.Id] = cipher
-			lowest = Sslv3
+
+			// Set lowest protocol if there wasn't a lower one before
+			if lowest == PROTO_Unknown {
+				lowest = Sslv3
+			}
 		}
 	}
 
@@ -78,7 +86,11 @@ func parseCiphers(
 				continue
 			}
 			ciphers[Tlsv1_0.String()+"|"+cipher.Id] = cipher
-			lowest = Tlsv1_0
+
+			// Set lowest protocol if there wasn't a lower one before
+			if lowest == PROTO_Unknown {
+				lowest = Tlsv1_0
+			}
 		}
 	}
 
@@ -94,7 +106,11 @@ func parseCiphers(
 				continue
 			}
 			ciphers[Tlsv1_1.String()+"|"+cipher.Id] = cipher
-			lowest = Tlsv1_1
+
+			// Set lowest protocol if there wasn't a lower one before
+			if lowest == PROTO_Unknown {
+				lowest = Tlsv1_1
+			}
 		}
 	}
 
@@ -110,7 +126,11 @@ func parseCiphers(
 				continue
 			}
 			ciphers[Tlsv1_2.String()+"|"+cipher.Id] = cipher
-			lowest = Tlsv1_2
+
+			// Set lowest protocol if there wasn't a lower one before
+			if lowest == PROTO_Unknown {
+				lowest = Tlsv1_2
+			}
 		}
 	}
 
@@ -126,7 +146,11 @@ func parseCiphers(
 				continue
 			}
 			ciphers[Tlsv1_3.String()+"|"+cipher.Id] = cipher
-			lowest = Tlsv1_3
+
+			// Set lowest protocol if there wasn't a lower one before
+			if lowest == PROTO_Unknown {
+				lowest = Tlsv1_3
+			}
 		}
 	}
 
@@ -134,7 +158,7 @@ func parseCiphers(
 }
 
 // getCipher returns the cipher suite according to the provided SSLyze cipher. In order to be a match the openssl
-// name has to be the same. Additionally some sanity as well as consistency checks will be done.
+// name has to be the same. Additionally, some sanity as well as consistency checks will be done.
 // Caution: preferredCipher can be nil, this indicates, that the the server follows the client's preference or none of
 // the (presented) cipher suites are supported.
 func getCipher(
