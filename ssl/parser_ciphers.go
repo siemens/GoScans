@@ -48,7 +48,7 @@ func parseCiphers(
 			ciphers[Sslv2.String()+"|"+cipher.Id] = cipher
 
 			// Set lowest protocol if there wasn't a lower one before
-			if lowest == PROTO_Unknown {
+			if lowest == PROTO_Unknown || Sslv2 < lowest {
 				lowest = Sslv2
 			}
 		}
@@ -68,7 +68,7 @@ func parseCiphers(
 			ciphers[Sslv3.String()+"|"+cipher.Id] = cipher
 
 			// Set lowest protocol if there wasn't a lower one before
-			if lowest == PROTO_Unknown {
+			if lowest == PROTO_Unknown || Sslv3 < lowest {
 				lowest = Sslv3
 			}
 		}
@@ -88,7 +88,7 @@ func parseCiphers(
 			ciphers[Tlsv1_0.String()+"|"+cipher.Id] = cipher
 
 			// Set lowest protocol if there wasn't a lower one before
-			if lowest == PROTO_Unknown {
+			if lowest == PROTO_Unknown || Tlsv1_0 < lowest {
 				lowest = Tlsv1_0
 			}
 		}
@@ -108,7 +108,7 @@ func parseCiphers(
 			ciphers[Tlsv1_1.String()+"|"+cipher.Id] = cipher
 
 			// Set lowest protocol if there wasn't a lower one before
-			if lowest == PROTO_Unknown {
+			if lowest == PROTO_Unknown || Tlsv1_1 < lowest {
 				lowest = Tlsv1_1
 			}
 		}
@@ -128,7 +128,7 @@ func parseCiphers(
 			ciphers[Tlsv1_2.String()+"|"+cipher.Id] = cipher
 
 			// Set lowest protocol if there wasn't a lower one before
-			if lowest == PROTO_Unknown {
+			if lowest == PROTO_Unknown || Tlsv1_2 < lowest {
 				lowest = Tlsv1_2
 			}
 		}
@@ -148,7 +148,7 @@ func parseCiphers(
 			ciphers[Tlsv1_3.String()+"|"+cipher.Id] = cipher
 
 			// Set lowest protocol if there wasn't a lower one before
-			if lowest == PROTO_Unknown {
+			if lowest == PROTO_Unknown || Tlsv1_3 < lowest {
 				lowest = Tlsv1_3
 			}
 		}
