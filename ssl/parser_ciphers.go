@@ -24,22 +24,20 @@ func parseCiphers(
 	logger utils.Logger,
 	targetName string,
 	cr *gosslyze.CommandResults,
-) (map[string]*Cipher, string, Protocol, error) {
+) (map[string]*Cipher, Protocol, error) {
 
-	pref := ""
 	lowest := PROTO_Unknown
 	ciphers := make(map[string]*Cipher)
 
 	if cr == nil {
-		return ciphers, pref, lowest, fmt.Errorf("provided SSLyze result is nil")
+		return ciphers, lowest, fmt.Errorf("provided SSLyze result is nil")
 	}
 
 	// SSLv2
 	if cr.SslV2 != nil {
-		pref = updateCipherPreference(logger, targetName, pref, cr.SslV2.PreferredCipher, len(cr.SslV2.AcceptedCiphers) > 1)
 
-		for _, acceptedCipher := range cr.SslV2.AcceptedCiphers {
-			cipher, errGet := getCipher(logger, &acceptedCipher, Sslv2, cr.SslV2.PreferredCipher)
+		for _, acceptedCipher := range cr.SslV2.Result.AcceptedCiphers {
+			cipher, errGet := getCipher(logger, &acceptedCipher, Sslv2)
 			if errGet != nil {
 				logger.Warningf("Could not parse and will therefore skip cipher suite '%s': %s",
 					acceptedCipher.Cipher.OpensslName, errGet)
@@ -56,10 +54,9 @@ func parseCiphers(
 
 	// SSLv3
 	if cr.SslV3 != nil {
-		pref = updateCipherPreference(logger, targetName, pref, cr.SslV3.PreferredCipher, len(cr.SslV3.AcceptedCiphers) > 1)
 
-		for _, acceptedCipher := range cr.SslV3.AcceptedCiphers {
-			cipher, errGet := getCipher(logger, &acceptedCipher, Sslv3, cr.SslV3.PreferredCipher)
+		for _, acceptedCipher := range cr.SslV3.Result.AcceptedCiphers {
+			cipher, errGet := getCipher(logger, &acceptedCipher, Sslv3)
 			if errGet != nil {
 				logger.Warningf("Could not parse and will therefore skip cipher suite '%s': %s",
 					acceptedCipher.Cipher.OpensslName, errGet)
@@ -76,10 +73,9 @@ func parseCiphers(
 
 	// TlsV1.0
 	if cr.TlsV1_0 != nil {
-		pref = updateCipherPreference(logger, targetName, pref, cr.TlsV1_0.PreferredCipher, len(cr.TlsV1_0.AcceptedCiphers) > 1)
 
-		for _, acceptedCipher := range cr.TlsV1_0.AcceptedCiphers {
-			cipher, errGet := getCipher(logger, &acceptedCipher, Tlsv1_0, cr.TlsV1_0.PreferredCipher)
+		for _, acceptedCipher := range cr.TlsV1_0.Result.AcceptedCiphers {
+			cipher, errGet := getCipher(logger, &acceptedCipher, Tlsv1_0)
 			if errGet != nil {
 				logger.Warningf("Could not parse and will therefore skip cipher suite '%s': %s",
 					acceptedCipher.Cipher.OpensslName, errGet)
@@ -96,10 +92,9 @@ func parseCiphers(
 
 	// TLSv1.1
 	if cr.TlsV1_1 != nil {
-		pref = updateCipherPreference(logger, targetName, pref, cr.TlsV1_1.PreferredCipher, len(cr.TlsV1_1.AcceptedCiphers) > 1)
 
-		for _, acceptedCipher := range cr.TlsV1_1.AcceptedCiphers {
-			cipher, errGet := getCipher(logger, &acceptedCipher, Tlsv1_1, cr.TlsV1_1.PreferredCipher)
+		for _, acceptedCipher := range cr.TlsV1_1.Result.AcceptedCiphers {
+			cipher, errGet := getCipher(logger, &acceptedCipher, Tlsv1_1)
 			if errGet != nil {
 				logger.Warningf("Could not parse and will therefore skip cipher suite '%s': %s",
 					acceptedCipher.Cipher.OpensslName, errGet)
@@ -116,10 +111,9 @@ func parseCiphers(
 
 	// TLSv1.2
 	if cr.TlsV1_2 != nil {
-		pref = updateCipherPreference(logger, targetName, pref, cr.TlsV1_2.PreferredCipher, len(cr.TlsV1_2.AcceptedCiphers) > 1)
 
-		for _, acceptedCipher := range cr.TlsV1_2.AcceptedCiphers {
-			cipher, errGet := getCipher(logger, &acceptedCipher, Tlsv1_2, cr.TlsV1_2.PreferredCipher)
+		for _, acceptedCipher := range cr.TlsV1_2.Result.AcceptedCiphers {
+			cipher, errGet := getCipher(logger, &acceptedCipher, Tlsv1_2)
 			if errGet != nil {
 				logger.Warningf("Could not parse and will therefore skip cipher suite '%s': %s",
 					acceptedCipher.Cipher.OpensslName, errGet)
@@ -136,10 +130,9 @@ func parseCiphers(
 
 	// TLSv1.3
 	if cr.TlsV1_3 != nil {
-		pref = updateCipherPreference(logger, targetName, pref, cr.TlsV1_3.PreferredCipher, len(cr.TlsV1_3.AcceptedCiphers) > 1)
 
-		for _, acceptedCipher := range cr.TlsV1_3.AcceptedCiphers {
-			cipher, errGet := getCipher(logger, &acceptedCipher, Tlsv1_3, cr.TlsV1_3.PreferredCipher)
+		for _, acceptedCipher := range cr.TlsV1_3.Result.AcceptedCiphers {
+			cipher, errGet := getCipher(logger, &acceptedCipher, Tlsv1_3)
 			if errGet != nil {
 				logger.Warningf("Could not parse and will therefore skip cipher suite '%s': %s",
 					acceptedCipher.Cipher.OpensslName, errGet)
@@ -154,7 +147,7 @@ func parseCiphers(
 		}
 	}
 
-	return ciphers, pref, lowest, nil
+	return ciphers, lowest, nil
 }
 
 // getCipher returns the cipher suite according to the provided SSLyze cipher. In order to be a match the openssl
@@ -165,7 +158,6 @@ func getCipher(
 	logger utils.Logger,
 	acceptedCipher *gosslyze.AcceptedCipher,
 	protocol Protocol,
-	preferredCipher *gosslyze.AcceptedCipher,
 ) (*Cipher, error) {
 
 	if acceptedCipher == nil {
@@ -203,51 +195,7 @@ func getCipher(
 		cipher.KeyExchangeStrength,
 		cipher.KeyExchangeInfo = parseEphemeralKeyInfo(logger, acceptedCipher.EphemeralKey)
 
-	// Determine whether this cipher is a preferred cipher.
-	if preferredCipher == nil {
-		// If the preferredCipher is nil, the server has no preference and will choose the client's preference.
-		// Therefore any supported cipher suite can be a preferred cipher suite.
-		cipher.IsPreferred = true
-	} else if sslyzeCipher.OpensslName == preferredCipher.Cipher.OpensslName {
-		cipher.IsPreferred = true
-	}
-
 	return cipher, nil
-}
-
-// updateCipherPreference determines whether we have a server or client server preference and checks for consistency
-// with previous updates. If the data is inconsistent the currently computed preference will be used, as we check the
-// preference of newer TLS versions last.
-func updateCipherPreference(
-	logger utils.Logger,
-	targetName string,
-	prevPreference string,
-	preferredCipher *gosslyze.AcceptedCipher,
-	anyAccepted bool,
-) string {
-
-	// If no cipher of this ssl/tls version was accepted we don't need to update the preference.
-	if !anyAccepted {
-		return prevPreference
-	}
-
-	pref := CipherPreferenceServer
-	if preferredCipher == nil {
-		pref = CipherPreferenceClient
-	}
-
-	// Set the preference if it wasn't set yet.
-	if prevPreference == "" {
-		return pref
-	}
-
-	// We should not get a different preference if it was already set before. If so, we will continue with the new
-	// preference as we check the preference of newer tls version last. Nonetheless log the inconsistency.
-	if prevPreference != pref {
-		logger.Warningf("Inconsistent cipher preference for target '%s'.", targetName)
-	}
-
-	return pref
 }
 
 // parseEphemeralKeyInfo parses the EphemeralKeyInfo struct provided by SSLyze and returns the key size, strength as

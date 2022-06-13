@@ -41,11 +41,11 @@ func parseCertificateChains(
 	}
 
 	// Initialize the return variables.
-	deployments := make([]*CertDeployment, 0, len(cr.CertInfo.Deployments))
+	deployments := make([]*CertDeployment, 0, len(cr.CertInfo.Result.Deployments))
 	anyInvalid := false
 	anyInvalidOrder := false
 
-	for _, deployment := range cr.CertInfo.Deployments {
+	for _, deployment := range cr.CertInfo.Result.Deployments {
 		deploy := &CertDeployment{
 			Certificates:  make([]*Certificate, 0, len(deployment.CertificateChain)),
 			HasValidOrder: deployment.HasValidOrder,
@@ -108,12 +108,12 @@ func parseCertificate(logger utils.Logger, sslyzeCert *gosslyze.Certificate, tar
 		Serial:                 sslyzeCert.Serial,
 		AlternativeNames:       sslyzeCert.SubjectAltName.Dns,
 		PublicKeyAlgorithm:     makePublicKey(logger, sslyzeCert.PublicKey.Algorithm),
-		SignatureHashAlgorithm: makeSignatureHash(logger, sslyzeCert.SignatureAlg),
+		SignatureHashAlgorithm: makeSignatureHash(logger, sslyzeCert.SignatureHashAlgo.Name),
 	}
 
 	// Set the validity times
-	certificate.ValidFrom = sslyzeCert.NotBefore.Time
-	certificate.ValidTo = sslyzeCert.NotAfter.Time
+	certificate.ValidFrom = sslyzeCert.NotValidBefore.Time
+	certificate.ValidTo = sslyzeCert.NotValidAfter.Time
 
 	// Set subject and issuer information
 	certificate.SubjectCN, certificate.Subject = parseEntity(logger, sslyzeCert.Subject)
@@ -265,8 +265,8 @@ func parseEntity(logger utils.Logger, entity gosslyze.Entity) (string, []string)
 	oids := []string{}
 
 	// Some nil pointer dereference checks
-	if entity.ParsingError != nil && *entity.ParsingError != "" {
-		logger.Warningf("SSLyze entity parsing error: '%s'.", *entity.ParsingError)
+	if entity.Attributes == nil && entity.RfcString == nil {
+		logger.Warningf("SSLyze entity parsing error.")
 		return cn, oids
 	}
 

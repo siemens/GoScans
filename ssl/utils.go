@@ -373,7 +373,6 @@ func compareCipher(cipher1, cipher2 *Cipher) bool {
 		c1.OpensslName == c2.OpensslName &&
 		c1.IanaName == c2.IanaName &&
 		c1.Protocol == c2.Protocol &&
-		c1.IsPreferred == c2.IsPreferred &&
 		c1.KeyExchange == c2.KeyExchange &&
 		c1.KeyExchangeBits == c2.KeyExchangeBits &&
 		c1.KeyExchangeStrength == c2.KeyExchangeStrength &&
@@ -428,7 +427,7 @@ func compareCerts(certs1, certs2 []*Certificate) bool {
 			// Check the easy types first
 			if c1.Type != c2.Type ||
 				c1.Version != c2.Version ||
-				c1.Serial != c2.Serial ||
+				c1.Serial.Cmp(&c2.Serial) != 0 ||
 				c1.SubjectCN != c2.SubjectCN ||
 				c1.IssuerCN != c2.IssuerCN ||
 				c1.PublicKeyAlgorithm != c2.PublicKeyAlgorithm ||

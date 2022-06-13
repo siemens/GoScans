@@ -60,7 +60,7 @@ func GetSettings() (*Settings, error) {
 
 		// Create a new instance of the unit test settings, that might need to be adapted before running unit tests
 		settings = &Settings{
-			PathSslyze:    filepath.Join(workingDir, "tools", "sslyze-3.0.8", "sslyze.exe"), // CONFIGURE BEFORE RUNNING UNIT TESTS
+			PathSslyze:    filepath.Join(workingDir, "tools", "sslyze-5.0.5", "sslyze.exe"), // CONFIGURE BEFORE RUNNING UNIT TESTS
 			PathNmap:      filepath.Join(workingDir, "tools", "nmap-7.91", "nmap.exe"),      // CONFIGURE BEFORE RUNNING UNIT TESTS
 			HttpUserAgent: "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:31.0) Gecko/20100101 Firefox/31.0",
 			HttpProxy:     proxy,

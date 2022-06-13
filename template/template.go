@@ -82,7 +82,7 @@ func NewScanner(
 		target:   strings.TrimSpace(target),
 		port:     port,
 		protocol: strings.TrimSpace(protocol),
-		deadline: nil,
+		deadline: time.Time{},
 	}
 
 	// Return scan struct
