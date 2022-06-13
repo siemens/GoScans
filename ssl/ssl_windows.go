@@ -31,8 +31,8 @@ func NewScanner(
 	var out bytes.Buffer
 	var stderr bytes.Buffer
 
-	// Check whether we can execute the sslyze library and retrieve the version
-	args := []string{"--version"}
+	// Check whether we can execute the sslyze library and retrieve the help message
+	args := []string{"--help"}
 	cmd := exec.Command(sslyzePath, args...)
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
@@ -41,8 +41,13 @@ func NewScanner(
 		return nil, fmt.Errorf("'%s %v' can not be executed: %s: %s", sslyzePath, args, errCmd, stderr.String())
 	}
 
-	// Trim the SSLyze version number
-	version := strings.Trim(out.String(), "\n\t\r ")
+	// Extract the Sslyze version, the version flag has been removed and the version is now extracted from the help message
+	HelpMsg := out.String()
+	versionIndex := strings.Index(HelpMsg, "SSLyze version ")
+	argumentsIndex := strings.Index(HelpMsg, "positional arguments")
+	version := out.String()[versionIndex+len("SSLyze version ") : argumentsIndex]
+
+	// Check if used version is compatible to the required one
 	versionOk, errVersion := compareVersion(version, sslyzeVersion)
 	if errVersion != nil {
 		return nil, fmt.Errorf("could not validate the SSLyze version '%s': %s", version, errVersion)

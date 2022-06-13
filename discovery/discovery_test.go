@@ -193,13 +193,15 @@ func TestExtractHostData(t *testing.T) {
 		h     nmap.Host
 		want  []string
 		want1 []string
-		want2 time.Time
-		want3 time.Duration
+		want2 []string
+		want3 time.Time
+		want4 time.Duration
 	}{
 		{
 			"valid",
 			scanResult.Hosts[0],
 			[]string{"host123.sub.domain.tld", "HOST123.sub.domain.tld"},
+			[]string{},
 			[]string{"96% Microsoft Windows 7 SP1", "92% Microsoft Windows 8.1 Update 1", "92% Microsoft Windows Phone 7.5 or 8.0", "91% Microsoft Windows 7 or Windows Server 2008 R2", "91% Microsoft Windows Server 2008 R2", "91% Microsoft Windows Server 2008 R2 or Windows 8.1", "91% Microsoft Windows Server 2008 R2 SP1 or Windows 8", "91% Microsoft Windows 7", "91% Microsoft Windows 7 Professional or Windows 8", "91% Microsoft Windows 7 SP1 or Windows Server 2008 R2"},
 			time.Date(2019, 02, 21, 15, 32, 49, 0, location),
 			time.Second * 20776,
@@ -207,17 +209,20 @@ func TestExtractHostData(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, got1, got2, got3 := extractHostData(tt.h)
+			got, got1, got2, got3, got4 := extractHostData(tt.h)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("extractHostData() = '%v', want = '%v'", got, tt.want)
 			}
 			if !reflect.DeepEqual(got1, tt.want1) {
+				t.Errorf("extractHostData() got3 = '%v', want3 = '%v'", got3, tt.want3)
+			}
+			if !reflect.DeepEqual(got2, tt.want2) {
 				t.Errorf("extractHostData() got1 = '%v', want1 = '%v'", got1, tt.want1)
 			}
-			if !got2.Equal(tt.want2) {
+			if !reflect.DeepEqual(got3, tt.want3) {
 				t.Errorf("extractHostData() got2 = '%v', want2 = '%v'", got2, tt.want2)
 			}
-			if !reflect.DeepEqual(got3, tt.want3) {
+			if !reflect.DeepEqual(got4, tt.want4) {
 				t.Errorf("extractHostData() got3 = '%v', want3 = '%v'", got3, tt.want3)
 			}
 		})
@@ -258,6 +263,7 @@ func TestExtractPortData(t *testing.T) {
 			"",
 			"",
 			"Windows",
+			"",
 			[]string{"cpe:/o:microsoft:windows"},
 			"workgroup: SUB",
 			"probed",
@@ -267,6 +273,7 @@ func TestExtractPortData(t *testing.T) {
 			3389,
 			"tcp",
 			"ms-wbt-server",
+			"",
 			"",
 			"",
 			"",
@@ -437,7 +444,8 @@ func TestPostprocessingSubmit(t *testing.T) {
 			"localhost",
 			[]string{"local"},
 			[]string{},
-			"Windows 7 Enterprise 7601 Service Pack 1 microsoft-ds",
+			[]string{"Windows 7 Enterprise 7601 Service Pack 1 microsoft-ds"},
+			"",
 			time.Now().Add(timeout),
 			time.Minute,
 			"",
@@ -452,7 +460,8 @@ func TestPostprocessingSubmit(t *testing.T) {
 			"localhost2",
 			[]string{"local2"},
 			[]string{},
-			"Windows 7 Enterprise 7601 Service Pack 1 microsoft-ds",
+			[]string{"Windows 7 Enterprise 7601 Service Pack 1 microsoft-ds"},
+			"",
 			time.Now().Add(timeout),
 			time.Minute,
 			"",
@@ -467,6 +476,7 @@ func TestPostprocessingSubmit(t *testing.T) {
 			"localhost3",
 			[]string{"local3"},
 			[]string{},
+			[]string{""},
 			"",
 			time.Now().Add(timeout),
 			time.Minute,
@@ -547,7 +557,8 @@ func TestPostprocessingComplete(t *testing.T) {
 			"localhost",
 			[]string{"local"},
 			[]string{},
-			"Windows 7 Enterprise 7601 Service Pack 1 microsoft-ds",
+			[]string{"Windows 7 Enterprise 7601 Service Pack 1 microsoft-ds"},
+			"",
 			time.Now(),
 			time.Minute,
 			"",
@@ -562,7 +573,8 @@ func TestPostprocessingComplete(t *testing.T) {
 			"localhost2",
 			[]string{"local2"},
 			[]string{},
-			"Windows 7 Enterprise 7601 Service Pack 1 microsoft-ds",
+			[]string{"Windows 7 Enterprise 7601 Service Pack 1 microsoft-ds"},
+			"",
 			time.Now(),
 			time.Minute,
 			"",
@@ -577,6 +589,7 @@ func TestPostprocessingComplete(t *testing.T) {
 			"localhost3",
 			[]string{"local3"},
 			[]string{},
+			[]string{""},
 			"",
 			time.Now(),
 			time.Minute,

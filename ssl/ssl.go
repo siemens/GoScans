@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"github.com/noneymous/GoSslyze"
 	"go-scans/utils"
+	"math/big"
 	"strconv"
 	"strings"
 	"time"
@@ -23,7 +24,7 @@ import (
 const Label = "Ssl"
 
 var (
-	sslyzeVersion = []int{3, 0, -1}
+	sslyzeVersion = []int{5, 0, -1}
 )
 
 /*
@@ -103,13 +104,12 @@ var StartTlsPorts = map[int]string{
 	5432: "postgres",    // Postgres
 }
 
-// When changing any of the following structs keep in min to change the compareResultData function accordingly.
+// When changing any of the following structs keep in mind to change the compareResultData function accordingly.
 type Issues struct {
 	AnyChainInvalid              bool     // Indicates whether any certificate chain is invalid.
 	AnyChainInvalidOrder         bool     // Indicates whether any certificate chain has an invalid order.
 	LowestProtocol               Protocol // The lowest SSL / TLS version that is supported by the server.
 	MinStrength                  int      // The minimum of EncryptionStrength, MacStrength(/PrfStrength) and PublicKeyStrength across all ciphers and certificates.
-	CipherPreference             string   // 'client' / 'server' indicating whether the server has any preference.
 	InsecureRenegotiation        bool     // Indicates whether the server supports secure renegotiation.
 	AcceptsClientRenegotiation   bool     // If set renegotiation can be initialized by the client.
 	InsecureClientRenegotiation  bool     // Combination of InsecureRenegotiation and AcceptsClientRenegotiation.
@@ -135,6 +135,7 @@ type Issues struct {
 	Logjam                       bool     // https://weakdh.org/logjam.html		(https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2015-4000) (Currently only export ciphers are tested)
 	Sweet32                      bool     // https://sweet32.info/ 				(https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2016-2183)
 	Drown                        bool     // https://drownattack.com/ 			(https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2016-0800)
+	IsCompliantToMozillaConfig   bool     // https://ssl-config.mozilla.org/    Check if the server's SSL config complies with the recommended one from Mozilla
 }
 
 type Cipher struct {
@@ -142,7 +143,6 @@ type Cipher struct {
 	IanaName            string
 	OpensslName         string
 	Protocol            Protocol       // SSL/TLS version used.
-	IsPreferred         bool           // Set if the server prefers this suite or if the server has no preference.
 	KeyExchange         KeyExchange    // The key exchange algorithm.
 	KeyExchangeBits     int            // The encryption's key bit-size - only set if ephemeral key exchange or export cipher.
 	KeyExchangeStrength int            // The encryption's strength corresponding to the key size - only set if ephemeral key exchange or export cipher.
@@ -175,7 +175,7 @@ type CertDeployment struct {
 type Certificate struct {
 	Type                   string             // 'leaf' / 'intermediate' / 'root'
 	Version                int                // Version of the X.509 standard.
-	Serial                 string             // Serial number chosen by the CA (not necessarily globally unique / random).
+	Serial                 big.Int            // Serial number chosen by the CA (not necessarily globally unique / random).
 	Subject                []string           // Object Identifiers (OIDs) of the subject.
 	SubjectCN              string             // Subject's common name.
 	Issuer                 []string           // Object Identifiers (OIDs) of the issuer.
@@ -200,10 +200,23 @@ type Certificate struct {
 }
 
 type Data struct {
-	Vhost           string             // The target's hostname
-	Issues          *Issues            // Cipher basic info
-	Ciphers         map[string]*Cipher // Map of [protocol + "|" + cipher id] = cipher
-	CertDeployments []*CertDeployment  // A server can have multiple certificate chains, e.g. in order to support older clients. Unfortunately SSLyze does not return any information on which chain is linked to which client (/Cipher/Server name used for SNI...)
+	Vhost                 string             // The target's hostname
+	Issues                *Issues            // Cipher basic info
+	Ciphers               map[string]*Cipher // Map of [protocol + "|" + cipher id] = cipher
+	CertDeployments       []*CertDeployment  // A server can have multiple certificate chains, e.g. in order to support older clients. Unfortunately SSLyze does not return any information on which chain is linked to which client (/Cipher/Server name used for SNI...)
+	EllipticCurves        *EllipticCurves    // Information about the elliptic curves that the target supports or rejects
+	ComplianceTestDetails string             // Details to the check against Mozilla's SSL config. Each target will have its own IsCompliant flag, but this variable contains further details of the check.
+}
+
+type EllipticCurves struct {
+	RejectedCurves         []EllipticCurve // The curves that the target rejects
+	SupportedCurves        []EllipticCurve // The curves that the target accepts
+	SupportECDHKeyExchange bool            // Indicates whether the target supports ECDH Key Exchange
+}
+
+type EllipticCurve struct {
+	Name       string
+	OpenSSLnid int
 }
 
 type Result struct {
@@ -449,12 +462,15 @@ func initSslyze(
 	s.WithHeartbleed()
 	s.WithRenegotiation()
 	s.WithResume()
+	s.WithResumeAttempts(10)
 	s.WithCompression()
 	s.WithFallback()
 	s.WithRobot()
 	s.WithCertInfo() // Validate certificate
 	s.WithSni(sni)   // Specify the hostname to connect to using sni.
 	s.WithEarlyData()
+	s.WithEllipticCurves()
+	s.WithMozillaConfig("intermediate") // Check server's config against Mozilla's intermediate recommended SSL config
 
 	// Send a STARTTLS message to protocols like smtp, xmpp, pop3, ftp, ... The protocol will be determined based on
 	// the port.
