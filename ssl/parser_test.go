@@ -82,22 +82,22 @@ func TestGetStringOids(t *testing.T) {
 		wantCn  string
 		wantOid []string
 	}{
-		{"common-name-only", args{gosslyze.Entity{Attributes: name, RfcString: &nameStr}}, "Company Issuing CA Intranet Server 2017", []string{"CommonName: Company Issuing CA Intranet Server 2017"}},
-		{"country-only", args{gosslyze.Entity{Attributes: country, RfcString: &countryStr}}, "", []string{"Country: Spain"}},
-		{"organization-only", args{gosslyze.Entity{Attributes: orga, RfcString: &orgaStr}}, "", []string{"Organization: Company"}},
-		{"organizational-unit-only", args{gosslyze.Entity{Attributes: orgaUnit, RfcString: &orgaUnitStr}}, "", []string{"OrganizationalUnit: Company Trust Center"}},
-		{"locality-only", args{gosslyze.Entity{Attributes: locality, RfcString: &localityStr}}, "", []string{"Locality: Muenchen"}},
-		{"province-only", args{gosslyze.Entity{Attributes: province, RfcString: &provinceStr}}, "", []string{"Province: Bayern"}},
-		{"street-address-only", args{gosslyze.Entity{Attributes: street, RfcString: &streetStr}}, "", []string{"StreetAddress: Somestr. 8"}},
-		{"postal-code-only", args{gosslyze.Entity{Attributes: postal, RfcString: &postalStr}}, "", []string{"PostalCode: 54321"}},
-		{"serial-number-only", args{gosslyze.Entity{Attributes: serial, RfcString: &serialStr}}, "", []string{"SerialNumber: 007"}},
-		{"all", args{gosslyze.Entity{Attributes: &all, RfcString: &allStr}}, "Company Issuing CA Intranet Server 2017", []string{"CommonName: Company Issuing CA Intranet Server 2017", "Country: Spain", "Organization: Company", "OrganizationalUnit: Company Trust Center", "Locality: Muenchen", "Province: Bayern", "StreetAddress: Somestr. 8", "PostalCode: 54321", "SerialNumber: 007"}},
+		{"common-name-only", args{gosslyze.Entity{Attributes: name, RfcString: nameStr}}, "Company Issuing CA Intranet Server 2017", []string{"CommonName: Company Issuing CA Intranet Server 2017"}},
+		{"country-only", args{gosslyze.Entity{Attributes: country, RfcString: countryStr}}, "", []string{"Country: Spain"}},
+		{"organization-only", args{gosslyze.Entity{Attributes: orga, RfcString: orgaStr}}, "", []string{"Organization: Company"}},
+		{"organizational-unit-only", args{gosslyze.Entity{Attributes: orgaUnit, RfcString: orgaUnitStr}}, "", []string{"OrganizationalUnit: Company Trust Center"}},
+		{"locality-only", args{gosslyze.Entity{Attributes: locality, RfcString: localityStr}}, "", []string{"Locality: Muenchen"}},
+		{"province-only", args{gosslyze.Entity{Attributes: province, RfcString: provinceStr}}, "", []string{"Province: Bayern"}},
+		{"street-address-only", args{gosslyze.Entity{Attributes: street, RfcString: streetStr}}, "", []string{"StreetAddress: Somestr. 8"}},
+		{"postal-code-only", args{gosslyze.Entity{Attributes: postal, RfcString: postalStr}}, "", []string{"PostalCode: 54321"}},
+		{"serial-number-only", args{gosslyze.Entity{Attributes: serial, RfcString: serialStr}}, "", []string{"SerialNumber: 007"}},
+		{"all", args{gosslyze.Entity{Attributes: &all, RfcString: allStr}}, "Company Issuing CA Intranet Server 2017", []string{"CommonName: Company Issuing CA Intranet Server 2017", "Country: Spain", "Organization: Company", "OrganizationalUnit: Company Trust Center", "Locality: Muenchen", "Province: Bayern", "StreetAddress: Somestr. 8", "PostalCode: 54321", "SerialNumber: 007"}},
 
-		{"error-empty", args{gosslyze.Entity{Attributes: orga, RfcString: &orgaStr}}, "", []string{"Organization: Company"}},
-		{"error", args{gosslyze.Entity{Attributes: orga, RfcString: &orgaStr}}, "", []string{}},
-		{"nil-attributes", args{gosslyze.Entity{Attributes: nil, RfcString: &empty}}, "", []string{}},
-		{"no-attributes", args{gosslyze.Entity{Attributes: &[]gosslyze.Attribute{}, RfcString: &empty}}, "", []string{}},
-		{"all-nil", args{gosslyze.Entity{Attributes: nil, RfcString: nil}}, "", []string{}},
+		{"error-empty", args{gosslyze.Entity{Attributes: orga, RfcString: orgaStr}}, "", []string{"Organization: Company"}},
+		{"error", args{gosslyze.Entity{Attributes: orga, RfcString: orgaStr}}, "", []string{}},
+		{"nil-attributes", args{gosslyze.Entity{Attributes: nil, RfcString: empty}}, "", []string{}},
+		{"no-attributes", args{gosslyze.Entity{Attributes: &[]gosslyze.Attribute{}, RfcString: empty}}, "", []string{}},
+		{"all-nil", args{gosslyze.Entity{Attributes: nil, RfcString: ""}}, "", []string{}},
 	}
 
 	for _, tt := range tests {

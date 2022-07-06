@@ -258,17 +258,11 @@ func parseCertificate(logger utils.Logger, sslyzeCert *gosslyze.Certificate, tar
 }
 
 // getEntityString extracts the OIDs (+ their values) contained in the Entity struct and formats them into one string.
-// Additionally the 'Common Name' value is returned separately
+// Additionally, the 'Common Name' value is returned separately
 func parseEntity(logger utils.Logger, entity gosslyze.Entity) (string, []string) {
 
 	cn := ""
-	oids := []string{}
-
-	// Some nil pointer dereference checks
-	if entity.Attributes == nil && entity.RfcString == nil {
-		logger.Warningf("SSLyze entity parsing error.")
-		return cn, oids
-	}
+	var oids []string
 
 	if entity.Attributes == nil || len(*entity.Attributes) < 1 {
 		logger.Warningf("SSLyze entity has no attributes.")
