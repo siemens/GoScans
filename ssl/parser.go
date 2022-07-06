@@ -176,7 +176,7 @@ func parseEllipticInfo(cr *gosslyze.CommandResults) (*EllipticCurves, error) {
 
 	// Rejected Elliptic Curves
 	if cr.EllipticCurves.Result.RejectedCurves != nil {
-		ellipticInfo.SupportedCurves = parseEllipticCurves(cr.EllipticCurves.Result.RejectedCurves)
+		ellipticInfo.RejectedCurves = parseEllipticCurves(cr.EllipticCurves.Result.RejectedCurves)
 	}
 
 	// Check support for ECDH Key Exchange
