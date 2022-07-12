@@ -12,7 +12,7 @@ package netapi
 
 import (
 	"fmt"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/utils"
 	"golang.org/x/sys/windows"
 	"strings"
 	"syscall"

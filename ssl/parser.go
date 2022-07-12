@@ -13,7 +13,7 @@ package ssl
 import (
 	"fmt"
 	"github.com/noneymous/GoSslyze"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/utils"
 )
 
 func parseSslyzeResult(logger utils.Logger, targetName string, hostResult *gosslyze.HostResult) *Data {
@@ -57,9 +57,23 @@ func parseSslyzeResult(logger utils.Logger, targetName string, hostResult *gossl
 
 	// Parse the SSL/TLS basic data
 	var errInfo error
-	sslData.Issues, errInfo = parseIssues(&result.CommandResults)
+	sslData.Issues, errInfo = parseIssues(&result.ScanResult)
 	if errInfo != nil {
 		logger.Warningf("Could not parse basic info: %s", errInfo)
+	}
+
+	// Parse information on the check against Mozilla's SSL recommended config
+	var errComplianceCheck error
+	sslData.ComplianceTestDetails, errInfo = parseComplianceCheck(hostResult)
+	if errComplianceCheck != nil {
+		logger.Warningf("Could not parse Mozilla's check information: %s", errComplianceCheck)
+	}
+
+	// Parse elliptic curves information
+	var errEllip error
+	sslData.EllipticCurves, errEllip = parseEllipticInfo(&result.ScanResult)
+	if errEllip != nil {
+		logger.Warningf("Could not parse elliptic curves information: %s", errEllip)
 	}
 
 	// Parse the Certificates
@@ -67,7 +81,7 @@ func parseSslyzeResult(logger utils.Logger, targetName string, hostResult *gossl
 	sslData.CertDeployments,
 		sslData.Issues.AnyChainInvalid,
 		sslData.Issues.AnyChainInvalidOrder,
-		errCerts = parseCertificateChains(logger, &result.CommandResults, targetName)
+		errCerts = parseCertificateChains(logger, &result.ScanResult, targetName)
 	if errCerts != nil {
 		logger.Warningf("Could not process certificate chain: %s", errCerts)
 	}
@@ -75,9 +89,8 @@ func parseSslyzeResult(logger utils.Logger, targetName string, hostResult *gossl
 	// Parse the cipher suites
 	var errCiphers error
 	sslData.Ciphers,
-		sslData.Issues.CipherPreference,
 		sslData.Issues.LowestProtocol,
-		errCiphers = parseCiphers(logger, targetName, &result.CommandResults)
+		errCiphers = parseCiphers(logger, targetName, &result.ScanResult)
 	if errCiphers != nil {
 		logger.Warningf("Could not process cipher suites: %s", errCiphers)
 	}
@@ -108,36 +121,88 @@ func parseIssues(cr *gosslyze.CommandResults) (*Issues, error) {
 
 	// General information
 	if cr.EarlyData != nil {
-		issues.EarlyDataSupported = cr.EarlyData.IsSupported
+		issues.EarlyDataSupported = cr.EarlyData.Result.IsSupported
 	}
 
 	// check whether session ID resumption was successful.
 	if cr.Resumption != nil {
-		if cr.Resumption.AttemptedIdResumptions == cr.Resumption.SuccessfulIdResumptions {
+		if cr.Resumption.Result.AttemptedIdResumptions == cr.Resumption.Result.SuccessfulIdResumptions {
 			issues.SessionResumptionWithId = true
 		}
 
 		// Check whether the server supports TLS ticket resumption.
-		issues.SessionResumptionWithTickets = cr.Resumption.TicketResumption == gosslyze.TicketResumptionSuccess
+		issues.SessionResumptionWithTickets = cr.Resumption.Result.TicketResumption == gosslyze.TicketResumptionSuccess
 	}
 
 	// Renegotiation information
 	if cr.Renegotiation != nil {
-		issues.InsecureRenegotiation = !cr.Renegotiation.SupportsSecureRenegotiation
-		issues.AcceptsClientRenegotiation = cr.Renegotiation.AcceptsClientRenegotiation
+		issues.InsecureRenegotiation = !cr.Renegotiation.Result.SupportsSecureRenegotiation
+		issues.AcceptsClientRenegotiation = cr.Renegotiation.Result.VulnerableToClientRenegotiation
 		issues.InsecureClientRenegotiation = issues.InsecureRenegotiation && issues.AcceptsClientRenegotiation
 	}
 
 	// Vulnerability information
 	if cr.Compression != nil {
-		issues.Compression = cr.Compression.IsSupported
+		issues.Compression = cr.Compression.Result.IsSupported
 	}
 	if cr.Heartbleed != nil {
-		issues.Heartbleed = cr.Heartbleed.IsVulnerable
+		issues.Heartbleed = cr.Heartbleed.Result.IsVulnerable
 	}
 	if cr.OpensslCcs != nil {
-		issues.CcsInjection = cr.OpensslCcs.IsVulnerable
+		issues.CcsInjection = cr.OpensslCcs.Result.IsVulnerable
 	}
 
+	// Mozilla's Check information
+	issues.IsCompliantToMozillaConfig = cr.IsCompliant
+
 	return issues, nil
+}
+
+// parseEllipticInfo creates and returns an EllipticCurves struct with information on elliptic curves.
+func parseEllipticInfo(cr *gosslyze.CommandResults) (*EllipticCurves, error) {
+
+	// Initialize the return struct
+	ellipticInfo := &EllipticCurves{}
+
+	// Check for nil pointer
+	if cr == nil {
+		return ellipticInfo, fmt.Errorf("provided SSLyze result is nil")
+	}
+
+	// Accepted Elliptic Curves
+	if cr.EllipticCurves.Result.SupportedCurves != nil {
+		ellipticInfo.SupportedCurves = parseEllipticCurves(cr.EllipticCurves.Result.SupportedCurves)
+	}
+
+	// Rejected Elliptic Curves
+	if cr.EllipticCurves.Result.RejectedCurves != nil {
+		ellipticInfo.RejectedCurves = parseEllipticCurves(cr.EllipticCurves.Result.RejectedCurves)
+	}
+
+	// Check support for ECDH Key Exchange
+	ellipticInfo.SupportECDHKeyExchange = cr.EllipticCurves.Result.SupportECDHKeyExchange
+
+	return ellipticInfo, nil
+}
+
+func parseEllipticCurves(ec []gosslyze.Curve) []EllipticCurve {
+
+	// Parse elliptic curves from GoSslyze
+	var parsedCurves []EllipticCurve
+	for _, curve := range ec {
+		parsedCurves = append(parsedCurves, EllipticCurve{Name: curve.Name, OpenSSLnid: curve.OpenSSLnid})
+	}
+	return parsedCurves
+}
+
+// parseComplianceCheck parses details about Mozilla's check for SSL config
+func parseComplianceCheck(result *gosslyze.HostResult) (string, error) {
+
+	// Check for nil
+	if result == nil {
+		return "", fmt.Errorf("provided SSLyze result is nil")
+	}
+
+	// Return the check's results
+	return result.ComplianceTestDetails, nil
 }

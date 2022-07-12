@@ -12,7 +12,7 @@ package template
 
 import (
 	"fmt"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/utils"
 	"strings"
 	"time"
 )
@@ -82,7 +82,7 @@ func NewScanner(
 		target:   strings.TrimSpace(target),
 		port:     port,
 		protocol: strings.TrimSpace(protocol),
-		deadline: nil,
+		deadline: time.Time{},
 	}
 
 	// Return scan struct

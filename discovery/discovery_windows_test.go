@@ -11,7 +11,7 @@
 package discovery
 
 import (
-	"go-scans/_test"
+	"github.com/siemens/GoScans/_test"
 	"golang.org/x/sys/windows/registry"
 	"path/filepath"
 	"testing"

@@ -13,7 +13,7 @@ package active_directory
 import (
 	"fmt"
 	"github.com/go-ldap/ldap/v3"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/utils"
 	"net"
 	"strconv"
 	"strings"

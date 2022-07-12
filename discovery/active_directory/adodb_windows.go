@@ -14,7 +14,7 @@ import (
 	"database/sql"
 	"github.com/go-ole/go-ole"
 	_ "github.com/mattn/go-adodb"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/utils"
 	"math"
 	"reflect"
 	"time"

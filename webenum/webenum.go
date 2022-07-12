@@ -13,7 +13,7 @@ package webenum
 import (
 	"bufio"
 	"fmt"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/utils"
 	"net/http"
 	"net/url"
 	"os"

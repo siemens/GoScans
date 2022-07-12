@@ -1,7 +1,7 @@
 package filecrawler
 
 import (
-	"go-scans/utils"
+	"github.com/siemens/GoScans/utils"
 	"golang.org/x/sys/unix"
 	"os"
 	"path/filepath"

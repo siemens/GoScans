@@ -11,7 +11,7 @@
 package utils
 
 import (
-	"go-scans/_test"
+	"github.com/siemens/GoScans/_test"
 	"io/ioutil"
 	"os"
 	"path/filepath"

@@ -11,7 +11,7 @@
 package netapi
 
 import (
-	"go-scans/utils"
+	"github.com/siemens/GoScans/utils"
 )
 
 func GetGroupInfo(logger utils.Logger, target, sidString string) ([]string, error) {
