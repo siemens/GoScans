@@ -14,10 +14,12 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
 	"go-scans/utils"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -1001,6 +1003,14 @@ func requestImageHash(requester *utils.Requester, requestUrl string, vhost strin
 
 // streamToFile downloads the content at the given URL and writes it to the given location
 func streamToFile(source io.Reader, outputFolder string, outputName string) error {
+
+	// Create tmp folder if it does not exist
+	if _, err := os.Stat(outputFolder); errors.Is(err, os.ErrNotExist) {
+		err := os.Mkdir(outputFolder, os.ModePerm)
+		if err != nil {
+			log.Println(err)
+		}
+	}
 
 	// Prepare output file path
 	file := filepath.Join(outputFolder, outputName)

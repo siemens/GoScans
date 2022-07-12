@@ -143,8 +143,8 @@ func TestLoadProbesRobots(t *testing.T) {
 		want    []Probe
 		wantErr bool
 	}{
-		{"invalid-url", args{"https://notexisting.com:443/robots.txt", "notexisting.com", ""}, []Probe(nil), true},
-		{"no-robots", args{"https://www.bahn.de:443/robots.txt", "www.bahn.de", ""}, []Probe(nil), false},
+		{"invalid-url", args{"https://reallynotexisting.com:443/robots.txt", "reallynotexisting.com", ""}, []Probe(nil), true},
+		{"no-robots", args{"https://www.sap.de:443/robots.txt", "www.sap.de", ""}, []Probe(nil), false},
 		{"valid", args{"https://www.spiegel.de/robots.txt", "www.spiegel.de", ""}, []Probe{
 			{"Disallowed by robots.txt", "*cr-dokumentation.pdf$", []string(nil)},
 			{"Disallowed by robots.txt", "gutscheine/suche?", []string(nil)},

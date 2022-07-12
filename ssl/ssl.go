@@ -13,8 +13,8 @@ package ssl
 import (
 	"context"
 	"fmt"
-	"github.com/noneymous/GoSslyze"
 	"go-scans/utils"
+	"gosslyze"
 	"math/big"
 	"strconv"
 	"strings"

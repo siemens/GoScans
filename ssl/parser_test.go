@@ -12,8 +12,8 @@ package ssl
 
 import (
 	"encoding/base64"
-	"github.com/noneymous/GoSslyze"
 	"go-scans/utils"
+	"gosslyze"
 	"reflect"
 	"strings"
 	"testing"
@@ -94,7 +94,6 @@ func TestGetStringOids(t *testing.T) {
 		{"all", args{gosslyze.Entity{Attributes: &all, RfcString: allStr}}, "Company Issuing CA Intranet Server 2017", []string{"CommonName: Company Issuing CA Intranet Server 2017", "Country: Spain", "Organization: Company", "OrganizationalUnit: Company Trust Center", "Locality: Muenchen", "Province: Bayern", "StreetAddress: Somestr. 8", "PostalCode: 54321", "SerialNumber: 007"}},
 
 		{"error-empty", args{gosslyze.Entity{Attributes: orga, RfcString: orgaStr}}, "", []string{"Organization: Company"}},
-		{"error", args{gosslyze.Entity{Attributes: orga, RfcString: orgaStr}}, "", []string{}},
 		{"nil-attributes", args{gosslyze.Entity{Attributes: nil, RfcString: empty}}, "", []string{}},
 		{"no-attributes", args{gosslyze.Entity{Attributes: &[]gosslyze.Attribute{}, RfcString: empty}}, "", []string{}},
 		{"all-nil", args{gosslyze.Entity{Attributes: nil, RfcString: ""}}, "", []string{}},

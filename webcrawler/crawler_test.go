@@ -350,8 +350,8 @@ func Test_requestImageHash(t *testing.T) {
 		args args
 		want string
 	}{
-		{"image-1", args{testRequester, "https://www.google.com/favicon.ico", "www.google.com"}, "f3418a443e7d841097c714d69ec4bcb8"},
-		{"image-2", args{testRequester, "https://www.amazon.com/favicon.ico", "www.amazon.com"}, "ca6619b86c2f6e6068b69ba3aaddb7e4"},
+		{"image-1", args{testRequester, "https://www.google.com/favicon.ico", "www.google.com"}, "8b92fa949c5562303273e59227f1e41c"},
+		{"image-2", args{testRequester, "https://www.amazon.com/favicon.ico", "www.amazon.com"}, "7c444d71f48980ca76f2c33b23c8bbe1"},
 		{"no-image-1", args{testRequester, "https://domain.tld/favicon.ico", ""}, ""},
 	}
 	for _, tt := range tests {
