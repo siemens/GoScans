@@ -1,7 +1,7 @@
 package filecrawler
 
 import (
-	"go-scans/utils"
+	"github.com/siemens/GoScans/utils"
 	"os"
 	"syscall"
 )

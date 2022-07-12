@@ -10,7 +10,7 @@
 
 package smb
 
-import "go-scans/filecrawler"
+import "github.com/siemens/GoScans/filecrawler"
 
 // crawl enumerates shares and crawls each of them one by one
 func (s *Scanner) crawl() *filecrawler.Result {

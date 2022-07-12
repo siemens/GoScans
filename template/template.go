@@ -12,7 +12,7 @@ package template
 
 import (
 	"fmt"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/utils"
 	"strings"
 	"time"
 )

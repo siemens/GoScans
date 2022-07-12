@@ -13,7 +13,7 @@ package ssl
 import (
 	"fmt"
 	"github.com/cockroachdb/apd"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/utils"
 	"math"
 	"sync"
 )

@@ -11,8 +11,8 @@
 package webcrawler
 
 import (
-	"go-scans/_test"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/_test"
+	"github.com/siemens/GoScans/utils"
 	"io/ioutil"
 	"os"
 	"path/filepath"

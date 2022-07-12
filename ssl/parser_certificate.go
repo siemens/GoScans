@@ -17,8 +17,8 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"go-scans/utils"
-	"gosslyze"
+	"github.com/noneymous/GoSslyze"
+	"github.com/siemens/GoScans/utils"
 	"reflect"
 )
 

@@ -12,9 +12,9 @@ package discovery
 
 import (
 	"github.com/Ullaakut/nmap/v2"
-	"go-scans/_test"
-	"go-scans/discovery/active_directory"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/_test"
+	"github.com/siemens/GoScans/discovery/active_directory"
+	"github.com/siemens/GoScans/utils"
 	"io/ioutil"
 	"path/filepath"
 	"reflect"
