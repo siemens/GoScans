@@ -1,6 +1,6 @@
-module go-scans
+module github.com/siemens/GoScans
 
-go 1.14
+go 1.16
 
 require (
 	github.com/Azure/go-ntlmssp v0.0.0-20200615164410-66371956d46c
@@ -14,7 +14,7 @@ require (
 	github.com/krp2/go-nfs-client v0.0.0-20200713104628-eb4e3e9b6e95
 	github.com/lib/pq v1.9.0 // indirect
 	github.com/mattn/go-adodb v0.0.1
-	github.com/noneymous/GoSslyze v0.0.0-20210224105534-4b9fbdbef7c7
+	github.com/noneymous/GoSslyze v0.0.0-20220712091926-0df38d9b9f36
 	github.com/noneymous/go-redistributable-checker v0.0.0-20210325124657-4c7139260b22
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/rasky/go-xdr v0.0.0-20170124162913-1a41d1a06c93 // indirect

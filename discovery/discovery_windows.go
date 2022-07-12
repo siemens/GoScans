@@ -15,7 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/noneymous/go-redistributable-checker"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/utils"
 	"golang.org/x/sys/windows/registry"
 	"os/exec"
 	"path/filepath"

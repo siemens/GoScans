@@ -12,8 +12,8 @@ package filecrawler
 
 import (
 	"github.com/davecgh/go-spew/spew"
-	"go-scans/_test"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/_test"
+	"github.com/siemens/GoScans/utils"
 	"path/filepath"
 	"reflect"
 	"testing"

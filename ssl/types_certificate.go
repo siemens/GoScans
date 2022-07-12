@@ -13,7 +13,7 @@ package ssl
 import (
 	"crypto/x509"
 	"fmt"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/utils"
 )
 
 // Before changing this command read the comment in types.go

@@ -12,9 +12,9 @@ package smb
 
 import (
 	"fmt"
-	"go-scans/filecrawler"
-	"go-scans/utils"
-	"go-scans/utils/windows_systemcalls"
+	"github.com/siemens/GoScans/filecrawler"
+	"github.com/siemens/GoScans/utils"
+	"github.com/siemens/GoScans/utils/windows_systemcalls"
 	"golang.org/x/sys/windows"
 	"math"
 	"net"

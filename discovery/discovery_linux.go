@@ -12,7 +12,7 @@ package discovery
 
 import (
 	"fmt"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/utils"
 	"os"
 	"os/exec"
 	"strings"

@@ -12,7 +12,7 @@ package webcrawler
 
 import (
 	"fmt"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/utils"
 	"net/http"
 	"net/url"
 	"os"
