@@ -12,7 +12,7 @@ package ssl
 
 import (
 	"crypto/x509"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/utils"
 	"testing"
 )
 

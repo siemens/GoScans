@@ -11,8 +11,8 @@
 package webenum
 
 import (
-	"go-scans/_test"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/_test"
+	"github.com/siemens/GoScans/utils"
 	"path/filepath"
 	"reflect"
 	"testing"

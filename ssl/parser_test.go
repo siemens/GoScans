@@ -12,8 +12,8 @@ package ssl
 
 import (
 	"encoding/base64"
-	"go-scans/utils"
-	"gosslyze"
+	"github.com/noneymous/GoSslyze"
+	"github.com/siemens/GoScans/utils"
 	"reflect"
 	"strings"
 	"testing"
@@ -96,7 +96,7 @@ func TestGetStringOids(t *testing.T) {
 		{"error-empty", args{gosslyze.Entity{Attributes: orga, RfcString: orgaStr}}, "", []string{"Organization: Company"}},
 		{"nil-attributes", args{gosslyze.Entity{Attributes: nil, RfcString: empty}}, "", []string{}},
 		{"no-attributes", args{gosslyze.Entity{Attributes: &[]gosslyze.Attribute{}, RfcString: empty}}, "", []string{}},
-		{"all-nil", args{gosslyze.Entity{Attributes: nil, RfcString: ""}}, "", []string{}},
+		{"all-nil", args{gosslyze.Entity{Attributes: nil, RfcString: empty}}, "", []string{}},
 	}
 
 	for _, tt := range tests {
@@ -271,7 +271,7 @@ func TestGnfsComplexity(t *testing.T) {
 
 // Benchmarks
 
-// Variable that will be set in the benchmark in order for compiler to no be able to eliminate the benchmark itself.
+// Variable that will be set in the benchmark in order for compiler to not be able to eliminate the benchmark itself.
 var strength float64
 
 func benchmarkGnfsComplexity(keySize uint64, b *testing.B) {

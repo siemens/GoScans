@@ -13,7 +13,7 @@ package ssl
 import (
 	"bytes"
 	"fmt"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/utils"
 	"os/exec"
 	"strings"
 )

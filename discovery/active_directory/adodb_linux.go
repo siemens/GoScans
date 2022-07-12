@@ -11,7 +11,7 @@
 package active_directory
 
 import (
-	"go-scans/utils"
+	"github.com/siemens/GoScans/utils"
 )
 
 // AdodbQuery queries the given Active Directory service with implicit Windows authentication and returns a

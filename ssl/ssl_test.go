@@ -12,8 +12,8 @@ package ssl
 
 import (
 	"fmt"
-	"go-scans/_test"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/_test"
+	"github.com/siemens/GoScans/utils"
 	"testing"
 	"time"
 )

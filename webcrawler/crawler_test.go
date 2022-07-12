@@ -13,8 +13,8 @@ package webcrawler
 import (
 	"bytes"
 	"github.com/PuerkitoBio/goquery"
-	"go-scans/_test"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/_test"
+	"github.com/siemens/GoScans/utils"
 	"io/ioutil"
 	"net/http"
 	"net/url"

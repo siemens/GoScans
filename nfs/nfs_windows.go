@@ -13,9 +13,9 @@ package nfs
 import (
 	"fmt"
 	nfsClient "github.com/krp2/go-nfs-client/nfs"
+	"github.com/siemens/GoScans/filecrawler"
+	"github.com/siemens/GoScans/utils"
 	"github.com/vmware/go-nfs-client/nfs/rpc"
-	"go-scans/filecrawler"
-	"go-scans/utils"
 	"golang.org/x/sys/windows"
 	"os"
 	"os/exec"

@@ -17,7 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/utils"
 	"io"
 	"log"
 	"net"

@@ -12,8 +12,8 @@ package nfs
 
 import (
 	"fmt"
-	"go-scans/filecrawler"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/filecrawler"
+	"github.com/siemens/GoScans/utils"
 	"os/exec"
 	"strings"
 	"time"

@@ -12,7 +12,7 @@ package ssh
 
 import (
 	"fmt"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/utils"
 	"testing"
 )
 

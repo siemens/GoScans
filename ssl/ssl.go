@@ -13,8 +13,8 @@ package ssl
 import (
 	"context"
 	"fmt"
-	"go-scans/utils"
-	"gosslyze"
+	"github.com/noneymous/GoSslyze"
+	"github.com/siemens/GoScans/utils"
 	"math/big"
 	"strconv"
 	"strings"
@@ -73,7 +73,8 @@ func CheckSetup() error {
 	return nil
 }
 
-// smtp, xmpp, xmpp_server, pop3, ftp, imap, ldap, rdp, postgres, auto
+// StartTlsPorts maps common port numbers to their respective protocols: smtp, xmpp, xmpp_server, pop3, ftp, imap,
+// ldap, rdp, postgres, auto.
 // More (unofficial) ports from this list: https://en.wikipedia.org/wiki/List_of_TCP_and_UDP_port_numbers
 var StartTlsPorts = map[int]string{
 	433:  "",            // SMTP
@@ -104,8 +105,8 @@ var StartTlsPorts = map[int]string{
 	5432: "postgres",    // Postgres
 }
 
-// When changing any of the following structs keep in mind to change the compareResultData function accordingly.
 type Issues struct {
+	// ATTENTION: When changing any of the following structs, change the compareResultData function accordingly!
 	AnyChainInvalid              bool     // Indicates whether any certificate chain is invalid.
 	AnyChainInvalidOrder         bool     // Indicates whether any certificate chain has an invalid order.
 	LowestProtocol               Protocol // The lowest SSL / TLS version that is supported by the server.

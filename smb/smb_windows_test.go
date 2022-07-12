@@ -11,8 +11,8 @@
 package smb
 
 import (
-	"go-scans/filecrawler"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/filecrawler"
+	"github.com/siemens/GoScans/utils"
 	"reflect"
 	"testing"
 	"time"
