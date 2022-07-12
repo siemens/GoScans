@@ -100,7 +100,7 @@ func TestScanner_Results(t *testing.T) {
 		expectedResults scanResults
 	}{
 		{"www.mozilla.org", args{"www.mozilla.org", 443, nil, testSettings.PathSslyze, ""},
-			scanResults{"Completed", false, false, 24}},
+			scanResults{"Completed", false, false, 3}},
 	}
 
 	// Run test scans

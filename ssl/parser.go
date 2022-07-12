@@ -12,8 +12,8 @@ package ssl
 
 import (
 	"fmt"
-	"github.com/noneymous/GoSslyze"
 	"go-scans/utils"
+	"gosslyze"
 )
 
 func parseSslyzeResult(logger utils.Logger, targetName string, hostResult *gosslyze.HostResult) *Data {

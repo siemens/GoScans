@@ -13,8 +13,8 @@ package ssl
 import (
 	"encoding/base64"
 	"fmt"
-	"github.com/noneymous/GoSslyze"
 	"go-scans/utils"
+	"gosslyze"
 	"reflect"
 )
 

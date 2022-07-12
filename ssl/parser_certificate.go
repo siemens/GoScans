@@ -17,8 +17,8 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"github.com/noneymous/GoSslyze"
 	"go-scans/utils"
+	"gosslyze"
 	"reflect"
 )
 
@@ -266,7 +266,7 @@ func parseEntity(logger utils.Logger, entity gosslyze.Entity) (string, []string)
 
 	if entity.Attributes == nil || len(*entity.Attributes) < 1 {
 		logger.Warningf("SSLyze entity has no attributes.")
-		return cn, oids
+		return cn, []string{}
 	}
 
 	var commonName, country, organization, organizationalUnit string
