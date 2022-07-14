@@ -17,7 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gabriel-vasile/mimetype"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/utils"
 	"io"
 	"io/ioutil"
 	"os"

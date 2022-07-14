@@ -17,8 +17,9 @@ import (
 	"time"
 )
 
-// Connects to SSL endpoint and extracts subject name and subject alternative names from the SSL certificate. This
-// function does not check whether the peer certificate is a CA.
+// GetSubjectAlternativeNames Connects to SSL endpoint and extracts subject name
+// and subject alternative names from the SSL certificate. This function does not
+// check whether the peer certificate is a CA.
 func GetSubjectAlternativeNames(address string, port int, dialTimeout time.Duration) ([]string, error) {
 	// Connect to endpoint
 	conn, err := tls.DialWithDialer(
@@ -59,8 +60,8 @@ func InsecureTlsConfigFactory() *tls.Config {
 	// Return insecure TLS config
 	return &tls.Config{
 		InsecureSkipVerify: true,
-		MinVersion:         0, // If zero, TLS 1.0 is currently taken by the TLS package as the minimum.
-		MaxVersion:         0, // If zero, the maximum version supported by the TLS package is used
+		MinVersion:         tls.VersionSSL30, // If zero, TLS 1.0 is currently taken by the TLS package as the minimum.
+		MaxVersion:         tls.VersionTLS12, // If zero, the maximum version supported by the TLS package is used
 		CipherSuites:       ciphers,
 	}
 }

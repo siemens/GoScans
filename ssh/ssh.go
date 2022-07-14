@@ -15,7 +15,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"go-scans/utils"
+	"github.com/siemens/GoScans/utils"
 	"golang.org/x/crypto/ssh"
 	"io"
 	"net"
