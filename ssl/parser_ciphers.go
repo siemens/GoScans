@@ -207,8 +207,8 @@ func parseEphemeralKeyInfo(logger utils.Logger, info gosslyze.EphemeralKeyInfo) 
 	extras := make([]string, 0, 5)
 
 	if info == nil {
-		// We expect the ephemeral key info to be nil for non ephemeral key exchanges
-		logger.Debugf("Ephemeral key info is nil.")
+		// We expect the ephemeral key info to be nil for non-ephemeral key exchanges
+		logger.Debugf("Ephemeral key info is not available.")
 		return 0, 0, []string{}
 	}
 
@@ -255,7 +255,7 @@ func parseEphemeralKeyInfo(logger utils.Logger, info gosslyze.EphemeralKeyInfo) 
 		kex = KEX_DHE
 
 	default:
-		logger.Warningf("Provided ephemeral key info has invalid type: '%s'", reflect.TypeOf(info))
+		logger.Warningf("Ephemeral key info has invalid type: '%s'", reflect.TypeOf(info))
 		return 0, 0, []string{}
 	}
 
