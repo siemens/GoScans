@@ -11,7 +11,6 @@
 package discovery
 
 import (
-	"context"
 	"fmt"
 	"github.com/Ullaakut/nmap/v2"
 	"github.com/siemens/GoScans/discovery/active_directory"
@@ -151,7 +150,6 @@ type Scanner struct {
 	ldapConf          ldapConf      // Struct holding LDAP configuration data, ready to be passed on as single value
 	dialTimeout       time.Duration // The duration a dial is allowed to take before it will be canceled.
 
-	deadline       time.Time         // Time when the scanner has to abort
 	proc           *nmap.Scanner     // Actual Nmap scanner object to be executed
 	inputHostnames map[string]string // Map of original input hostnames
 }
@@ -271,7 +269,6 @@ func NewScanner(
 		},
 		dialTimeout,
 
-		time.Time{}, // zero time (no deadline yet set)
 		proc,
 		inputHostnames,
 	}
@@ -282,7 +279,7 @@ func NewScanner(
 
 // Run starts scan execution. This must either be executed as a goroutine, or another thread must be active listening
 // on the scan's result channel, in order to avoid a deadlock situation.
-func (s *Scanner) Run(timeout time.Duration) (res *Result) {
+func (s *Scanner) Run() (res *Result) {
 
 	// Recover potential panics to gracefully shut down scan
 	defer func() {
@@ -305,7 +302,6 @@ func (s *Scanner) Run(timeout time.Duration) (res *Result) {
 
 	// Set scan started flag and calculate deadline
 	s.Started = time.Now()
-	s.deadline = time.Now().Add(timeout)
 	s.logger.Infof("Started  scan of %s.", s.targetDescription)
 
 	// Execute scan logic
@@ -364,15 +360,6 @@ func (s *Scanner) execute() *Result {
 	// Declare result variable to be returned
 	var results []*Host // Slice of pointers to host structs, goroutines may alter these structs until completion.
 
-	// Create timeout context
-	ctx, cancel := context.WithDeadline(context.Background(), s.deadline)
-	defer cancel()
-
-	// Apply timeout context to scanner. It's not possible to issue the timeout context during scanner initialization,
-	// because the 'defer cancel()' statement would directly cancel the timeout context again after returning the scan
-	// struct.
-	nmap.WithContext(ctx)(s.proc)
-
 	// Prepare interrupt channel and listen for interrupts
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, syscall.SIGINT, syscall.SIGTERM) // Keyboard interrupt + Linux termination signal
@@ -397,12 +384,14 @@ func (s *Scanner) execute() *Result {
 			}
 		default:
 
-			// Handle scan timeout
+			// Handle scan timeout error, which should not happen in this discovery module, because no global
+			// scan timeout is specified. It's rather advised to set scan timeouts indirectly with Nmap's
+			// '--host-timeout' attribute.
 			if errRun == nmap.ErrScanTimeout {
-				s.logger.Debugf("Scan ran into timeout.")
+				s.logger.Errorf("Scan aborted due to timeout.")
 				return &Result{
 					nil,
-					utils.StatusDeadline,
+					utils.StatusFailed,
 					false,
 				}
 			}
