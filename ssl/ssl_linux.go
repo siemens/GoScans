@@ -52,7 +52,7 @@ func NewScanner(
 		return nil, fmt.Errorf("could not validate the Python version '%s': %s", out.String(), errVersion)
 	}
 
-	// Check if the Python version is up to date
+	// Check if the Python version is up-to-date
 	if !versionOk {
 		return nil, fmt.Errorf("insufficient Python version '%s', please update to '%s'",
 			version, versionSliceToString(pythonVersion))
@@ -77,7 +77,7 @@ func NewScanner(
 		return nil, fmt.Errorf("could not validate the SSLyze version '%s': %s", version, errVersion)
 	}
 
-	// Check if the SSLyze version is up to date
+	// Check if the SSLyze version is up-to-date
 	if !versionOk {
 		return nil, fmt.Errorf(
 			"insufficient SSLyze version '%s', please update to '%s'",
