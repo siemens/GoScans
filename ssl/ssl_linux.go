@@ -22,7 +22,7 @@ var (
 	pythonVersion = []int{3, 7, -1}
 )
 
-// Linux specific implementation, Python3 and sslyze package required
+// NewScanner initializes a new SSLyze scan. Linux specific implementation, Python3 and sslyze package required
 func NewScanner(
 	logger utils.Logger,
 	pythonPath string,

@@ -18,7 +18,7 @@ import (
 	"strings"
 )
 
-// Windows specific implementation, SSLyze executable path required
+// NewScanner initializes a new SSLyze scan. Windows specific implementation, SSLyze executable path required
 func NewScanner(
 	logger utils.Logger,
 	sslyzePath string,
