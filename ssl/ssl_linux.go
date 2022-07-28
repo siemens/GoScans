@@ -59,7 +59,7 @@ func NewScanner(
 	}
 
 	// Check whether we can execute the sslyze library and retrieve the version
-	args = []string{"-m", "sslyze", "--version"}
+	args = []string{"-m", "sslyze", "--help"}
 	cmd = exec.Command(pythonPath, args...)
 	out.Reset()
 	stderr.Reset()
