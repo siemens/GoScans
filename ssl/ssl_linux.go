@@ -22,7 +22,7 @@ var (
 	pythonVersion = []int{3, 7, -1}
 )
 
-// NewScanner initializes a new SSLyze scan. Linux specific implementation, Python3 and sslyze package required
+// NewScanner initializes a new SSLyze scan. Linux specific implementation, Python and SSLyze package required
 func NewScanner(
 	logger utils.Logger,
 	pythonPath string,
@@ -58,8 +58,8 @@ func NewScanner(
 			version, versionSliceToString(pythonVersion))
 	}
 
-	// Check whether we can execute the sslyze library and retrieve the version
-	args = []string{"-m", "sslyze", "--help"}
+	// Check whether we can execute the SSLyze library and retrieve the version
+	args = []string{"-m", "sslyze.__main__", "--help"}
 	cmd = exec.Command(pythonPath, args...)
 	out.Reset()
 	stderr.Reset()

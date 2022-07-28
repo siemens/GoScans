@@ -31,7 +31,7 @@ func NewScanner(
 	var out bytes.Buffer
 	var stderr bytes.Buffer
 
-	// Check whether we can execute the sslyze library and retrieve the help message
+	// Check whether we can execute the SSLyze library and retrieve the help message
 	args := []string{"--help"}
 	cmd := exec.Command(sslyzePath, args...)
 	cmd.Stdout = &out
