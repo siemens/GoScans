@@ -18,7 +18,7 @@ import (
 	"strings"
 )
 
-// Windows specific implementation, SSLyze executable path required
+// NewScanner initializes a new SSLyze scan. Windows specific implementation, SSLyze executable path required
 func NewScanner(
 	logger utils.Logger,
 	sslyzePath string,
@@ -31,7 +31,7 @@ func NewScanner(
 	var out bytes.Buffer
 	var stderr bytes.Buffer
 
-	// Check whether we can execute the sslyze library and retrieve the help message
+	// Check whether we can execute the SSLyze library and retrieve the help message
 	args := []string{"--help"}
 	cmd := exec.Command(sslyzePath, args...)
 	cmd.Stdout = &out
@@ -42,18 +42,28 @@ func NewScanner(
 	}
 
 	// Extract the Sslyze version, the version flag has been removed and the version is now extracted from the help message
-	HelpMsg := out.String()
-	versionIndex := strings.Index(HelpMsg, "SSLyze version ")
-	argumentsIndex := strings.Index(HelpMsg, "positional arguments")
+	msgHelp := out.String()
+	versionIndex := strings.Index(msgHelp, "SSLyze version ")
+	argumentsIndex := strings.Index(msgHelp, "positional arguments")
+
+	// Abort if '--help' command did not return expected result
+	if versionIndex == -1 || argumentsIndex == -1 {
+		return nil, fmt.Errorf(
+			"could not extract SSLyze version, please update to '%s'",
+			versionSliceToString(sslyzeVersion),
+		)
+	}
+
+	// Extract version number from response
 	version := out.String()[versionIndex+len("SSLyze version ") : argumentsIndex]
 
 	// Check if used version is compatible to the required one
 	versionOk, errVersion := compareVersion(version, sslyzeVersion)
 	if errVersion != nil {
-		return nil, fmt.Errorf("could not validate the SSLyze version '%s': %s", version, errVersion)
+		return nil, fmt.Errorf("could not validate SSLyze version '%s': %s", version, errVersion)
 	}
 
-	// Check if the SSLyze version is up to date
+	// Check if the SSLyze version is up-to-date
 	if !versionOk {
 		return nil, fmt.Errorf(
 			"insufficient SSLyze version '%s', please update to '%s'",
