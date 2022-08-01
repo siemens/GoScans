@@ -34,7 +34,7 @@ func parseCiphers(
 	}
 
 	// SSLv2
-	if cr.SslV2 != nil {
+	if cr.SslV2 != nil && cr.SslV2.Result != nil {
 
 		for _, acceptedCipher := range cr.SslV2.Result.AcceptedCiphers {
 			cipher, errGet := getCipher(logger, &acceptedCipher, Sslv2)
@@ -53,7 +53,7 @@ func parseCiphers(
 	}
 
 	// SSLv3
-	if cr.SslV3 != nil {
+	if cr.SslV3 != nil && cr.SslV3.Result != nil {
 
 		for _, acceptedCipher := range cr.SslV3.Result.AcceptedCiphers {
 			cipher, errGet := getCipher(logger, &acceptedCipher, Sslv3)
@@ -72,7 +72,7 @@ func parseCiphers(
 	}
 
 	// TlsV1.0
-	if cr.TlsV1_0 != nil {
+	if cr.TlsV1_0 != nil && cr.TlsV1_0.Result != nil {
 
 		for _, acceptedCipher := range cr.TlsV1_0.Result.AcceptedCiphers {
 			cipher, errGet := getCipher(logger, &acceptedCipher, Tlsv1_0)
@@ -91,7 +91,7 @@ func parseCiphers(
 	}
 
 	// TLSv1.1
-	if cr.TlsV1_1 != nil {
+	if cr.TlsV1_1 != nil && cr.TlsV1_1.Result != nil {
 
 		for _, acceptedCipher := range cr.TlsV1_1.Result.AcceptedCiphers {
 			cipher, errGet := getCipher(logger, &acceptedCipher, Tlsv1_1)
@@ -110,7 +110,7 @@ func parseCiphers(
 	}
 
 	// TLSv1.2
-	if cr.TlsV1_2 != nil {
+	if cr.TlsV1_2 != nil && cr.TlsV1_2.Result != nil {
 
 		for _, acceptedCipher := range cr.TlsV1_2.Result.AcceptedCiphers {
 			cipher, errGet := getCipher(logger, &acceptedCipher, Tlsv1_2)
@@ -129,7 +129,7 @@ func parseCiphers(
 	}
 
 	// TLSv1.3
-	if cr.TlsV1_3 != nil {
+	if cr.TlsV1_3 != nil && cr.TlsV1_3.Result != nil {
 
 		for _, acceptedCipher := range cr.TlsV1_3.Result.AcceptedCiphers {
 			cipher, errGet := getCipher(logger, &acceptedCipher, Tlsv1_3)

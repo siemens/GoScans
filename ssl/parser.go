@@ -121,12 +121,12 @@ func parseIssues(cr *gosslyze.CommandResults) (*Issues, error) {
 	}
 
 	// General information
-	if cr.EarlyData != nil {
+	if cr.EarlyData != nil && cr.EarlyData.Result != nil {
 		issues.EarlyDataSupported = cr.EarlyData.Result.IsSupported
 	}
 
 	// check whether session ID resumption was successful.
-	if cr.Resumption != nil {
+	if cr.Resumption != nil && cr.Resumption.Result != nil {
 		if cr.Resumption.Result.AttemptedIdResumptions == cr.Resumption.Result.SuccessfulIdResumptions {
 			issues.SessionResumptionWithId = true
 		}
@@ -136,20 +136,20 @@ func parseIssues(cr *gosslyze.CommandResults) (*Issues, error) {
 	}
 
 	// Renegotiation information
-	if cr.Renegotiation != nil {
+	if cr.Renegotiation != nil && cr.Renegotiation.Result != nil {
 		issues.InsecureRenegotiation = !cr.Renegotiation.Result.SupportsSecureRenegotiation
 		issues.AcceptsClientRenegotiation = cr.Renegotiation.Result.VulnerableToClientRenegotiation
 		issues.InsecureClientRenegotiation = issues.InsecureRenegotiation && issues.AcceptsClientRenegotiation
 	}
 
 	// Vulnerability information
-	if cr.Compression != nil {
+	if cr.Compression != nil && cr.Compression.Result != nil {
 		issues.Compression = cr.Compression.Result.IsSupported
 	}
-	if cr.Heartbleed != nil {
+	if cr.Heartbleed != nil && cr.Heartbleed.Result != nil {
 		issues.Heartbleed = cr.Heartbleed.Result.IsVulnerable
 	}
-	if cr.OpensslCcs != nil {
+	if cr.OpensslCcs != nil && cr.OpensslCcs.Result != nil {
 		issues.CcsInjection = cr.OpensslCcs.Result.IsVulnerable
 	}
 
@@ -170,7 +170,7 @@ func parseEllipticInfo(cr *gosslyze.CommandResults) (*EllipticCurves, error) {
 		return ellipticInfo, fmt.Errorf("provided SSLyze result is nil")
 	}
 
-	if cr.EllipticCurves != nil {
+	if cr.EllipticCurves != nil && cr.EllipticCurves.Result != nil {
 		// Accepted Elliptic Curves
 		if cr.EllipticCurves.Result.SupportedCurves != nil {
 			ellipticInfo.SupportedCurves = parseEllipticCurves(cr.EllipticCurves.Result.SupportedCurves)

@@ -37,7 +37,7 @@ func parseCertificateChains(
 		return make([]*CertDeployment, 0), false, false, fmt.Errorf("provided SSLyze result is nil")
 	}
 	if cr.CertInfo == nil {
-		return make([]*CertDeployment, 0), false, false, fmt.Errorf("povided SSLyze result has no certificate info")
+		return make([]*CertDeployment, 0), false, false, fmt.Errorf("provided SSLyze result has no certificate info")
 	}
 
 	// Initialize the return variables.
