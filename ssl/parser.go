@@ -16,7 +16,7 @@ import (
 	"github.com/siemens/GoScans/utils"
 )
 
-func parseSslyzeResult(logger utils.Logger, targetName string, hostResult *gosslyze.HostResult) *Data {
+func parseSslyzeResult(logger utils.Logger, targetName string, hostResult *gosslyze.HostResult) (*Data, error) {
 
 	// Check for nil pointer exceptions.
 	if hostResult == nil {
@@ -27,7 +27,7 @@ func parseSslyzeResult(logger utils.Logger, targetName string, hostResult *gossl
 			Issues:          new(Issues),
 			Ciphers:         make(map[string]*Cipher),
 			CertDeployments: make([]*CertDeployment, 0),
-		}
+		}, nil
 	}
 
 	// Check whether SSLyze has any results
@@ -39,7 +39,7 @@ func parseSslyzeResult(logger utils.Logger, targetName string, hostResult *gossl
 			Issues:          new(Issues),
 			Ciphers:         make(map[string]*Cipher),
 			CertDeployments: make([]*CertDeployment, 0),
-		}
+		}, nil
 	}
 
 	// We start a separate SSLyze scan for every target, therefore only one target should be returned.
@@ -59,21 +59,21 @@ func parseSslyzeResult(logger utils.Logger, targetName string, hostResult *gossl
 	var errInfo error
 	sslData.Issues, errInfo = parseIssues(&result.ScanResult)
 	if errInfo != nil {
-		logger.Warningf("Could not parse basic info: %s", errInfo)
+		logger.Debugf("Could not parse basic info: %s", errInfo)
 	}
 
 	// Parse information on the check against Mozilla's SSL recommended config
 	var errComplianceCheck error
 	sslData.ComplianceTestDetails, errInfo = parseComplianceCheck(hostResult)
 	if errComplianceCheck != nil {
-		logger.Warningf("Could not parse Mozilla's check information: %s", errComplianceCheck)
+		logger.Debugf("Could not parse Mozilla's check information: %s", errComplianceCheck)
 	}
 
 	// Parse elliptic curves information
 	var errEllip error
 	sslData.EllipticCurves, errEllip = parseEllipticInfo(&result.ScanResult)
 	if errEllip != nil {
-		logger.Warningf("Could not parse elliptic curves information: %s", errEllip)
+		logger.Debugf("Could not parse elliptic curves information: %s", errEllip)
 	}
 
 	// Parse the Certificates
@@ -83,7 +83,7 @@ func parseSslyzeResult(logger utils.Logger, targetName string, hostResult *gossl
 		sslData.Issues.AnyChainInvalidOrder,
 		errCerts = parseCertificateChains(logger, &result.ScanResult, targetName)
 	if errCerts != nil {
-		logger.Warningf("Could not process certificate chain: %s", errCerts)
+		logger.Debugf("Could not process certificate chain: %s", errCerts)
 	}
 
 	// Parse the cipher suites
@@ -92,20 +92,21 @@ func parseSslyzeResult(logger utils.Logger, targetName string, hostResult *gossl
 		sslData.Issues.LowestProtocol,
 		errCiphers = parseCiphers(logger, targetName, &result.ScanResult)
 	if errCiphers != nil {
-		logger.Warningf("Could not process cipher suites: %s", errCiphers)
+		logger.Debugf("Could not process cipher suites: %s", errCiphers)
 	}
 
 	// Set the additional information that can be derived from previously parsed information.
 	errVuln := setCipherIssues(sslData)
 	if errVuln != nil {
-		logger.Warningf("Could not set vulnerabilities: %s", errVuln)
+		logger.Debugf("Could not set vulnerabilities: %s", errVuln)
 	}
 	errStrength := setMinStrength(sslData)
 	if errVuln != nil {
-		logger.Warningf("Could not determine the minimum strength: %s", errStrength)
+		logger.Debugf("Could not determine the minimum strength: %s", errStrength)
 	}
 
-	return sslData
+	// Return SSL results
+	return sslData, nil
 }
 
 // parseIssues creates and returns a issues struct with information on possible vulnerabilites.
@@ -169,19 +170,22 @@ func parseEllipticInfo(cr *gosslyze.CommandResults) (*EllipticCurves, error) {
 		return ellipticInfo, fmt.Errorf("provided SSLyze result is nil")
 	}
 
-	// Accepted Elliptic Curves
-	if cr.EllipticCurves.Result.SupportedCurves != nil {
-		ellipticInfo.SupportedCurves = parseEllipticCurves(cr.EllipticCurves.Result.SupportedCurves)
+	if cr.EllipticCurves != nil {
+		// Accepted Elliptic Curves
+		if cr.EllipticCurves.Result.SupportedCurves != nil {
+			ellipticInfo.SupportedCurves = parseEllipticCurves(cr.EllipticCurves.Result.SupportedCurves)
+		}
+
+		// Rejected Elliptic Curves
+		if cr.EllipticCurves.Result.RejectedCurves != nil {
+			ellipticInfo.RejectedCurves = parseEllipticCurves(cr.EllipticCurves.Result.RejectedCurves)
+		}
+
+		// Check support for ECDH Key Exchange
+		ellipticInfo.SupportECDHKeyExchange = cr.EllipticCurves.Result.SupportECDHKeyExchange
 	}
 
-	// Rejected Elliptic Curves
-	if cr.EllipticCurves.Result.RejectedCurves != nil {
-		ellipticInfo.RejectedCurves = parseEllipticCurves(cr.EllipticCurves.Result.RejectedCurves)
-	}
-
-	// Check support for ECDH Key Exchange
-	ellipticInfo.SupportECDHKeyExchange = cr.EllipticCurves.Result.SupportECDHKeyExchange
-
+	// Return elliptic curve data
 	return ellipticInfo, nil
 }
 

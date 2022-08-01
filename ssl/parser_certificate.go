@@ -74,7 +74,7 @@ func parseCertificateChains(
 			// Get certificate info from SSLyze data
 			certificate, errCert := parseCertificate(logger, &cert, targetName)
 			if errCert != nil {
-				logger.Warningf("Could not parse certificate: %s", errCert)
+				logger.Debugf("Could not parse certificate: %s", errCert)
 				continue
 			}
 
