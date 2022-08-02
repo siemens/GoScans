@@ -83,12 +83,12 @@ func NewScanner(
 		)
 	}
 
-	// Extract version number from response
-	version := out.String()[versionIndex+len("SSLyze version ") : argumentsIndex]
+	// Extract SSLyze's version number from response
+	InstalledVersion := out.String()[versionIndex+len("SSLyze version ") : argumentsIndex]
 
-	versionOk, errVersion = compareVersion(version, sslyzeVersion)
+	versionOk, errVersion = compareVersion(InstalledVersion, sslyzeVersion)
 	if errVersion != nil {
-		return nil, fmt.Errorf("could not validate the SSLyze version '%s': %s", version, errVersion)
+		return nil, fmt.Errorf("could not validate the SSLyze version '%s': %s", InstalledVersion, errVersion)
 	}
 
 	// Check if the SSLyze version is up-to-date
