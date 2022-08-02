@@ -70,8 +70,22 @@ func NewScanner(
 		return nil, fmt.Errorf("'%s %v' can not be executed: %s: %s", pythonPath, args, errCmd, stderr.String())
 	}
 
-	// Trim the SSLyze version number
-	version = strings.Trim(strings.Trim(out.String(), "\n\t\r "), "\n\t\r ")
+	// Extract the Sslyze version, the version flag has been removed and the version is now extracted from the help message
+	msgHelp := out.String()
+	versionIndex := strings.Index(msgHelp, "SSLyze version ")
+	argumentsIndex := strings.Index(msgHelp, "positional arguments")
+
+	// Abort if '--help' command did not return expected result
+	if versionIndex == -1 || argumentsIndex == -1 {
+		return nil, fmt.Errorf(
+			"could not extract SSLyze version, please update to '%s'",
+			versionSliceToString(sslyzeVersion),
+		)
+	}
+
+	// Extract version number from response
+	version := out.String()[versionIndex+len("SSLyze version ") : argumentsIndex]
+
 	versionOk, errVersion = compareVersion(version, sslyzeVersion)
 	if errVersion != nil {
 		return nil, fmt.Errorf("could not validate the SSLyze version '%s': %s", version, errVersion)
