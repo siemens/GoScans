@@ -29,6 +29,8 @@ github.com/noneymous/GoSslyze v0.0.0-20220801105011-aaeb64490399 h1:kXP3jvOAEi4y
 github.com/noneymous/GoSslyze v0.0.0-20220801105011-aaeb64490399/go.mod h1:zItGSuaqIGgUpZU9waEJ56pe8WnV7MjYoHc6p/wM+rU=
 github.com/noneymous/GoSslyze v0.0.0-20220801140344-0bb6ef1d718b h1:sbiHi83Yvvd1HZ9PsV2U3M3wbMFO7tF9yoML9CmozTo=
 github.com/noneymous/GoSslyze v0.0.0-20220801140344-0bb6ef1d718b/go.mod h1:zItGSuaqIGgUpZU9waEJ56pe8WnV7MjYoHc6p/wM+rU=
+github.com/noneymous/GoSslyze v0.0.0-20220803093123-433335616ffb h1:C191ZoFKcKpLqxMcve9s1/BBWj6qzCCwCFeEF7hYAs8=
+github.com/noneymous/GoSslyze v0.0.0-20220803093123-433335616ffb/go.mod h1:zItGSuaqIGgUpZU9waEJ56pe8WnV7MjYoHc6p/wM+rU=
 github.com/noneymous/go-redistributable-checker v0.0.0-20210325124657-4c7139260b22 h1:xvqEtBTVgBES07D077dQEPn+KP/sYQHCc0fqfFchJXY=
 github.com/noneymous/go-redistributable-checker v0.0.0-20210325124657-4c7139260b22/go.mod h1:Yr6DT8WUYuBekSltVo4LmXFNQ+gY52yHeZjJaoGKVmI=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
