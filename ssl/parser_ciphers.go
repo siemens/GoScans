@@ -208,7 +208,6 @@ func parseEphemeralKeyInfo(logger utils.Logger, info gosslyze.EphemeralKeyInfo) 
 
 	if info == nil {
 		// We expect the ephemeral key info to be nil for non-ephemeral key exchanges
-		logger.Debugf("Ephemeral key info is not available.")
 		return 0, 0, []string{}
 	}
 
