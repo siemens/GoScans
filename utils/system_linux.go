@@ -14,7 +14,7 @@ import (
 	"os"
 )
 
-// Check whether the current process is running with admin privileges on Linux
+// IsElevated checks whether the current process is running with admin privileges on Linux
 func IsElevated() bool {
 
 	// Check env variables for sudo user are set
