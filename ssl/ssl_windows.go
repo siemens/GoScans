@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"github.com/siemens/GoScans/utils"
 	"os/exec"
-	"strings"
 )
 
 // NewScanner initializes a new SSLyze scan. Windows specific implementation, SSLyze executable path required
@@ -41,33 +40,18 @@ func NewScanner(
 		return nil, fmt.Errorf("'%s %v' can not be executed: %s: %s", sslyzePath, args, errCmd, stderr.String())
 	}
 
-	// Extract the Sslyze version, the version flag has been removed and the version is now extracted from the help message
+	// Extract the SSLyze version, the version flag has been removed and the version is now extracted from the help message
 	msgHelp := out.String()
-	versionIndex := strings.Index(msgHelp, "SSLyze version ")
-	argumentsIndex := strings.Index(msgHelp, "positional arguments")
+	versionOk, errSSLyzeVersion := checkSSLyzeVersion(msgHelp)
 
-	// Abort if '--help' command did not return expected result
-	if versionIndex == -1 || argumentsIndex == -1 {
-		return nil, fmt.Errorf(
-			"could not extract SSLyze version, please update to '%s'",
-			versionSliceToString(sslyzeVersion),
-		)
-	}
-
-	// Extract version number from response
-	version := out.String()[versionIndex+len("SSLyze version ") : argumentsIndex]
-
-	// Check if used version is compatible to the required one
-	versionOk, errVersion := compareVersion(version, sslyzeVersion)
-	if errVersion != nil {
-		return nil, fmt.Errorf("could not validate SSLyze version '%s': %s", version, errVersion)
+	if errSSLyzeVersion != nil {
+		return nil, fmt.Errorf("error while extracting installed SSLyze version: %s", errSSLyzeVersion)
 	}
 
 	// Check if the SSLyze version is up-to-date
 	if !versionOk {
 		return nil, fmt.Errorf(
-			"insufficient SSLyze version '%s', please update to '%s'",
-			version,
+			"insufficient SSLyze version, please update to '%s'",
 			versionSliceToString(sslyzeVersion),
 		)
 	}

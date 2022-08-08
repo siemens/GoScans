@@ -527,6 +527,32 @@ func compareVersion(got string, wanted []int) (bool, error) {
 	return true, nil
 }
 
+// checkSSLyzeVersion extracts the installed SSLyze version from the help message and compares it to the required version
+func checkSSLyzeVersion(msgHelp string) (bool, error) {
+	versionIndex := strings.Index(msgHelp, "SSLyze version ")
+	argumentsIndex := strings.Index(msgHelp, "positional arguments")
+
+	// Abort if '--help' command did not return expected result
+	if versionIndex == -1 || argumentsIndex == -1 {
+		return false, fmt.Errorf(
+			"could not extract SSLyze version, please update to '%s'",
+			versionSliceToString(sslyzeVersion),
+		)
+	}
+
+	// Extract and trim SSLyze's version number from help message
+	version := strings.Trim(msgHelp[versionIndex+len("SSLyze version "):argumentsIndex], "\n\t\r ")
+
+	// Check if used version is compatible to the required one
+	versionOk, errVersion := compareVersion(version, sslyzeVersion)
+	if errVersion != nil {
+		return false, fmt.Errorf("could not validate SSLyze version '%s': %s", version, errVersion)
+	}
+
+	// Return version check
+	return versionOk, nil
+}
+
 // This little helper function is used for error logging if the checks for Python and SSLyze before creating a new
 // scanner fail.
 func versionSliceToString(in []int) string {
