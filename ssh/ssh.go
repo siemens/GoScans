@@ -234,16 +234,16 @@ func (s *Scanner) getAuthenticationMethods(address string) ([]string, error) {
 	// if yes, we add the none-method to the authentication mechanism
 	if err == nil {
 		authMethods = []string{"none"}
-		err := sshConn.Close()
-		if err != nil {
-			s.logger.Debugf("Could not close connection to %s: %s", s.target, err)
+		errClose := sshConn.Close()
+		if errClose != nil {
+			s.logger.Debugf("Could not close connection to %s: %s", s.target, errClose)
 		}
 	} else if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() { // Check if the error was because the dial timed out.
 
 		// Try to excerpt the supported methods from the error
-		triedAuthMethods, err := infoFromErr(err)
-		if err != nil {
-			return nil, err
+		triedAuthMethods, errInfo := infoFromErr(err)
+		if errInfo != nil {
+			return nil, errInfo
 		}
 
 		// golang tried the none method, so it adds it to the error message, but since the authentication with
