@@ -37,7 +37,7 @@ func parseCertificateChains(
 		return make([]*CertDeployment, 0), false, false, fmt.Errorf("provided SSLyze result is nil")
 	}
 	if cr.CertInfo == nil {
-		return make([]*CertDeployment, 0), false, false, fmt.Errorf("povided SSLyze result has no certificate info")
+		return make([]*CertDeployment, 0), false, false, fmt.Errorf("provided SSLyze result has no certificate info")
 	}
 
 	// Initialize the return variables.
@@ -74,7 +74,7 @@ func parseCertificateChains(
 			// Get certificate info from SSLyze data
 			certificate, errCert := parseCertificate(logger, &cert, targetName)
 			if errCert != nil {
-				logger.Warningf("Could not parse certificate: %s", errCert)
+				logger.Debugf("Could not parse certificate: %s", errCert)
 				continue
 			}
 

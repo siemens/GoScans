@@ -483,7 +483,7 @@ func (c *Crawler) processFile(fileTask *task, processId int, chProcessResults ch
 func accessFile(path string, flag int) (opened bool, err error) {
 
 	// Try to open the file
-	file, errOpen := os.OpenFile(path, flag, 0644) // the perm attribute does not matter, since no file is created
+	file, errOpen := os.OpenFile(path, flag, 0660) // the perm attribute does not matter, since no file is created
 	if errOpen != nil {
 
 		// Try to cast to path error

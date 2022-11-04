@@ -59,21 +59,21 @@ func parseSslyzeResult(logger utils.Logger, targetName string, hostResult *gossl
 	var errInfo error
 	sslData.Issues, errInfo = parseIssues(&result.ScanResult)
 	if errInfo != nil {
-		logger.Warningf("Could not parse basic info: %s", errInfo)
+		logger.Debugf("Could not parse basic info: %s", errInfo)
 	}
 
 	// Parse information on the check against Mozilla's SSL recommended config
 	var errComplianceCheck error
 	sslData.ComplianceTestDetails, errInfo = parseComplianceCheck(hostResult)
 	if errComplianceCheck != nil {
-		logger.Warningf("Could not parse Mozilla's check information: %s", errComplianceCheck)
+		logger.Debugf("Could not parse Mozilla's check information: %s", errComplianceCheck)
 	}
 
 	// Parse elliptic curves information
 	var errEllip error
 	sslData.EllipticCurves, errEllip = parseEllipticInfo(&result.ScanResult)
 	if errEllip != nil {
-		logger.Warningf("Could not parse elliptic curves information: %s", errEllip)
+		logger.Debugf("Could not parse elliptic curves information: %s", errEllip)
 	}
 
 	// Parse the Certificates
@@ -83,7 +83,7 @@ func parseSslyzeResult(logger utils.Logger, targetName string, hostResult *gossl
 		sslData.Issues.AnyChainInvalidOrder,
 		errCerts = parseCertificateChains(logger, &result.ScanResult, targetName)
 	if errCerts != nil {
-		logger.Warningf("Could not process certificate chain: %s", errCerts)
+		logger.Debugf("Could not process certificate chain: %s", errCerts)
 	}
 
 	// Parse the cipher suites
@@ -92,23 +92,24 @@ func parseSslyzeResult(logger utils.Logger, targetName string, hostResult *gossl
 		sslData.Issues.LowestProtocol,
 		errCiphers = parseCiphers(logger, targetName, &result.ScanResult)
 	if errCiphers != nil {
-		logger.Warningf("Could not process cipher suites: %s", errCiphers)
+		logger.Debugf("Could not process cipher suites: %s", errCiphers)
 	}
 
 	// Set the additional information that can be derived from previously parsed information.
 	errVuln := setCipherIssues(sslData)
 	if errVuln != nil {
-		logger.Warningf("Could not set vulnerabilities: %s", errVuln)
+		logger.Debugf("Could not set vulnerabilities: %s", errVuln)
 	}
 	errStrength := setMinStrength(sslData)
 	if errVuln != nil {
-		logger.Warningf("Could not determine the minimum strength: %s", errStrength)
+		logger.Debugf("Could not determine the minimum strength: %s", errStrength)
 	}
 
+	// Return SSL results
 	return sslData
 }
 
-// parseIssues creates and returns a issues struct with information on possible vulnerabilites.
+// parseIssues creates and returns an issues struct with information on possible vulnerabilites.
 func parseIssues(cr *gosslyze.CommandResults) (*Issues, error) {
 
 	// Initialize the return structure.
@@ -120,12 +121,12 @@ func parseIssues(cr *gosslyze.CommandResults) (*Issues, error) {
 	}
 
 	// General information
-	if cr.EarlyData != nil {
+	if cr.EarlyData != nil && cr.EarlyData.Result != nil {
 		issues.EarlyDataSupported = cr.EarlyData.Result.IsSupported
 	}
 
 	// check whether session ID resumption was successful.
-	if cr.Resumption != nil {
+	if cr.Resumption != nil && cr.Resumption.Result != nil {
 		if cr.Resumption.Result.AttemptedIdResumptions == cr.Resumption.Result.SuccessfulIdResumptions {
 			issues.SessionResumptionWithId = true
 		}
@@ -135,20 +136,20 @@ func parseIssues(cr *gosslyze.CommandResults) (*Issues, error) {
 	}
 
 	// Renegotiation information
-	if cr.Renegotiation != nil {
+	if cr.Renegotiation != nil && cr.Renegotiation.Result != nil {
 		issues.InsecureRenegotiation = !cr.Renegotiation.Result.SupportsSecureRenegotiation
 		issues.AcceptsClientRenegotiation = cr.Renegotiation.Result.VulnerableToClientRenegotiation
 		issues.InsecureClientRenegotiation = issues.InsecureRenegotiation && issues.AcceptsClientRenegotiation
 	}
 
 	// Vulnerability information
-	if cr.Compression != nil {
+	if cr.Compression != nil && cr.Compression.Result != nil {
 		issues.Compression = cr.Compression.Result.IsSupported
 	}
-	if cr.Heartbleed != nil {
+	if cr.Heartbleed != nil && cr.Heartbleed.Result != nil {
 		issues.Heartbleed = cr.Heartbleed.Result.IsVulnerable
 	}
-	if cr.OpensslCcs != nil {
+	if cr.OpensslCcs != nil && cr.OpensslCcs.Result != nil {
 		issues.CcsInjection = cr.OpensslCcs.Result.IsVulnerable
 	}
 
@@ -169,19 +170,22 @@ func parseEllipticInfo(cr *gosslyze.CommandResults) (*EllipticCurves, error) {
 		return ellipticInfo, fmt.Errorf("provided SSLyze result is nil")
 	}
 
-	// Accepted Elliptic Curves
-	if cr.EllipticCurves.Result.SupportedCurves != nil {
-		ellipticInfo.SupportedCurves = parseEllipticCurves(cr.EllipticCurves.Result.SupportedCurves)
+	if cr.EllipticCurves != nil && cr.EllipticCurves.Result != nil {
+		// Accepted Elliptic Curves
+		if cr.EllipticCurves.Result.SupportedCurves != nil {
+			ellipticInfo.SupportedCurves = parseEllipticCurves(cr.EllipticCurves.Result.SupportedCurves)
+		}
+
+		// Rejected Elliptic Curves
+		if cr.EllipticCurves.Result.RejectedCurves != nil {
+			ellipticInfo.RejectedCurves = parseEllipticCurves(cr.EllipticCurves.Result.RejectedCurves)
+		}
+
+		// Check support for ECDH Key Exchange
+		ellipticInfo.SupportECDHKeyExchange = cr.EllipticCurves.Result.SupportECDHKeyExchange
 	}
 
-	// Rejected Elliptic Curves
-	if cr.EllipticCurves.Result.RejectedCurves != nil {
-		ellipticInfo.RejectedCurves = parseEllipticCurves(cr.EllipticCurves.Result.RejectedCurves)
-	}
-
-	// Check support for ECDH Key Exchange
-	ellipticInfo.SupportECDHKeyExchange = cr.EllipticCurves.Result.SupportECDHKeyExchange
-
+	// Return elliptic curve data
 	return ellipticInfo, nil
 }
 

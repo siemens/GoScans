@@ -14,7 +14,7 @@ import (
 	"syscall"
 )
 
-// Check whether the current process is running with admin privileges on Windows
+// IsElevated checks whether the current process is running with admin privileges on Windows
 func IsElevated() bool {
 
 	// Open current process token

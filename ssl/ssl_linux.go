@@ -22,7 +22,7 @@ var (
 	pythonVersion = []int{3, 7, -1}
 )
 
-// Linux specific implementation, Python3 and sslyze package required
+// NewScanner initializes a new SSLyze scan. Linux specific implementation, Python and SSLyze package required
 func NewScanner(
 	logger utils.Logger,
 	pythonPath string,
@@ -52,14 +52,14 @@ func NewScanner(
 		return nil, fmt.Errorf("could not validate the Python version '%s': %s", out.String(), errVersion)
 	}
 
-	// Check if the Python version is up to date
+	// Check if the Python version is up-to-date
 	if !versionOk {
 		return nil, fmt.Errorf("insufficient Python version '%s', please update to '%s'",
 			version, versionSliceToString(pythonVersion))
 	}
 
-	// Check whether we can execute the sslyze library and retrieve the version
-	args = []string{"-m", "sslyze", "--version"}
+	// Check whether we can execute the SSLyze library and retrieve the version
+	args = []string{"-m", "sslyze", "--help"}
 	cmd = exec.Command(pythonPath, args...)
 	out.Reset()
 	stderr.Reset()
@@ -70,18 +70,18 @@ func NewScanner(
 		return nil, fmt.Errorf("'%s %v' can not be executed: %s: %s", pythonPath, args, errCmd, stderr.String())
 	}
 
-	// Trim the SSLyze version number
-	version = strings.Trim(strings.Trim(out.String(), "\n\t\r "), "\n\t\r ")
-	versionOk, errVersion = compareVersion(version, sslyzeVersion)
-	if errVersion != nil {
-		return nil, fmt.Errorf("could not validate the SSLyze version '%s': %s", version, errVersion)
+	// Extract the SSLyze version, the version flag has been removed and the version is now extracted from the help message
+	msgHelp := out.String()
+	versionIsOk, errSSLyzeVersion := checkSSLyzeVersion(msgHelp)
+
+	if errSSLyzeVersion != nil {
+		return nil, fmt.Errorf("error while extracting installed SSLyze version: %s", errSSLyzeVersion)
 	}
 
-	// Check if the SSLyze version is up to date
-	if !versionOk {
+	// Check if the SSLyze version is up-to-date
+	if !versionIsOk {
 		return nil, fmt.Errorf(
-			"insufficient SSLyze version '%s', please update to '%s'",
-			version,
+			"insufficient SSLyze version, please update to '%s'",
 			versionSliceToString(sslyzeVersion),
 		)
 	}

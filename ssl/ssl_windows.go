@@ -15,10 +15,9 @@ import (
 	"fmt"
 	"github.com/siemens/GoScans/utils"
 	"os/exec"
-	"strings"
 )
 
-// Windows specific implementation, SSLyze executable path required
+// NewScanner initializes a new SSLyze scan. Windows specific implementation, SSLyze executable path required
 func NewScanner(
 	logger utils.Logger,
 	sslyzePath string,
@@ -31,7 +30,7 @@ func NewScanner(
 	var out bytes.Buffer
 	var stderr bytes.Buffer
 
-	// Check whether we can execute the sslyze library and retrieve the help message
+	// Check whether we can execute the SSLyze library and retrieve the help message
 	args := []string{"--help"}
 	cmd := exec.Command(sslyzePath, args...)
 	cmd.Stdout = &out
@@ -41,23 +40,18 @@ func NewScanner(
 		return nil, fmt.Errorf("'%s %v' can not be executed: %s: %s", sslyzePath, args, errCmd, stderr.String())
 	}
 
-	// Extract the Sslyze version, the version flag has been removed and the version is now extracted from the help message
-	HelpMsg := out.String()
-	versionIndex := strings.Index(HelpMsg, "SSLyze version ")
-	argumentsIndex := strings.Index(HelpMsg, "positional arguments")
-	version := out.String()[versionIndex+len("SSLyze version ") : argumentsIndex]
+	// Extract the SSLyze version, the version flag has been removed and the version is now extracted from the help message
+	msgHelp := out.String()
+	versionOk, errSSLyzeVersion := checkSSLyzeVersion(msgHelp)
 
-	// Check if used version is compatible to the required one
-	versionOk, errVersion := compareVersion(version, sslyzeVersion)
-	if errVersion != nil {
-		return nil, fmt.Errorf("could not validate the SSLyze version '%s': %s", version, errVersion)
+	if errSSLyzeVersion != nil {
+		return nil, fmt.Errorf("error while extracting installed SSLyze version: %s", errSSLyzeVersion)
 	}
 
-	// Check if the SSLyze version is up to date
+	// Check if the SSLyze version is up-to-date
 	if !versionOk {
 		return nil, fmt.Errorf(
-			"insufficient SSLyze version '%s', please update to '%s'",
-			version,
+			"insufficient SSLyze version, please update to '%s'",
 			versionSliceToString(sslyzeVersion),
 		)
 	}

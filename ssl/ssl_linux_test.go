@@ -36,7 +36,7 @@ func Test_NewScanner(t *testing.T) {
 		// The installation path might differ. If this test does not pass, check it with 'which python3'
 		{"valid", args{"/usr/bin/python3.7", "", "sub.domain.tld", 443, nil}, false},
 		{"invalid-pathPython", args{"xxx", "", "sub.domain.tld", 443, nil}, true},
-		// There should also be a test for a missing sslyze installation, but this needs to be change in the OS.
+		// There should also be a test for a missing SSLyze installation, but this needs to be change in the OS.
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

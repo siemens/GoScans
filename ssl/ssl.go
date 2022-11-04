@@ -242,7 +242,7 @@ type Scanner struct {
 
 func newScanner( // Private, because the public factories are in the os specific files
 	logger utils.Logger, // Can be any logger implementing our minimalistic interface. Wrap your logger to satisfy the interface, if necessary (like utils.LoggerTest).
-	sslyzeCommand string, // Executable to call or python3 sslyze call, depending on operating system
+	sslyzeCommand string, // Executable to call or Python3 SSLyze call, depending on operating system
 	sslyzeCommandArgs []string,
 	sslyzeAdditionalTruststore string, // Sslyze always applies default CAs, but you can add additional ones via custom trust store
 	target string,
@@ -417,7 +417,7 @@ func (s *Scanner) execute() *Result {
 
 		// Check if the scan returned something at all and drop empty results
 		if len(parsedData.Ciphers) == 0 || len(parsedData.CertDeployments) == 0 {
-			s.logger.Debugf("Skipping empty result.")
+			s.logger.Debugf("No SSL data discovered.")
 			continue
 		}
 
@@ -490,7 +490,7 @@ func initSslyze(
 // compareVersion compares the given version string retrieved from the python interpreter at pythonPath with the provided
 // integer slice. Example wanted: []int{3, 5, -1}, where 3 is the major and 5 the minor version. A negative number
 // signalizes to ignore this category.
-// This little helper function is used when checking for python and sslyze before creating a new scanner.
+// This little helper function is used when checking for Python and SSLyze before creating a new scanner.
 func compareVersion(got string, wanted []int) (bool, error) {
 
 	// Some sanity checks
@@ -523,7 +523,33 @@ func compareVersion(got string, wanted []int) (bool, error) {
 	return true, nil
 }
 
-// This little helper function is used for error logging if the checks for python and sslyze before creating a new
+// checkSSLyzeVersion extracts the installed SSLyze version from the help message and compares it to the required version
+func checkSSLyzeVersion(msgHelp string) (bool, error) {
+	versionIndex := strings.Index(msgHelp, "SSLyze version ")
+	argumentsIndex := strings.Index(msgHelp, "positional arguments")
+
+	// Abort if '--help' command did not return expected result
+	if versionIndex == -1 || argumentsIndex == -1 {
+		return false, fmt.Errorf(
+			"could not extract SSLyze version, please update to '%s'",
+			versionSliceToString(sslyzeVersion),
+		)
+	}
+
+	// Extract and trim SSLyze's version number from help message
+	version := strings.Trim(msgHelp[versionIndex+len("SSLyze version "):argumentsIndex], "\n\t\r ")
+
+	// Check if used version is compatible to the required one
+	versionOk, errVersion := compareVersion(version, sslyzeVersion)
+	if errVersion != nil {
+		return false, fmt.Errorf("could not validate SSLyze version '%s': %s", version, errVersion)
+	}
+
+	// Return version check
+	return versionOk, nil
+}
+
+// This little helper function is used for error logging if the checks for Python and SSLyze before creating a new
 // scanner fail.
 func versionSliceToString(in []int) string {
 	substrings := make([]string, len(in))
