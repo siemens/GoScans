@@ -413,11 +413,7 @@ func (s *Scanner) execute() *Result {
 		cancel()
 
 		// Parse the (raw) SSLyze scan result into our structs.
-		parsedData, errParse := parseSslyzeResult(s.logger, target, scanResult)
-		if errParse != nil {
-			s.logger.Warningf("Could not parse SSLyze results of '%s': %s", target, errParse)
-			continue
-		}
+		parsedData := parseSslyzeResult(s.logger, target, scanResult)
 
 		// Check if the scan returned something at all and drop empty results
 		if len(parsedData.Ciphers) == 0 || len(parsedData.CertDeployments) == 0 {

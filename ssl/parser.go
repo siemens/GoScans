@@ -16,7 +16,7 @@ import (
 	"github.com/siemens/GoScans/utils"
 )
 
-func parseSslyzeResult(logger utils.Logger, targetName string, hostResult *gosslyze.HostResult) (*Data, error) {
+func parseSslyzeResult(logger utils.Logger, targetName string, hostResult *gosslyze.HostResult) *Data {
 
 	// Check for nil pointer exceptions.
 	if hostResult == nil {
@@ -27,7 +27,7 @@ func parseSslyzeResult(logger utils.Logger, targetName string, hostResult *gossl
 			Issues:          new(Issues),
 			Ciphers:         make(map[string]*Cipher),
 			CertDeployments: make([]*CertDeployment, 0),
-		}, nil
+		}
 	}
 
 	// Check whether SSLyze has any results
@@ -39,7 +39,7 @@ func parseSslyzeResult(logger utils.Logger, targetName string, hostResult *gossl
 			Issues:          new(Issues),
 			Ciphers:         make(map[string]*Cipher),
 			CertDeployments: make([]*CertDeployment, 0),
-		}, nil
+		}
 	}
 
 	// We start a separate SSLyze scan for every target, therefore only one target should be returned.
@@ -106,10 +106,10 @@ func parseSslyzeResult(logger utils.Logger, targetName string, hostResult *gossl
 	}
 
 	// Return SSL results
-	return sslData, nil
+	return sslData
 }
 
-// parseIssues creates and returns a issues struct with information on possible vulnerabilites.
+// parseIssues creates and returns an issues struct with information on possible vulnerabilites.
 func parseIssues(cr *gosslyze.CommandResults) (*Issues, error) {
 
 	// Initialize the return structure.
