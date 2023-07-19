@@ -1,7 +1,7 @@
 /*
 * GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -27,10 +27,6 @@ import (
 )
 
 const Label = "Discovery"
-const maxThreadsUser = 20           // Max number of parallel Windows user enumerations
-const maxThreadsSans = 50           // Max number of parallel SANs discoveries
-const maxThreadsDns = 20            // Max number of parallel DNS queries
-const maxThreadsAd = 20             // Max number of parallel Active Directory queries
 const firewallRuleName = "Nmap-LSD" // Name assigned to the firewall rule created on Windows
 
 var defaultScriptsOnce sync.Once
@@ -47,6 +43,10 @@ var defaultScripts = []string{ // List of default scripts to be executed
 	"rdp-enum-encryption", // RDP is a common service and this script will enumerate its security settings
 }
 var defaultScriptsMissing []string // List of default scripts missing, to warn about
+
+// Global throttles that need to hold across all parallel scan tasks
+var chThrottleGlobalDns = make(chan struct{}, 100) // Max number of parallel DNS queries
+var chThrottleGlobalAd = make(chan struct{}, 100)  // Max number of parallel Active Directory queries
 
 // Setup configures the environment accordingly, if the scan module has some special requirements. A successful setup
 // is required before a scan can be started.
@@ -108,6 +108,7 @@ type Host struct {
 	Ip              string
 	DnsName         string
 	OtherNames      []string
+	OtherIps        []string
 	Hops            []string // Traceroute hops to the target host
 	OsGuesses       []string
 	OsSmb           string
@@ -118,7 +119,13 @@ type Host struct {
 	RdpUsers        []string
 	Services        []Service // mapping port to Service result
 	Scripts         []Script  // list of Script results
-	Ad              *active_directory.Ad
+
+	Company    string // Optional attribute that could be filled by the agent with asset inventory information
+	Department string // Optional attribute that could be filled by the agent with asset inventory information
+	Owner      string // Optional attribute that could be filled by the agent with asset inventory information
+	Critical   bool   // Optional attribute that could be filled by the agent with asset inventory information
+
+	Ad *active_directory.Ad
 }
 
 type Result struct {
@@ -148,6 +155,7 @@ type Scanner struct {
 	nmapVersionAll    bool          // Toggle to enable/disable extensive version detection
 	nmapBlacklistFile string        // Path to blacklist list of targets to be skipped at any case
 	ldapConf          ldapConf      // Struct holding LDAP configuration data, ready to be passed on as single value
+	excludeDomains    []string      // Domains to be ignored when discovered
 	dialTimeout       time.Duration // The duration a dial is allowed to take before it will be canceled.
 
 	proc           *nmap.Scanner     // Actual Nmap scanner object to be executed
@@ -161,12 +169,13 @@ func NewScanner(
 	nmapArgs []string,
 	nmapVersionAll bool,
 	nmapBlacklist []string, // Single blacklist targets
-	nmapBlacklistFile string, // File with list of blacklist targets. Can be combined with nmapBlacklist.
+	nmapBlacklistFile string, // File with list of blacklist targets. Can be combined with nmapBlacklist
 	domainOrder []string, // (Sub) domains ordered by plausibility
 	ldapServer string,
 	ldapDomain string,
 	ldapUser string,
 	ldapPassword string,
+	excludeDomains []string, // Domains to be ignored when discovered
 	dialTimeout time.Duration, // Timeout for e.g. AD queries to enrich data (used AD fqdn might not exist)
 ) (*Scanner, error) {
 
@@ -267,8 +276,8 @@ func NewScanner(
 			ldapUser,
 			ldapPassword,
 		},
+		excludeDomains,
 		dialTimeout,
-
 		proc,
 		inputHostnames,
 	}
@@ -431,7 +440,9 @@ func (s *Scanner) execute() *Result {
 
 	// Check for nmap warnings that are critical to us
 	for _, warning := range warnings {
-		if strings.Contains(warning, "Failed to resolve") { // The same warning is returned if host from blacklist could not be resolved, but in that case an error is already returned and handled above
+		if warning == "" || warning == " " {
+			continue
+		} else if strings.Contains(warning, "Failed to resolve") { // The same warning is returned if host from blacklist could not be resolved, but in that case an error is already returned and handled above
 			s.logger.Debugf("Target could not be resolved.")
 			return &Result{
 				results,
@@ -466,22 +477,18 @@ func (s *Scanner) execute() *Result {
 	// Log successful scan
 	s.logger.Debugf("Extracting results for '%s'.", s.targetDescription)
 
-	// Prepare processing throttles and return channels
-	counterPostprocessing := 0 // Number of goroutines to be waited for
-	chThrottleUser := make(chan struct{}, maxThreadsUser)
-	chThrottleSans := make(chan struct{}, maxThreadsSans)
-	chThrottleDns := make(chan struct{}, maxThreadsDns)
-	chDoneUsers := make(chan *Host)
-	chDoneSans := make(chan *Host)
-	chDoneDns := make(chan *Host)
+	// Prepare processing throttles and result return channels
+	chThrottleUsers := make(chan struct{}, 30)
+	chThrottleIps := make(chan struct{}, 30)
+	chThrottleSans := make(chan struct{}, 30)
 
-	// Close channels at the end
-	defer close(chThrottleUser)
+	// Close channels after scan completion
+	defer close(chThrottleUsers)
+	defer close(chThrottleIps)
 	defer close(chThrottleSans)
-	defer close(chThrottleDns)
-	defer close(chDoneUsers)
-	defer close(chDoneSans)
-	defer close(chDoneDns)
+
+	// Prepare wait group for post-processing goroutines
+	var wgHosts sync.WaitGroup
 
 	// Read scan result and fill results structure
 	for _, h := range result.Hosts {
@@ -504,7 +511,7 @@ func (s *Scanner) execute() *Result {
 		services, hostnamesServices := extractPortData(h.Ports)
 
 		// Extract NSE scripts run against the host
-		s.logger.Debugf("Extracting Script data of '%s'.", ip)
+		s.logger.Debugf("Extracting script data of '%s'.", ip)
 		hostnamesHostScripts, osSmb, hostScripts := extractHostScriptData(h.HostScripts)
 
 		// Extract NSE scripts run against the host's ports
@@ -518,6 +525,9 @@ func (s *Scanner) execute() *Result {
 		if len(services) == 0 && len(scripts) == 0 {
 			s.logger.Debugf("Ignoring unused network address '%s'.", ip)
 			continue
+		} else {
+			s.logger.Debugf("Discovered %d services and %d script outputs at '%s'.",
+				len(services), len(scripts), ip)
 		}
 
 		// Merge discovered hostnames
@@ -536,59 +546,53 @@ func (s *Scanner) execute() *Result {
 
 		// Create host struct
 		hData := Host{
-			ip,
-			"",        // To be decided later after extracting SANs
-			hostnames, // To be updated later after deciding DNS name from it
-			hops,
-			osGuesses,
-			osSmb,
-			lastBoot,
-			uptime,
-			h.Status.Reason,
-			[]string{}, // To be added asynchronously later
-			[]string{}, // To be added asynchronously later
-			services,
-			scripts,
-			&active_directory.Ad{}, // To be added asynchronously later
+			Ip:              ip,
+			DnsName:         "",         // To be decided later after extracting SANs
+			OtherNames:      hostnames,  // To be updated later after deciding DNS name from it
+			OtherIps:        []string{}, // To be added asynchronously later by OXID Resolver script
+			Hops:            hops,
+			OsGuesses:       osGuesses,
+			OsSmb:           osSmb,
+			LastBoot:        lastBoot,
+			Uptime:          uptime,
+			DetectionReason: h.Status.Reason,
+			AdminUsers:      []string{}, // To be added asynchronously later during user extraction
+			RdpUsers:        []string{}, // To be added asynchronously later during user extraction
+			Services:        services,
+			Scripts:         scripts,
+			Company:         "",                     // To be added asynchronously later by asset inventory lookup
+			Department:      "",                     // To be added asynchronously later by asset inventory lookup
+			Owner:           "",                     // To be added asynchronously later by asset inventory lookup
+			Ad:              &active_directory.Ad{}, // To be added asynchronously later by asset AD lookup
 		}
 
-		// Initiate asynchronous postprocessing for host data set
-		// This will launch Windows user enumeration and SANs extraction. Dns and Ad extraction will be launched later
-		s.logger.Debugf("Starting post-processing of '%s'.", ip)
-		counterPostprocessing = postprocessingSubmit(
-			s.logger,
-			counterPostprocessing,
-			&hData,
-			s.domainOrder,
-			sslPorts,
-			s.dialTimeout,
-			chThrottleUser,
-			chThrottleSans,
-			chThrottleDns,
-			chDoneUsers,
-			chDoneSans,
-			chDoneDns,
-		)
-
-		// Add reference of host struct to results. The actual host struct may be altered subsequently by previously
-		// launched goroutines
+		// Add reference of host struct to results. The actual host struct may be altered subsequently by
+		// post-processing launched goroutines.
 		results = append(results, &hData)
+
+		// Initiate asynchronous post-processing to collect additional host data.
+		// This will enrich host results with additional information that can be gathered from the remote host. E.g.,
+		// it will do Windows user enumeration, SANs extraction, interface enumeration via OXID Resolver,...
+		// Dns validation and Ad extraction will be launched later, once post-processing is completed.
+		wgHosts.Add(1)
+		go postprocess(
+			s.logger,
+			&wgHosts,
+			&hData, // To be updated in place
+			sslPorts,
+			s.domainOrder,
+			s.excludeDomains,
+			s.ldapConf,
+			s.dialTimeout,
+			chThrottleUsers,
+			chThrottleIps,
+			chThrottleSans,
+		)
 	}
 
-	// Continue postprocessing and wait for completion
-	// This will wait for SANs extraction, launch DNS and Ad extraction subsequently and wait for all goroutines
-	s.logger.Debugf("Waiting for post-processing to complete.")
-	postprocessingComplete(
-		s.logger,
-		&s.ldapConf,
-		counterPostprocessing,
-		s.domainOrder,
-		s.dialTimeout,
-		chThrottleDns,
-		chDoneUsers,
-		chDoneSans,
-		chDoneDns,
-	)
+	// Wait for post-processing to complete.
+	s.logger.Debugf("Waiting for all post-processing to complete.")
+	wgHosts.Wait()
 
 	// Return pointer to result struct
 	s.logger.Debugf("Returning scan result.")
@@ -619,7 +623,7 @@ func extractHostData(h nmap.Host) ([]string, []string, []string, time.Time, time
 	for _, match := range h.OS.Matches {
 
 		// Simply use the match name and accuracy to describe the os. It's easier to maintain than parsing the cpe
-		// string and generating multiple class strings from that. Additionally there were some instances where the
+		// string and generating multiple class strings from that. Additionally, there were some instances where the
 		// match.Name hold more information than the CPE and class fields.
 		osGuesses = append(osGuesses,
 			fmt.Sprintf(
@@ -793,193 +797,464 @@ func extractPortScriptData(ports []nmap.Port) ([]string, []int, []Script) {
 	return hostnames, sslPorts, scripts
 }
 
-func postprocessingSubmit(
+func postprocess(
 	logger utils.Logger,
-	counterPostprocessing int,
+	wgHosts *sync.WaitGroup,
 	hData *Host,
-	domainOrder []string,
 	sslPorts []int,
+	domainOrder []string,
+	excludeDomains []string,
+	ldapConf ldapConf,
 	dialTimeout time.Duration,
-	chThrottleUser chan struct{},
+	chThrottleUsers chan struct{},
+	chThrottleIps chan struct{},
 	chThrottleSans chan struct{},
-	chThrottleDns chan struct{},
-	chDoneUsers chan<- *Host,
-	chDoneSans chan<- *Host,
-	chDoneDns chan<- *Host,
-) int {
+) {
 
-	// Find out if one of the possible SMB ports is open. SMB is used to determine the users of a group.
+	// Log potential panics before letting them move on
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf(fmt.Sprintf("Panic: %s%s", r, utils.StacktraceIndented("\t")))
+			panic(r)
+		}
+	}()
+
+	// Make sure wait group decremented once the post-processing is done
+	defer wgHosts.Done()
+
+	// Prepare wait group for post-processing steps
+	var wg sync.WaitGroup
+
+	// Log action
+	logger.Debugf("Post-processing '%s'.", hData.Ip)
+
+	// Submit dataset for asynchronous enumeration of Windows Admin/rdp group members.
+	// ATTENTION: The attributes written by this function CANNOT be changed by other goroutines in parallel!
 	smbPortOpen := false
 	for _, service := range hData.Services {
 		if service.Port == 445 || service.Port == 139 {
 			smbPortOpen = true
 		}
 	}
-
-	// Submit dataset for asynchronous enumeration of Windows Admin/rdp group members
-	// This should work in parallel to discoverSans() as it is reading/writing different fields
-	if smbPortOpen ||
-		strings.Contains(strings.ToLower(hData.OsSmb), "windows") {
-		go discoverGroupUsers(logger, hData, chThrottleUser, chDoneUsers)
-		counterPostprocessing++ // Later, it's necessary to wait for all goroutines created
+	if smbPortOpen || strings.Contains(strings.ToLower(hData.OsSmb), "windows") {
+		wg.Add(1)
+		go hostExtractUsers(logger, &wg, hData, chThrottleUsers)
 	}
 
-	// Submit dataset for asynchronous extraction of SANs or directly step into DNS name decision routine
-	// This should work in parallel to discoverGroupUsers() as it is reading/writing different fields
-	if len(sslPorts) > 0 {
-		// Start post-processing with asynchronous SANs extraction. After SANs extraction, the host struct will be
-		// passed on to do DNS decision and Ad queries.
-		go discoverSans(logger, hData, sslPorts, dialTimeout, chThrottleSans, chDoneSans)
-		counterPostprocessing++ // Later, it's necessary to wait for all goroutines created
-	} else {
-		// Start post-processing with asynchronous DNS decision. After this, the host struct will be passed on to
-		// do Ad queries
-		go decideDnsName(hData, domainOrder, chThrottleDns, chDoneDns)
-		counterPostprocessing++ // Later, it's necessary to wait for all goroutines created
-	}
+	// Prepare channels for discovered hostnames and IPs
+	chHostnames := make(chan string)
+	chIps := make(chan string)
+	chWait := make(chan struct{})
 
-	// Return incremented counter
-	return counterPostprocessing
-}
+	// Launch hostname collection
+	go func() {
+		for hostname := range chHostnames {
+			logger.Debugf("Post-processing '%s': Hostname received.", hData.Ip)
+			hData.OtherNames = append(hData.OtherNames, hostname) // Read values delivered by goroutines
+		}
 
-func postprocessingComplete(
-	logger utils.Logger,
-	ldapConf *ldapConf,
-	counterPostprocessing int,
-	domainOrder []string,
-	dialTimeout time.Duration,
-	chThrottleDns chan struct{},
-	chDoneUsers chan *Host,
-	chDoneSans chan *Host,
-	chDoneDns chan *Host,
-) {
+		// Cleanup collected other IPs
+		hData.OtherNames = utils.UniqueStrings(hData.OtherNames) // Remove duplicate hostnames
 
-	// Prepare processing slots and return channels
-	chThrottleAd := make(chan struct{}, maxThreadsAd)
-	chDoneAds := make(chan *Host)
+		// Log collector completion
+		logger.Debugf("Post-processing '%s': Ending hostname collector.", hData.Ip)
+		chWait <- struct{}{}
+	}()
 
-	// Close channels at the end
-	defer close(chThrottleAd)
-	defer close(chDoneAds)
+	// Launch IP collection
+	go func() {
+		for ip := range chIps {
+			logger.Debugf("Post-processing '%s': IP received.", hData.Ip)
+			hData.OtherIps = append(hData.OtherIps, ip) // Read values delivered by goroutines
+		}
 
-	// A) Wait for all user enumerations to be completed
-	// B) Forward Host struct from SANs extraction to DNS decision making
-	// C) Forward Host struct from DNS decision making to Active Directory querying
-	// D) Wait til all data collection routines completed (once they were passed through [SANS extraction, ]DNS decision
-	//    making and Active directory querying)
-	for {
-		// Abort loop once all data collection completed
-		if counterPostprocessing == 0 {
+		// Cleanup collected other IPs
+		hData.OtherIps = utils.UniqueStrings(hData.OtherIps)             // Remove duplicate IPs
+		hData.OtherIps = utils.RemoveFromSlice(hData.OtherIps, hData.Ip) // Remove own IP
+
+		// Log collector completion
+		logger.Debugf("Post-processing '%s': Ending IP collector.", hData.Ip)
+		chWait <- struct{}{}
+	}()
+
+	// Launch OXID resolver if port 135 is open
+	for _, service := range hData.Services {
+		if service.Port == 135 {
+			wg.Add(1)
+			go hostExtractIps(logger, &wg, hData.Ip, chThrottleIps, chHostnames, chIps)
 			break
 		}
+	}
 
-		// Wait for the result of some goroutine to route on or discount
-		select {
-		case _ = <-chDoneUsers:
-			counterPostprocessing-- // Just counting the completion of a goroutine. Nothing else to do
-		case host := <-chDoneSans:
-			go decideDnsName(host, domainOrder, chThrottleDns, chDoneDns) // Forward host struct into next processing step
-		case host := <-chDoneDns:
-			go expandActiveDirectory(logger, host, ldapConf, dialTimeout, chThrottleAd, chDoneAds)
-		case _ = <-chDoneAds:
-			counterPostprocessing-- // Just counting the completion of a goroutine. Nothing else to do
+	// Launch SANS extraction
+	wg.Add(1)
+	go hostExtractSans(logger, &wg, hData.Ip, sslPorts, dialTimeout, chThrottleSans, chHostnames)
+
+	// Launch inventory lookup
+	wg.Add(1)
+	go hostLookupInventory(logger, &wg, hData, true, chHostnames, chIps) // Throttle to be defined in the actual lookup code, because depending on the inventory
+
+	// Wait for goroutines
+	logger.Debugf("Post-processing '%s': Waiting for goroutines.", hData.Ip)
+	wg.Wait()
+
+	// Close receiver channels to terminate goroutines
+	close(chHostnames)
+	close(chIps)
+
+	// Wait for both goroutines to terminate to avoid race conditions
+	<-chWait
+	<-chWait
+
+	// Decide DNS name from collected candidates
+	logger.Debugf("Deciding DNS name for '%s'.", hData.Ip)
+	decideDnsName(hData, domainOrder, excludeDomains) // Forward host struct into next processing step
+	logger.Debugf("Deciding DNS name for '%s' done.", hData.Ip)
+
+	// Execute some additional post-processing if DNS name is available
+	if hData.DnsName != "" {
+
+		// Launch AD lookup
+		wg.Add(1)
+		go hostLookupAd(logger, &wg, hData, ldapConf, dialTimeout)
+
+		// Launch asset inventory lookup again with DNS name if information is still missing
+		if hData.Company == "" && hData.Department == "" && hData.Owner == "" {
+			wg.Add(1)
+			go hostLookupInventory(logger, &wg, hData, false, nil, nil)
 		}
 	}
 
-	// After completion of the post-processing all channels should be empty. If there ever is something left in one of
-	// the channels, this would be a serious bug. Let's log such cases. Of course still-running goroutines might
-	// write to these channel after this check, but over time there might be luck (if a bug exists)
-	select {
-	case _ = <-chDoneUsers:
-		logger.Errorf("Post-processing channel 'chDoneUsers' was not empty after completion.")
-	case _ = <-chDoneSans:
-		logger.Errorf("Post-processing channel 'chDoneSans' was not empty after completion.")
-	case _ = <-chDoneDns:
-		logger.Errorf("Post-processing channel 'chDoneDns' was not empty after completion.")
-	case _ = <-chDoneAds:
-		logger.Errorf("Post-processing channel 'chDoneAds' was not empty after completion.")
-	default:
-	}
+	// Wait for goroutines
+	logger.Debugf("Post-processing '%s': Waiting for final goroutines.", hData.Ip)
+	wg.Wait()
+	logger.Debugf("Post-processing '%s': Waiting for final goroutines done.", hData.Ip)
 }
 
-// discoverGroupUsers connects to a host and tries to extract remote users in admin/RDP group
-func discoverGroupUsers(logger utils.Logger, hData *Host, chThrottle chan struct{}, chResult chan<- *Host) {
+// hostExtractUsers connects to a host and tries to extract remote users in admin/RDP group
+func hostExtractUsers(
+	logger utils.Logger,
+	wg *sync.WaitGroup,
+	hData *Host,
+	chThrottleUsers chan struct{},
+) {
+
+	// Log potential panics before letting them move on
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf(fmt.Sprintf("Panic: %s%s", r, utils.StacktraceIndented("\t")))
+			panic(r)
+		}
+	}()
+
+	// Make sure wait group decremented once the goroutine returned
+	defer wg.Done()
+
+	// Log action
+	logger.Debugf("Post-processing '%s': Extracting users.", hData.Ip)
+	defer logger.Debugf("Post-processing '%s': Extracting users done.", hData.Ip)
 
 	// Acquire slot to throttle goroutines active in parallel
-	chThrottle <- struct{}{}
+	chThrottleUsers <- struct{}{}
+	defer func() { <-chThrottleUsers }()
 
 	// Connect to Windows machine with default user credentials and extract Admin/rdp users if allowed
 	var errAdmins error
 	var sidAdmin = "S-1-5-32-544"
 	hData.AdminUsers, errAdmins = netapi.GetGroupInfo(logger, hData.Ip, sidAdmin)
 	if errAdmins != nil {
-		logger.Warningf("Could not get information about admin users: %s", errAdmins)
+		logger.Debugf("Could not extract admin users: %s", errAdmins)
 	}
 
 	var sidRdp = "S-1-5-32-555"
 	rdpUsers, errRdp := netapi.GetGroupInfo(logger, hData.Ip, sidRdp)
 	if errRdp != nil {
-		logger.Warningf("Could not get information about RDP users: %s", errRdp)
+		logger.Debugf("Could not extract RDP users: %s", errRdp)
 	}
 
 	// Admin users are always allowed to connect via RDP
 	rdpUsers = append(rdpUsers, hData.AdminUsers...)
 	hData.RdpUsers = utils.UniqueStrings(rdpUsers)
-
-	// Return reference to now extended host struct
-	chResult <- hData
-
-	// Release slot for next goroutine to become active
-	<-chThrottle
 }
 
-// discoverSans tries to retrieve subject alternative names from SSL endpoints
-func discoverSans(
+// hostExtractIps connects to a host in order to extract its hostname and IPs from other network interfaces.
+func hostExtractIps(
 	logger utils.Logger,
-	hData *Host, ports []int,
-	dialTimeout time.Duration,
-	chThrottle chan struct{},
-	chResult chan<- *Host,
+	wg *sync.WaitGroup,
+	ip string,
+	chThrottleIps chan struct{},
+	chHostnames chan<- string,
+	chIps chan<- string,
 ) {
 
-	// Acquire slot to throttle goroutines active in parallel
-	chThrottle <- struct{}{}
+	// Log potential panics before letting them move on
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf(fmt.Sprintf("Panic: %s%s", r, utils.StacktraceIndented("\t")))
+			panic(r)
+		}
+	}()
 
-	// Extend with SSL subject alternative names
+	// Make sure wait group decremented once the goroutine returned
+	defer wg.Done()
+
+	// Log action
+	logger.Debugf("Post-processing '%s': Extracting alternative IPs.", ip)
+	defer logger.Debugf("Post-processing '%s': Extracting alternative IPs done.", ip)
+
+	// Acquire slot to throttle goroutines active in parallel
+	chThrottleIps <- struct{}{}
+	defer func() { <-chThrottleIps }()
+
+	// Execute hostname and IPs of network interfaces extraction using OXID Resolver
+	hostname, interfaceIps, errInterfaces := QueryInterfaces(ip)
+	if errInterfaces != nil {
+		logger.Debugf("Post-processing '%s': Could not extract remote interfaces: %s", ip, errInterfaces)
+	}
+
+	// Yield discovered interfaces
+	for _, interfaceIp := range interfaceIps {
+		chIps <- interfaceIp
+	}
+
+	// Yield discovered hostname
+	chHostnames <- hostname
+}
+
+// hostExtractSans connects to an IP address and a given list of SSL endpoints (ports) in order to extract
+// subject alternative names (SANSs) from SSL certificates. SANS might present a plausible hostname for this host.
+func hostExtractSans(
+	logger utils.Logger,
+	wg *sync.WaitGroup,
+	ip string,
+	ports []int,
+	dialTimeout time.Duration,
+	chThrottleSans chan struct{},
+	chHostnames chan<- string,
+) {
+
+	// Log potential panics before letting them move on
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf(fmt.Sprintf("Panic: %s%s", r, utils.StacktraceIndented("\t")))
+			panic(r)
+		}
+	}()
+
+	// Make sure wait group decremented once the goroutine returned
+	defer wg.Done()
+
+	// Log action
+	logger.Debugf("Post-processing '%s': Extracting SANs.", ip)
+	defer logger.Debugf("Post-processing '%s': Extracting SANs done.", ip)
+
+	// Acquire slot to throttle goroutines active in parallel
+	chThrottleSans <- struct{}{}
+	defer func() { <-chThrottleSans }()
+
+	// Iterate SSL endpoints
 	for _, port := range ports {
-		sans, err := utils.GetSubjectAlternativeNames(hData.Ip, port, dialTimeout)
+
+		// Extract SANS from SSL endpoint
+		sans, err := utils.GetSubjectAlternativeNames(ip, port, dialTimeout)
 		if err != nil {
 			// Don't warn on connection issues, but warn on unexpected errors during SANs extraction
 			if _, ok := err.(net.Error); ok { // Check if error is connection related (timeout errors count as connection related as well)
 				logger.Debugf(
-					"Could not connect to '%s:%d' for subject alternative names extraction: %s", hData.Ip, port, err)
+					"Post-processing '%s': Could not connect on port %d for subject alternative names extraction: %s", ip, port, err)
 			} else { // Otherwise log warning message with details
 				logger.Warningf(
-					"Extracting subject alternative names from '%s:%d' failed: %s", hData.Ip, port, err)
+					"Post-processing '%s': Could not extract subject alternative names on port %d: %s", ip, port, err)
 			}
+		}
+
+		// Yield discovered hostnames
+		for _, san := range sans {
+			chHostnames <- san
+		}
+	}
+}
+
+// hostLookupAd tries to identify an active directory domain/server to connect to based on the targets DNS
+// name, in order to query system details to expand the scan result data. The result data is directly written
+// into the host data struct.
+func hostLookupAd(
+	logger utils.Logger,
+	wg *sync.WaitGroup,
+	hData *Host,
+	ldapConf ldapConf,
+	dialTimeout time.Duration,
+) {
+
+	// Log potential panics before letting them move on
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf(fmt.Sprintf("Panic: %s%s", r, utils.StacktraceIndented("\t")))
+			panic(r)
+		}
+	}()
+
+	// Make sure wait group decremented once the goroutine returned
+	defer wg.Done()
+
+	// Log action
+	logger.Debugf("Post-processing '%s': Looking up AD.", hData.Ip)
+	defer logger.Debugf("Post-processing '%s': Looking up AD done.", hData.Ip)
+
+	// Acquire slot to throttle goroutines active in parallel
+	chThrottleGlobalAd <- struct{}{}
+	defer func() { <-chThrottleGlobalAd }()
+
+	// Extract CN and domain from DNS name
+	var host string
+	var domain string
+	if strings.Contains(hData.DnsName, ".") {
+		splits := strings.SplitN(hData.DnsName, ".", 2)
+		host, domain = splits[0], splits[1]
+	} else {
+		host = hData.DnsName
+	}
+
+	// Decide which server to connect to for AD lookups
+	ldapAddress := ldapConf.ldapServer
+	if ldapAddress == "" {
+		ldapAddress = domain
+	}
+
+	// Continue with AD lookup if server is available
+	if ldapAddress != "" {
+
+		// Use LDAP if explicit authentication is configured, ADODB with implicit authentication otherwise (only
+		// working on Windows!)
+		if ldapConf.ldapUser != "" {
+
+			// Query LDAP with explicit authentication (independent of OS)
+			hData.Ad = active_directory.LdapQuery(
+				logger,
+				host,
+				ldapAddress,
+				389,
+				ldapConf.ldapUser,
+				ldapConf.ldapPassword,
+				dialTimeout,
+			)
 		} else {
-			hData.OtherNames = append(hData.OtherNames, sans...)
+
+			// Query ADODB with implicit authentication (only working on Windows with suitable domain membership)
+			hData.Ad = active_directory.AdodbQuery(logger, host, ldapAddress)
+		}
+	}
+}
+
+// hostLookupInventory searches an asset information inventory for additional information about a host. Ownership
+// information and maybe plausible hostnames might be available.
+func hostLookupInventory(
+	logger utils.Logger,
+	wg *sync.WaitGroup,
+	hData *Host,
+	searchByIp bool, // Whether the IP or DnsName from hData should be used to query
+	chHostnames chan<- string,
+	chIps chan<- string,
+) {
+
+	// Log potential panics before letting them move on
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf(fmt.Sprintf("Panic: %s%s", r, utils.StacktraceIndented("\t")))
+			panic(r)
+		}
+	}()
+
+	// Make sure wait group decremented once the goroutine returned
+	defer wg.Done()
+
+	// Log action
+	logger.Debugf("Post-processing '%s': Looking up asset inventory.", hData.Ip)
+	defer logger.Debugf("Post-processing '%s': Looking up asset inventory done.", hData.Ip)
+
+	// Prepare memory for search result
+	var errLookup error
+	var company string
+	var department string
+	var owner string
+	var hostnames []string
+	var ips []string
+	var critical bool
+
+	// Search asset information inventories
+	for inventoryName, inventory := range inventories {
+
+		// Abort search once data was found
+		if company != "" || department != "" || owner != "" {
+			break
+		}
+
+		// Search asset information inventory
+		if searchByIp {
+
+			// Log asset inventory action
+			logger.Debugf("Searching '%s' asset inventory for '%s'", inventoryName, hData.Ip)
+
+			// Search asset inventory by IP. The lookup should only return information about assets with fixed IP
+			// addresses, or if it is certain that the inventory has reliable information in case of dynamic ones!
+			company, department, owner, hostnames, ips, critical, errLookup = inventory.ByIp(logger, hData.Ip)
+		} else {
+
+			// Log asset inventory action
+			logger.Debugf("Searching '%s' asset inventory for '%s'", inventoryName, hData.DnsName)
+
+			// Search asset inventory by FQDN
+			company, department, owner, hostnames, ips, critical, errLookup = inventory.ByFqdn(
+				logger,
+				hData.DnsName,
+				hData.Ip,
+			)
+		}
+
+		// Handle lookup error
+		if errLookup != nil {
+			logger.Warningf("Searching '%s' asset inventory inventory failed: %s", inventoryName, errLookup)
 		}
 	}
 
-	// Return reference to now extended host struct
-	chResult <- hData
+	// Add retrieved asset information to host data
+	hData.Company = company
+	hData.Department = department
+	hData.Owner = owner
+	hData.Critical = critical
 
-	// Release slot for next goroutine to become active
-	<-chThrottle
+	// Yield discovered IPs
+	if chIps != nil {
+		for _, ip := range ips {
+			chIps <- ip
+		}
+	} else { // Alternatively, directly attach to host data
+		hData.OtherIps = append(hData.OtherIps, ips...)
+	}
+
+	// Yield discovered hostnames
+	if chHostnames != nil {
+		for _, hostname := range hostnames {
+			if hostname != hData.DnsName {
+				chHostnames <- hostname
+			}
+		}
+	}
 }
 
-func decideDnsName(hData *Host, domainOrder []string, chThrottle chan struct{}, chResult chan<- *Host) {
+func decideDnsName(hData *Host, domainOrder []string, excludeDomains []string) {
 
 	// Acquire slot to throttle goroutines active in parallel
-	chThrottle <- struct{}{}
+	chThrottleGlobalDns <- struct{}{}
+	defer func() { <-chThrottleGlobalDns }()
 
 	// Sanitize list of DNS names
 	//   - to-lower
 	//   - remove duplicates,
 	//   - remove IP Addresses
+	//	 - remove excluded hostnames
 	//   but leave interesting stuff (even if not a legit DNS name)
-	hData.OtherNames = sanitizeDnsNames(hData.OtherNames)
+	hData.OtherNames = sanitizeDnsNames(hData.OtherNames, excludeDomains)
 
 	// Sort DNS names by plausibility
 	dnsNames := orderDnsNames(hData.OtherNames, domainOrder)
@@ -990,85 +1265,17 @@ func decideDnsName(hData *Host, domainOrder []string, chThrottle chan struct{}, 
 	// Update host struct with new data
 	hData.DnsName = dns
 	hData.OtherNames = otherNames
-
-	// Return reference to now extended host struct
-	chResult <- hData
-
-	// Release slot for next goroutine to become active
-	<-chThrottle
 }
 
-// expandActiveDirectory tries to identify an active directory domain/server to connect to based on the targets DNS
-// name, in order to query system details to expand the scan result data.
-func expandActiveDirectory(
-	logger utils.Logger,
-	hData *Host,
-	ldapConf *ldapConf,
-	dialTimeout time.Duration,
-	chThrottle chan struct{},
-	chResult chan<- *Host,
-) {
-
-	// Acquire slot to throttle goroutines active in parallel
-	chThrottle <- struct{}{}
-
-	// Query Active Directory and expand host data
-	if len(hData.DnsName) > 0 {
-
-		// Extract CN and domain from DNS name
-		var host string
-		var domain string
-		if strings.Contains(hData.DnsName, ".") {
-			splits := strings.SplitN(hData.DnsName, ".", 2)
-			host, domain = splits[0], splits[1]
-		} else {
-			host = hData.DnsName
-		}
-
-		// Decide which server to connect to for AD lookups
-		ldapAddress := ldapConf.ldapServer
-		if ldapAddress == "" {
-			ldapAddress = domain
-		}
-
-		// Continue with AD lookup if server is available
-		if ldapAddress != "" {
-
-			// Use LDAP if explicit authentication is configured, ADODB with implicit authentication otherwise (only
-			// working on Windows!)
-			if ldapConf.ldapUser != "" {
-
-				// Query LDAP with explicit authentication (independent of OS)
-				hData.Ad = active_directory.LdapQuery(
-					logger,
-					host,
-					ldapAddress,
-					389,
-					ldapConf.ldapUser,
-					ldapConf.ldapPassword,
-					dialTimeout,
-				)
-			} else {
-
-				// Query ADODB with implicit authentication (only working on Windows with suitable domain membership)
-				hData.Ad = active_directory.AdodbQuery(logger, host, ldapAddress)
-			}
-		}
-	}
-
-	// Return reference to now extended host struct
-	chResult <- hData
-
-	// Release slot for next goroutine to become active
-	<-chThrottle
-}
-
-func sanitizeDnsNames(dnsNames []string) []string {
+func sanitizeDnsNames(dnsNames []string, excludeDomains []string) []string {
 
 	// Sanitize input list
 	dnsNames = utils.TrimToLower(dnsNames)                                                  // Trim and to-lower all
 	dnsNames = utils.Filter(dnsNames, func(s string) bool { return len(s) > 0 })            // Remove empty DNS names
 	dnsNames = utils.Filter(dnsNames, func(s string) bool { return net.ParseIP(s) == nil }) // Filter IPv4 and IPv6
+
+	// Remove excluded hostnames
+	dnsNames = utils.Filter(dnsNames, func(s string) bool { return !utils.StrContained(s, excludeDomains) })
 
 	// Search for DNS wildcards. Add wildcard sample and wildcard's base domain
 	var newDnsNames []string

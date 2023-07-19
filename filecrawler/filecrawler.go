@@ -1,7 +1,7 @@
 /*
 * GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -294,6 +294,14 @@ func (c *Crawler) run(rootTask *task, result *Result) {
 // processFolder processes a folder, retrieving its contents. The folder is skipped, if the max depth is reached.
 func (c *Crawler) processFolder(folderTask *task, processId int, chProcessResults chan<- *processResult) {
 
+	// Log potential panics before letting them move on
+	defer func() {
+		if r := recover(); r != nil {
+			c.logger.Errorf(fmt.Sprintf("Panic: %s%s", r, utils.StacktraceIndented("\t")))
+			panic(r)
+		}
+	}()
+
 	// Wrap logger again with local tag to connect log messages of this goroutine
 	processLogger := utils.NewTaggedLogger(c.logger, fmt.Sprintf("t%03d", processId))
 
@@ -363,6 +371,14 @@ func (c *Crawler) processFolder(folderTask *task, processId int, chProcessResult
 // processFile checks if file is not excluded by some criteria and determines its attributes
 func (c *Crawler) processFile(fileTask *task, processId int, chProcessResults chan<- *processResult) {
 
+	// Log potential panics before letting them move on
+	defer func() {
+		if r := recover(); r != nil {
+			c.logger.Errorf(fmt.Sprintf("Panic: %s%s", r, utils.StacktraceIndented("\t")))
+			panic(r)
+		}
+	}()
+
 	// Get more info about file, if not possible then abort
 	info, errStat := os.Lstat(fileTask.path)
 	if errStat != nil {
@@ -389,19 +405,21 @@ func (c *Crawler) processFile(fileTask *task, processId int, chProcessResults ch
 
 	// Check if file is excluded by size
 	if file.SizeKb < c.excludedFileSizeBelow {
-		chProcessResults <- &processResult{} // Empty data set will not cause any change in the data data
+		chProcessResults <- &processResult{} // Empty data set will not cause any change in the data
 		return
 	}
 
 	// Check if file is excluded by modification date
-	if file.LastModified.Before(c.excludedLastModifiedBelow) {
+	if !file.LastModified.IsZero() && file.LastModified.Before(c.excludedLastModifiedBelow) {
 		chProcessResults <- &processResult{}
 		return
 	}
 
+	// Extract extension from file. Unify to lower case because, case does not carry information
+	file.Extension = strings.ToLower(strings.ReplaceAll(filepath.Ext(file.Name), ".", ""))
+
 	// Check if file is excluded by file extension
-	file.Extension = strings.ReplaceAll(filepath.Ext(file.Name), ".", "")
-	_, contained := c.excludedExtensions[strings.ToLower(file.Extension)]
+	_, contained := c.excludedExtensions[file.Extension]
 	if contained {
 		chProcessResults <- &processResult{}
 		return

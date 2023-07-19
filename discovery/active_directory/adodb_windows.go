@@ -1,7 +1,7 @@
 /*
 * GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -43,7 +43,7 @@ func AdodbQuery(logger utils.Logger, searchCn string, searchDomain string) *Ad {
 	// Execute search
 	logger.Debugf("ADODB searching for computer '%s' in '%s'.", searchCn, searchDomain)
 	computerResult, errComputerResult := adDb.Query(`SELECT name, distinguishedName, dNSHostName, description, 
-		whenCreated, managedBy, lastLogon, pwdLastSet, location, operatingSystem, operatingSystemServicePack, 
+		whenCreated, managedBy, lastLogon, pwdLastSet, location, operatingSystem, 
 		operatingSystemVersion, servicePrincipalName, isCriticalSystemObject 
 		FROM 'LDAP://` + searchDomain + `/` + baseDn + `' 
 		WHERE objectCategory = 'Computer' AND cn = '` + searchCn + `'`)

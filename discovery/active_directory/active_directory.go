@@ -1,7 +1,7 @@
 /*
 * GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -29,7 +29,6 @@ type Ad struct {
 	ManagedByGid         string    `ldap:"siemens-gid"` // This is obtained by a second query for the managedBy user
 	ManagedByDepartment  string    `ldap:"department"`  // This is obtained by a second query for the managedBy user
 	Os                   string    `ldap:"operatingSystem"`
-	OsServicePack        string    `ldap:"operatingSystemServicePack"`
 	OsVersion            string    `ldap:"operatingSystemVersion"`
 	ServicePrincipalName []string  `ldap:"servicePrincipalName"`
 	CriticalObject       bool      `ldap:"isCriticalSystemObject"`

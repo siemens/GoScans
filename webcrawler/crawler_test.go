@@ -1,7 +1,7 @@
 /*
 * GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -365,6 +365,9 @@ func Test_requestImageHash(t *testing.T) {
 
 func Test_streamToFile(t *testing.T) {
 
+	// Retrieve test logger
+	testLogger := utils.NewTestLogger()
+
 	// Retrieve test settings
 	testSettings, errSettings := _test.GetSettings()
 	if errSettings != nil {
@@ -394,7 +397,7 @@ func Test_streamToFile(t *testing.T) {
 			oName := utils.SanitizeFilename(tt.args.outputName, "_")
 			p := filepath.Join(testSettings.PathTmpDir, oName)
 			source := bytes.NewReader([]byte(testContent))
-			if err := streamToFile(source, tt.args.outputFolder, oName); (err != nil) != tt.wantErr {
+			if err := streamToFile(testLogger, source, tt.args.outputFolder, oName); (err != nil) != tt.wantErr {
 				t.Errorf("streamToFile() error = '%v', wantErr '%v'", err, tt.wantErr)
 				return
 			}

@@ -1,7 +1,7 @@
 /*
 * GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -19,7 +19,6 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/siemens/GoScans/utils"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -35,8 +34,7 @@ import (
 
 const (
 	// Constants used for the retry mechanism (currently only used for responses containing a 429 status code)
-	maxRetries     = 5                               // We don't want to test the failed url indefinitely 5 times has to be enough
-	minWait        = 5                               // We wan't to wait at least 15 seconds if no time is specified
+	maxRetries     = 5                               // We don't want to test a failed url indefinitely 5 times has to be enough
 	httpDateLayout = "Mon, 02 Jan 2006 15:04:05 MST" // Golang's reference date: Mon Jan 2 15:04:05 -0700 MST 2006
 )
 
@@ -101,13 +99,13 @@ type task struct {
 	page *Page
 }
 
-type processResult struct {
+type taskResult struct {
 	// Temporary data struct returned by the crawler's page processor. Depending on what values are set, the queue
 	// crawler will update the crawling result accordingly. Empty values will be ignored. Therefor the result has to be
 	// set if crawling the page should be retried!
 	taskId             int32    // The task id corresponding to this result
 	result             *Page    // Page result to be stored, filled with all data after being processed
-	children           []*Page  // Discovered sub pages. Holds URL and depth first, might be crawled and filled later.
+	children           []*Page  // Discovered sub-pages. Holds URL and depth first, might be crawled and filled later.
 	discoveredDownload string   // Discovered download URL
 	discoveredVhosts   []string // Discovered hostnames pointing to the same host
 	requestsRedirect   int      // Number of requests caused by location redirects
@@ -126,7 +124,7 @@ type Crawler struct {
 	followQS       bool     // Whether to consider URls with different query strings as different locations
 	storeRoot      bool     // Whether to _always_ store first page, independent of response code
 	download       bool     // Whether to download files. Either way the files' URLs will returned in DiscoveredDownloads
-	outputFolder   string   // Path to save download files at, respectively download URLs
+	downloadPath   string   // Path to save download files at, respectively download URLs
 	ntlmDomain     string   // (Optional) credentials for NTLM authentication
 	ntlmUser       string   // ...
 	ntlmPassword   string   // ...
@@ -139,7 +137,6 @@ type Crawler struct {
 	targetIp       string           // Used by the crawler to match whether an URL points to the same endpoint
 	targetPort     int              // Used by the crawler to match whether an URL points to the same endpoint
 	maxThreads     int              // Amount of threads sending requests in parallel
-	queue          []*task          // The queue holding the tasks and therefore pages that still need to be processed
 	known          map[string]uint8 // A hit-map indicated pages that have already been crawled (and how often)
 	nextTaskId     func() int32     // Helper function that returns the next task id
 }
@@ -153,7 +150,7 @@ func NewCrawler(
 	followQS bool,
 	storeRoot bool,
 	download bool,
-	outputFolder string,
+	downloadFolder string,
 	ntlmDomain string,
 	ntlmUser string,
 	ntlmPassword string,
@@ -197,30 +194,29 @@ func NewCrawler(
 
 	// Return initialized web crawler, ready to run
 	return &Crawler{
-		logger,
-		&baseUrl,
-		vhost,
-		https,
-		depth,
-		followQS,
-		storeRoot,
-		download,
-		outputFolder,
-		ntlmDomain,
-		ntlmUser,
-		ntlmPassword,
-		userAgent,
-		proxy,
-		requestTimeout,
-		deadline,
-		followTypes,
-		downloadTypes,
-		ip,
-		port,
-		maxThreads,
-		make([]*task, 0, 500),
-		make(map[string]uint8, 500), // URLs that don't need to be queued, because they were previously found or are to be ignored
-		makeCounter(0),
+		logger:         logger,
+		baseUrl:        &baseUrl,
+		vhost:          vhost,
+		https:          https,
+		maxDepth:       depth,
+		followQS:       followQS,
+		storeRoot:      storeRoot,
+		download:       download,
+		downloadPath:   downloadFolder,
+		ntlmDomain:     ntlmDomain,
+		ntlmUser:       ntlmUser,
+		ntlmPassword:   ntlmPassword,
+		userAgent:      userAgent,
+		proxy:          proxy,
+		requestTimeout: requestTimeout,
+		deadline:       deadline,
+		followTypes:    followTypes,
+		downloadTypes:  downloadTypes,
+		targetIp:       ip,
+		targetPort:     port,
+		maxThreads:     maxThreads,
+		known:          make(map[string]uint8, 500), // URLs that don't need to be queued, because they were previously found or are to be ignored
+		nextTaskId:     makeCounter(0),
 	}, nil
 }
 
@@ -262,158 +258,236 @@ func (c *Crawler) Crawl() *CrawlResult {
 	result.FaviconHash = requestImageHash(requester, currentRequestUrl.String(), c.vhost)
 	result.RequestsComplete++
 
-	// Initialize crawler process slots, counter and return channel
-	var (
-		chTasks          = make(chan *task, 1)                     // Channel over which new tasks are fed to the worker routines
-		chProcessResults = make(chan *processResult, c.maxThreads) // Channel containing results returned by worker routines
-		chsStop          = make([]chan struct{}, c.maxThreads)     // Slice of channels for every worker. If closed the corresponding worker will terminate
-		chActive         = make(chan struct{}, c.maxThreads)       // Channel through which the workers can signal that they are currently active
-		wg               sync.WaitGroup                            // Wait group to make sure all the routines have been stopped before we return from the Crawler
-	)
+	// Prepare queue
+	var queue = make([]*task, 0, 500)
+	var chQueueSend = make(chan *task)
+	var chQueueSignal = make(chan struct{}, 100) // Signaling a new task available. Buffering is required to avoid race conditions!
+	var chQueueRead = make(chan *task)           // Should only be read after a queue signal, otherwise it might return an empty task
+	var chStopQueue = make(chan struct{})        // Channel signaling completion
+	var chStopProcessing = make(chan struct{})   // Channel signaling completion
 
-	// Initialize the stop channels
-	for i := range chsStop {
-		chsStop[i] = make(chan struct{})
-	}
+	// Initialize a deadline timer
+	deadlineTimer := time.After(time.Until(c.deadline))
 
-	// Make sure channels are closed on termination
-	defer close(chProcessResults) // Normally this should be closed by the worker (sender), but we have multiple sender that don't know if anybody else is still sending
-	defer close(chActive)
-	defer close(chTasks)
+	// Wait for scan completion or deadline
+	var wgDeadline sync.WaitGroup
+	go func() {
 
-	// Helper function closing all the remaining stop channels and waiting for the workers to terminate
-	// It's important that this function is called before the other defer statements (defers are executed in LIFO order)
-	closeStopChs := func() {
-		for i := range chsStop {
-			c.logger.Debugf("Shutting down worker %d.", i)
-			close(chsStop[i])
+		// Increase workgroup, decrease after completion
+		wgDeadline.Add(1)
+		defer wgDeadline.Done()
+
+		// Write final log message
+		defer c.logger.Debugf("Terminated deadline manager.")
+
+		// Wait for deadline or completion
+		select {
+		case <-deadlineTimer:
+			c.logger.Debugf("Sending stop signal, deadline reached.")
+			close(chStopProcessing)
+		case _, _ = <-chStopQueue:
+			// Continue
+			break
 		}
-		chsStop = chsStop[:0]
-		// Wait until the routines actually stopped
-		wg.Wait()
-		c.logger.Debugf("All workers shut down.")
-	}
-	defer closeStopChs()
+	}()
 
-	// Set entry point
+	// Launch queue management to serialize queue access
+	var wgQueue sync.WaitGroup
+	go func() {
+
+		// Increase workgroup, decrease after completion
+		wgQueue.Add(1)
+		defer wgQueue.Done()
+
+		// Write final log message
+		defer c.logger.Debugf("Terminated queue manager.")
+
+		// Handle queue
+		var target *task
+		for {
+			select {
+			case newTarget := <-chQueueSend: // Receive new task to queue
+
+				// Send signal indicating another task can be read
+				go func() {
+					chQueueSignal <- struct{}{}
+				}()
+
+				// Append task to queue
+				queue = append(queue, newTarget)
+
+				// Reorganize queue
+				sortQueue(queue)
+
+				// Select first queue element
+				target = queue[0]
+
+			case chQueueRead <- target: // Supply new task to execute
+
+				// Remove read item
+				queue = queue[1:]
+
+				// Update target reference for next read
+				target = nil // Queue shouldn't be read without queue signal, meaning there is at least one item again
+				if len(queue) > 0 {
+					target = queue[0]
+				}
+
+				// Log remaining tasks
+				c.logger.Debugf("Remaining queue items: %d", len(queue))
+
+			case _, _ = <-chStopQueue:
+				return
+			}
+		}
+	}()
+
+	// Submit entry point as initial queue item
 	entryUrl := *c.baseUrl // Prepare a copy, because it might get manipulated by the crawling process
-	c.queue = append(c.queue, &task{
+	chQueueSend <- &task{
 		page: &Page{
 			Depth: 0,
 			Url:   &entryUrl,
 		},
 		id: c.nextTaskId(),
-	})
-
-	// Start the worker routines
-	for i := range chsStop {
-		wg.Add(1)
-		go c.startWorker(i, requester, chActive, chsStop[i], &wg, chTasks, chProcessResults)
 	}
 
-	// Initialize a deadline timer
-	deadlineTimer := time.After(time.Until(c.deadline))
+	// Launch processes and receive results
+	var wgProcessing sync.WaitGroup
+	go func() {
 
-	// Counter for consecutive Too Many Requests status codes
-	tmrCount := 0
+		// Increase workgroup, decrease after completion
+		wgProcessing.Add(1)
+		defer wgProcessing.Done()
 
-	// Flag will be set when the deadline is reached
-	stop := false
+		// Write final log message
+		defer c.logger.Debugf("Terminated processing manager.")
 
-	// Manage crawling. Launch new tasks, listen for results and queue new URLs until done or scan timout
-	for len(c.queue) > 0 || len(chActive) > 0 || len(chProcessResults) > 0 {
-		select {
-		case <-deadlineTimer:
-			// Don't feed any more tasks and signalize the workers to stop
-			closeStopChs()
-			stop = true
-		case procRes := <-chProcessResults:
+		// Prepare process variables
+		var chTaskResult = make(chan *taskResult)
+		var processes = 0
+		var timeLast = time.Now()
+		var delayMilliseconds uint64 = 0
 
-			if procRes == nil {
-				c.logger.Debugf("Process result is nil, skipping.")
-				continue
+		// Prepare function to launch task process
+		processTask := func(t *task) {
+
+			// Increase process count
+			processes += 1
+
+			// Delay processing if required
+			timePassed := time.Now().Sub(timeLast)
+			timeDelay := time.Millisecond * time.Duration(delayMilliseconds)
+			timeWait := time.Duration(0)
+			if timePassed < timeDelay {
+				timeWait = timeDelay - timePassed
+				timeWait += time.Millisecond / 100 // Add some courtasy delay
+				c.logger.Debugf("Delaying request, waiting %.0dms.", timeWait.Milliseconds())
+				time.Sleep(timeWait)
+			}
+			timeLast = time.Now()
+
+			// Launch goroutine
+			go c.processTask(requester, t, chTaskResult)
+		}
+
+		// Prepare function to execite task result processing
+		processTaskResult := func(r *taskResult) {
+
+			// Decrease process count
+			defer func() { processes -= 1 }()
+
+			// Return on empty structs
+			if r == nil {
+				c.logger.Warningf("Process result is nil, skipping.")
+				return
 			}
 
 			// Check if a 429 status code was set in the response and re-initiate a scan of this page
-			if procRes.statusCode == http.StatusTooManyRequests {
+			if r.statusCode == http.StatusTooManyRequests {
 
+				// Log situation
 				c.logger.Debugf("Received 'too many requests' status.")
 
+				// Requeue page
+				c.requeue(r.result, r.taskId, chQueueSend)
+
+				// Disable parallel processing, requeue and return
+				if processes > 1 {
+					c.logger.Debugf("Throttling parallel requests.")
+					c.maxThreads = 1
+					return
+				}
+
 				// Determine the number of seconds to wait and calculate the time at which the waiting period is reached
-				after := procRes.retryAfter
-				if after <= 0 {
-					after = minWait
-				}
-				retryTime := time.Now().Add(time.Duration(after) * time.Second)
-
-				// Because we have a buffered channel for the tasks as well as for the results, there will most
-				// likely be more TMR statuses coming after we waited for the 'retryAfter' time. Therefore we will
-				// count the number of consecutive TMR statuses and wait until there is a sufficient amount of them
-				// before we wait at all.
-				// This way we will have to re-queue more tasks than absolutely needed, but we will not sleep as often.
-				// The addition of cap(chTasks) and cap(chProcessResults) is in case the buffer size will be changed
-				// to a bigger value in the future.
-				tmrCount++
-				if tmrCount >= 2*len(chsStop)+cap(chTasks)+cap(chProcessResults) {
-
-					// Stop a worker if we have more than one remaining
-					if len(chsStop) > 1 {
-						c.logger.Debugf("Stopping one of %d worker(s).", len(chsStop))
-						close(chsStop[len(chsStop)-1])
-						chsStop = chsStop[:len(chsStop)-1]
-					}
-
-					// Reset the counter
-					tmrCount = 0
-
-					c.logger.Debugf("Waiting '%d' seconds.", after)
-					time.Sleep(time.Until(retryTime))
+				retryAfterSeconds := r.retryAfter
+				if retryAfterSeconds > 0 {
+					delayMilliseconds = retryAfterSeconds * 1000
+					c.logger.Debugf("Setting delay to %d milliseconds.", delayMilliseconds)
+				} else {
+					delayMilliseconds = delayMilliseconds + 200
+					c.logger.Debugf("Increasing delay to %d milliseconds.", delayMilliseconds)
 				}
 
-				// reEnqueue will only put the task in the queue if the retry time is before the crawler's deadline
-				c.reEnqueue(procRes.result, retryTime, procRes.taskId)
-				continue
+				// Return as result processing is done
+				return
 			}
 
-			// Reset the tmrCount as it seems like the server doesn't complain anymore and process the result
-			tmrCount = 0
-			c.handleResult(procRes, result)
+			// Process result and add it to the overall results
+			c.processResult(r, result, chQueueSend)
+		}
 
-		default:
-			if len(c.queue) > 0 {
-				// Feed a new task to the workers in a non blocking way and delete it from our queue
+		// Launch new tasks and receive results
+		for {
+
+			// Terminate if everything is processed
+			if len(chQueueSignal) == 0 && processes == 0 {
+
+				// Wait some time and check again, a new item might just have been in the process of queueing
+				time.Sleep(time.Second / 2)
+				if len(chQueueSignal) == 0 && processes == 0 {
+					close(chStopQueue)
+					return
+				}
+			}
+
+			// Terminate if shutdown is initiated
+			select {
+			case _, _ = <-chStopProcessing:
+				if processes == 0 {
+					close(chStopQueue)
+					return
+				}
 				select {
-				case chTasks <- c.queue[0]:
-					c.queue = c.queue[1:]
-				default:
+				case r := <-chTaskResult:
+					processTaskResult(r)
+					continue
 				}
+			default:
+			}
 
-				// Make sure at least one worker is active. Just in case so we don't stop prematurely
-				for len(chActive) <= 0 {
-					time.Sleep(time.Nanosecond * 5)
+			// Terminate loop if shutdown is initiated
+			if processes < c.maxThreads { // Launch if slot available
+				select {
+				case _ = <-chQueueSignal:
+					t := <-chQueueRead
+					processTask(t)
+				case r := <-chTaskResult:
+					processTaskResult(r)
+				}
+			} else { // Wait for result to free slot
+				select {
+				case r := <-chTaskResult:
+					processTaskResult(r)
 				}
 			}
 		}
+	}()
 
-		if stop {
-			break
-		}
-	}
-
-	c.logger.Debugf("Processing remaining %d result(s).", len(chActive)+len(chProcessResults))
-	// Wait for remaining goroutines to finish (relevant in case of scan timeout)
-	for len(chActive) > 0 || len(chProcessResults) > 0 {
-
-		procRes := <-chProcessResults
-
-		// At this point we don't want to requeue the failed tasks as we don't need them anymore. We might have to
-		// change this if someone wants to print the remaining tasks.
-		if procRes.statusCode == http.StatusTooManyRequests {
-			continue
-		}
-
-		c.handleResult(procRes, result)
-	}
+	// Wait for gorotuines to be terimnated, to make sure it's not reading the channel anymore
+	wgProcessing.Wait()
+	wgQueue.Wait()
+	wgDeadline.Wait()
 
 	// Check whether the scan was ended due to the scan timeout
 	if utils.DeadlineReached(c.deadline) {
@@ -424,7 +498,7 @@ func (c *Crawler) Crawl() *CrawlResult {
 	}
 
 	// Print final status
-	c.logger.Debugf("Crawled %d pages.", c.nextTaskId())
+	c.logger.Debugf("Discovered %d distinct links.", c.nextTaskId())
 
 	// Calculate total requests
 	result.RequestsTotal = result.RequestsRedirect + result.RequestsPartial + result.RequestsComplete
@@ -433,429 +507,365 @@ func (c *Crawler) Crawl() *CrawlResult {
 	return result
 }
 
-// startWorker is supposed to be called for the worker routines. It will initialize the processing of new tasks and
-// stop when the provided stop channel is closed. Furthermore the active channel is supposed to be written to before a
-// new task is processed and cleared (/read from) afterwards.
-func (c *Crawler) startWorker(
-	id int,
-	requester *utils.Requester,
-	chActive chan struct{},
-	chStop chan struct{},
-	wg *sync.WaitGroup,
-	chTasks chan *task,
-	chProcessResults chan<- *processResult,
-) {
-
-	c.logger.Debugf("Starting worker %d.", id)
-
-	// Let this routine process tasks until the stop channel gets closed (or something sent to it - not intended)
-	for {
-		select {
-		case <-chStop:
-			c.logger.Debugf("Worker %d shutting down.", id)
-			wg.Done()
-			return
-		case target := <-chTasks:
-			if target == nil {
-				c.logger.Warningf("Worker %d task is nil.", id)
-				continue
-			}
-
-			// Signalize that we are now starting the actual work
-			chActive <- struct{}{}
-			c.processTask(requester, target, chProcessResults)
-			<-chActive
-		}
-	}
-}
-
 // processTask is the function executed by the workers. It handles the processing of one page defined in the task struct.
 // The result will be sent back to the controlling goroutine over the provided channel.
-func (c *Crawler) processTask(
-	requester *utils.Requester,
-	target *task,
-	chProcessResults chan<- *processResult,
-) {
+func (c *Crawler) processTask(requester *utils.Requester, t *task, chTaskResult chan<- *taskResult) {
 
-	// Wrap logger again with local tag to connect log messages of this goroutine
-	processLogger := utils.NewTaggedLogger(c.logger, fmt.Sprintf("t%03d", target.id))
-
-	// Check for nil pointers
-	if target == nil {
-
-		// Log failed request and return empty result
-		processLogger.Debugf("target task is nil")
-		chProcessResults <- &processResult{} // Empty result set will not cause any change in the result data
-		return
-	}
-	if requester == nil {
-
-		// Log failed request and return empty result
-		processLogger.Debugf("requester is nil")
-		chProcessResults <- &processResult{taskId: target.id} // Empty result set will not cause any change in the result data
-		return
-	}
-
-	// Prepare local variables
-	targetPage := target.page
-	requestUrl := targetPage.Url.String()
-	crawlerBaseUrl := *c.baseUrl // Prepare copy for better isolation to avoid global manipulation
-
-	// Request URL
-	processLogger.Debugf("Requesting '%s' (vhost %s).", requestUrl, c.vhost)
-	resp, redirects, foundAuth, errReq := requester.Get(requestUrl, c.vhost)
-	if errReq != nil {
-
-		// Log failed request and return empty result
-		processLogger.Debugf("Request failed: %s", errReq)
-		chProcessResults <- &processResult{taskId: target.id} // Empty result set will not cause any change in the result data
-		return
-	}
-
-	// Make sure body reader gets closed on exit
-	defer func() { _ = resp.Body.Close() }()
-
-	// Abort on major issue
-	if resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusGatewayTimeout {
-
-		// Log request error and return empty result
-		processLogger.Debugf("Proxy error.")
-		chProcessResults <- &processResult{
-			taskId:           target.id,
-			requestsRedirect: redirects,
-			requestsPartial:  1,
-			statusCode:       resp.StatusCode,
+	// Log potential panics before letting them move on
+	defer func() {
+		if r := recover(); r != nil {
+			c.logger.Errorf(fmt.Sprintf("Panic: %s%s", r, utils.StacktraceIndented("\t")))
+			panic(r)
 		}
-		return
-	}
+	}()
 
-	// Check whether final response left the scope
-	if !utils.SameScope(resp.Request.URL, &crawlerBaseUrl) {
+	// Applying closure guarantee that there is always one process result returned over the results channel,
+	// because other components are relying on one result per process.
+	result := func() *taskResult {
 
-		// Check if redirect to other hostname on same endpoint (vhost) might have happened
-		newVhosts := make([]string, 0, 1)
-		if utils.SameEndpoint(resp.Request.URL, c.targetIp, -1) {
-			newVhost, _ := utils.ExtractHostPort(resp.Request.URL)
-			if newVhost != "" && newVhost != c.vhost {
-				newVhosts = append(newVhosts, newVhost)
-				processLogger.Debugf("Response indicates other vhost (%s).", newVhosts)
+		// Wrap logger again with local tag to connect log messages of this goroutine
+		taskLogger := utils.NewTaggedLogger(c.logger, fmt.Sprintf("t%03d", t.id))
+
+		// Log failed request and return empty result
+		if requester == nil {
+			taskLogger.Debugf("requester is nil")
+			return &taskResult{taskId: t.id} // Empty result set will not cause any change in the result data
+		}
+
+		// Prepare local variables
+		targetPage := t.page
+		requestUrl := targetPage.Url.String()
+		crawlerBaseUrl := *c.baseUrl // Prepare copy for better isolation to avoid global manipulation
+
+		// Request URL
+		taskLogger.Debugf("Requesting '%s' (vhost %s).", requestUrl, c.vhost)
+		resp, redirects, foundAuth, errReq := requester.Get(requestUrl, c.vhost)
+		if errReq != nil {
+
+			// Log failed request and return empty result
+			taskLogger.Debugf("Request failed: %s", errReq)
+			return &taskResult{taskId: t.id} // Empty result set will not cause any change in the result data
+		}
+
+		// Make sure body reader gets closed on exit
+		defer func() { _ = resp.Body.Close() }()
+
+		// Abort on major issue
+		if resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusGatewayTimeout {
+
+			// Log request error and return empty result
+			taskLogger.Debugf("Proxy error.")
+			return &taskResult{
+				taskId:           t.id,
+				requestsRedirect: redirects,
+				requestsPartial:  1,
+				statusCode:       resp.StatusCode,
+			}
+		}
+
+		// Check whether final response left the scope
+		if !utils.SameScope(resp.Request.URL, &crawlerBaseUrl) {
+
+			// Check if redirect to other hostname on same endpoint (vhost) might have happened
+			newVhosts := make([]string, 0, 1)
+			if utils.SameEndpoint(resp.Request.URL, c.targetIp, -1) {
+				newVhost, _ := utils.ExtractHostPort(resp.Request.URL)
+				if newVhost != "" && newVhost != c.vhost {
+					newVhosts = append(newVhosts, newVhost)
+					taskLogger.Debugf("Response indicates other vhost (%s).", newVhosts)
+				}
+			} else {
+				taskLogger.Debugf("Response out of scope (%s).", resp.Request.URL.String())
+			}
+
+			// Return empty result
+			return &taskResult{
+				taskId:           t.id,
+				discoveredVhosts: newVhosts,
+				requestsRedirect: redirects,
+				requestsPartial:  1,
+				statusCode:       resp.StatusCode,
+			}
+		}
+
+		// Check response content type
+		responseType := strings.ToLower(resp.Header.Get("content-type"))
+		if strings.Contains(responseType, ";") { // Content type might contain encoding declaration to be removed
+			responseType = strings.Split(responseType, ";")[0]
+		}
+
+		// Check if response indicates download
+		contentDisposition := resp.Header.Get("content-disposition")
+		if strings.Contains(contentDisposition, "attachment") || utils.StrContained(responseType, c.downloadTypes) {
+
+			// Execute download if desired
+			taskLogger.Debugf("Download response.")
+			var partial, complete = 1, 0
+			if c.download {
+				fileName := utils.SanitizeFilename(requestUrl, "_")
+				errDl := streamToFile(taskLogger, resp.Body, c.downloadPath, fileName)
+				if errDl != nil {
+					taskLogger.Debugf("Download failed: %s", errDl)
+				} else {
+					taskLogger.Debugf("Download succeeded.")
+				}
+				partial, complete = 0, 1
+			}
+
+			// Return download result
+			return &taskResult{
+				taskId:             t.id,
+				discoveredDownload: requestUrl,
+				requestsRedirect:   redirects,
+				requestsPartial:    partial,
+				requestsComplete:   complete,
+				statusCode:         resp.StatusCode,
+			}
+		}
+
+		// Decide whether response shall be added to the crawler results
+		if resp.StatusCode == http.StatusOK && utils.StrContained(responseType, c.followTypes) {
+
+			// Good response, store contents
+			taskLogger.Debugf("Valid response: %d OK to be followed.", http.StatusOK)
+		} else if resp.StatusCode == http.StatusUnauthorized {
+
+			// Good response, store contents
+			taskLogger.Debugf("Valid response: %d UNAUTHORIZED.", http.StatusUnauthorized)
+		} else if c.storeRoot && targetPage.Depth == 0 {
+
+			// First page should always be stored independent of content
+			taskLogger.Debugf("Entry point with error response.")
+		} else if resp.StatusCode == http.StatusTooManyRequests {
+
+			// We want to retry this after the waiting period
+			taskLogger.Debugf("Need to retry (Response code: %d, Response type: %s).", resp.StatusCode, responseType)
+
+			// Try to get the content of the retry-after header field
+			after, errParse := parseRetryAfter(&resp.Header)
+			if errParse != nil {
+				c.logger.Debugf("%s", errParse)
+				after = 0
+			}
+
+			// Return a result with the retry flag set
+			return &taskResult{
+				taskId:     t.id,
+				result:     targetPage,
+				statusCode: resp.StatusCode,
+				retryAfter: after,
 			}
 		} else {
-			processLogger.Debugf("Response out of scope (%s).", resp.Request.URL.String())
-		}
 
-		// Return empty result
-		chProcessResults <- &processResult{
-			taskId:           target.id,
-			discoveredVhosts: newVhosts,
-			requestsRedirect: redirects,
-			requestsPartial:  1,
-			statusCode:       resp.StatusCode,
-		}
-		return
-	}
-
-	// Check response content type
-	responseType := strings.ToLower(resp.Header.Get("content-type"))
-	if strings.Contains(responseType, ";") { // Content type might contain encoding declaration to be removed
-		responseType = strings.Split(responseType, ";")[0]
-	}
-
-	// Check if response indicates download
-	contentDisposition := resp.Header.Get("content-disposition")
-	if strings.Contains(contentDisposition, "attachment") || utils.StrContained(responseType, c.downloadTypes) {
-
-		// Execute download if desired
-		processLogger.Debugf("Download response.")
-		var partial, complete = 1, 0
-		if c.download {
-			fileName := utils.SanitizeFilename(requestUrl, "_")
-			errDl := streamToFile(resp.Body, c.outputFolder, fileName)
-			if errDl != nil {
-				processLogger.Debugf("Download failed: %s", errDl)
-			} else {
-				processLogger.Debugf("Download succeeded.")
+			// Log out of interest and return empty result
+			taskLogger.Debugf("Not of interest (Response code: %d, Response type: %s).", resp.StatusCode, responseType)
+			return &taskResult{
+				taskId:           t.id,
+				requestsRedirect: redirects,
+				requestsPartial:  1,
+				requestsComplete: 0,
+				statusCode:       resp.StatusCode,
 			}
-			partial, complete = 0, 1
 		}
 
-		// Return download result
-		chProcessResults <- &processResult{
-			taskId:             target.id,
-			discoveredDownload: requestUrl,
-			requestsRedirect:   redirects,
-			requestsPartial:    partial,
-			requestsComplete:   complete,
-			statusCode:         resp.StatusCode,
+		// Read body stream and close it. Up til now, we just read the response headers from the server. The body will now
+		// directly be streamed from the server because we need it.
+		taskLogger.Debugf("Reading response body.")
+		htmlBytes, htmlEncoding, errHtml := utils.ReadBody(resp)
+		if errHtml != nil {
+			htmlBytes = []byte{}
 		}
-		return
-	}
 
-	// Decide whether response shall be added to the crawler results
-	if resp.StatusCode == http.StatusOK && utils.StrContained(responseType, c.followTypes) {
+		// Release body as soon as possible to allow connection reuse by HTTP transport
+		_ = resp.Body.Close()
 
-		// Good response, store contents
-		processLogger.Debugf("Valid response: %d OK to be followed.", http.StatusOK)
-	} else if resp.StatusCode == http.StatusUnauthorized {
+		// Parse HTML
+		taskLogger.Debugf("Parsing response body.")
+		doc, errParse := goquery.NewDocumentFromReader(bytes.NewReader(htmlBytes))
 
-		// Good response, store contents
-		processLogger.Debugf("Valid response: %d UNAUTHORIZED.", http.StatusUnauthorized)
-	} else if c.storeRoot && targetPage.Depth == 0 {
-
-		// First page should always be stored independent of content
-		processLogger.Debugf("Entry point with error response.")
-	} else if resp.StatusCode == http.StatusTooManyRequests {
-
-		// We want to retry this after the waiting period
-		processLogger.Debugf("Need to retry (Response code: %d, Response type: %s).", resp.StatusCode, responseType)
-
-		// Try to get the content of the retry-after header field
-		after, errParse := parseRetryAfter(&resp.Header)
+		// Process HTML of parsing succeeded
+		var children []*Page
 		if errParse != nil {
-			c.logger.Debugf("%s", errParse)
-			after = 0
-		}
+			taskLogger.Warningf("Could not parse response from '%s' (vhost '%s'): %s", requestUrl, c.vhost, errParse)
+		} else {
 
-		// Return a result with the retry flag set
-		chProcessResults <- &processResult{
-			taskId:     target.id,
-			result:     targetPage,
-			statusCode: resp.StatusCode,
-			retryAfter: after,
-		}
-		return
-	} else {
+			// Extract URLs from HTML links (hrefs, src,...)
+			links := extractLinks(doc)
+			targetPage.RawLinks = append(targetPage.RawLinks, links...)
+			taskLogger.Debugf("Response contained %d links.", len(links))
 
-		// Log out of interest and return empty result
-		processLogger.Debugf("Not of interest (Response code: %d, Response type: %s).", resp.StatusCode, responseType)
-		chProcessResults <- &processResult{
-			taskId:           target.id,
-			requestsRedirect: redirects,
-			requestsPartial:  1,
-			requestsComplete: 0,
-			statusCode:       resp.StatusCode,
-		}
-		return
-	}
+			// Extract URLs from HTML (client-side) redirects (meta,...)
+			links = extractRedirects(doc)
+			targetPage.RawLinks = append(targetPage.RawLinks, links...)
+			taskLogger.Debugf("Response contained %d links in client-side redirects.", len(links))
 
-	// Read body stream and close it. Up til now, we just read the response headers from the server. The body will now
-	// directly be streamed from the server because we need it.
-	processLogger.Debugf("Reading response body.")
-	htmlBytes, htmlEncoding, errHtml := utils.ReadBody(resp)
-	if errHtml != nil {
-		htmlBytes = []byte{}
-	}
+			// Remove duplicates
+			targetPage.RawLinks = utils.UniqueStrings(targetPage.RawLinks)
 
-	// Release body as soon as possible to allow connection reuse by HTTP transport
-	_ = resp.Body.Close()
+			// If max depth is not yet reached, try to generate child pages to be crawled next
+			if c.maxDepth < 0 || targetPage.Depth < c.maxDepth {
 
-	// Parse HTML
-	processLogger.Debugf("Parsing response body.")
-	doc, errParse := goquery.NewDocumentFromReader(bytes.NewReader(htmlBytes))
+				// Parse links and make them absolute
+				absUrls := linksToAbsoluteUrls(targetPage.RawLinks, resp.Request.URL)
 
-	// Process HTML of parsing succeeded
-	var children []*Page
-	if errParse != nil {
-		processLogger.Warningf("Could not parse response from '%s' (vhost '%s'): %s", requestUrl, c.vhost, errParse)
-	} else {
+				// Create new pages for discovered links. However, do some first validation, that can be done asynchronously
+				// within this goroutine. The crawler will evaluate the remaining criteria before eventually queueing this
+				// pages for future crawling.
+				for _, absUrl := range absUrls {
 
-		// Extract URLs from HTML links (hrefs, src,...)
-		links := extractLinks(doc)
-		targetPage.RawLinks = append(targetPage.RawLinks, links...)
-		processLogger.Debugf("Extracted %d URLs.", len(links))
+					// Skip page if it is not HTTP or HTTPs
+					if absUrl.Scheme != "http" && absUrl.Scheme != "https" {
+						taskLogger.Debugf("Discarding '%s' link to other protocol.", absUrl)
+						continue
+					}
 
-		// Extract URLs from HTML (client-side) redirects (meta,...)
-		links = extractRedirects(doc)
-		targetPage.RawLinks = append(targetPage.RawLinks, links...)
-		processLogger.Debugf("Extracted %d client-side redirect URLs.", len(links))
+					// Skip page if it would lead outside of scope
+					if !utils.SameScope(absUrl, c.baseUrl) {
+						taskLogger.Debugf("Discarding '%s' link outside of scope.", absUrl)
+						continue
+					}
 
-		// If max depth is not yet reached, try to generate child pages to be crawled next
-		if c.maxDepth < 0 || targetPage.Depth < c.maxDepth {
+					// Remove query strings if required. Without query strings, only the path will be requested once.
+					if !c.followQS {
+						absUrl.RawQuery = ""
+					}
 
-			// Parse links and make them absolute
-			absUrls := linksToAbsoluteUrls(targetPage.RawLinks, resp.Request.URL)
-
-			// Create new pages for discovered links. However, do some first validation, that can be done asynchronously
-			// within this goroutine. The crawler will evaluate the remaining criteria before eventually queueing this
-			// pages for future crawling.
-			for _, absUrl := range absUrls {
-
-				// Skip page if it is not HTTP or HTTPs
-				if absUrl.Scheme != "http" && absUrl.Scheme != "https" {
-					continue
+					children = append(children,
+						&Page{
+							Depth: targetPage.Depth + 1,
+							Url:   absUrl,
+						},
+					)
 				}
-
-				// Skip page if it would lead outside of scope
-				if !utils.SameScope(absUrl, c.baseUrl) {
-					continue
-				}
-
-				// Remove query strings if required. Without query strings, only the path will be requested once.
-				if !c.followQS {
-					absUrl.RawQuery = ""
-				}
-
-				processLogger.Debugf("Suggesting '%s'.", absUrl)
-				children = append(children,
-					&Page{
-						Depth: targetPage.Depth + 1,
-						Url:   absUrl,
-					},
-				)
 			}
 		}
-	}
 
-	// Detect whether successful authentication took place
-	authSuccess := false
-	if foundAuth != "" && resp.StatusCode != http.StatusUnauthorized {
-		authSuccess = true
-	}
+		// Detect whether successful authentication took place
+		authSuccess := false
+		if foundAuth != "" && resp.StatusCode != http.StatusUnauthorized {
+			authSuccess = true
+		}
 
-	// Fill page struct with result data
-	targetPage.RedirectUrl = resp.Request.URL.String()
-	targetPage.RedirectCount = redirects
-	targetPage.AuthMethod = foundAuth
-	targetPage.AuthSuccess = authSuccess
-	targetPage.ResponseCode = resp.StatusCode
-	targetPage.ResponseMessage = resp.Status
-	targetPage.ResponseContentType = responseType
-	targetPage.ResponseHeaders = utils.FormattedHeader(resp.Header)
-	targetPage.ResponseEncoding = htmlEncoding
-	targetPage.HtmlTitle = utils.ExtractHtmlTitle(htmlBytes)
-	targetPage.HtmlContent = htmlBytes
+		// Fill page struct with result data
+		targetPage.RedirectUrl = resp.Request.URL.String()
+		targetPage.RedirectCount = redirects
+		targetPage.AuthMethod = foundAuth
+		targetPage.AuthSuccess = authSuccess
+		targetPage.ResponseCode = resp.StatusCode
+		targetPage.ResponseMessage = resp.Status
+		targetPage.ResponseContentType = responseType
+		targetPage.ResponseHeaders = utils.FormattedHeader(resp.Header)
+		targetPage.ResponseEncoding = htmlEncoding
+		targetPage.HtmlTitle = utils.ExtractHtmlTitle(htmlBytes)
+		targetPage.HtmlContent = htmlBytes
 
-	// Send filled page and return
-	chProcessResults <- &processResult{
-		taskId:           target.id,
-		result:           targetPage,
-		children:         children,
-		requestsRedirect: redirects,
-		requestsPartial:  0,
-		requestsComplete: 1,
-		statusCode:       resp.StatusCode,
-	}
-	return
+		// Send filled page and return
+		taskLogger.Debugf("Returning task result.")
+		return &taskResult{
+			taskId:           t.id,
+			result:           targetPage,
+			children:         children,
+			requestsRedirect: redirects,
+			requestsPartial:  0,
+			requestsComplete: 1,
+			statusCode:       resp.StatusCode,
+		}
+	}()
+
+	// Return processing result via channel
+	chTaskResult <- result
 }
 
-// handleResult checks the processResult, extracts the relevant values and adds them to the overall CrawlResult.
+// handleResult checks the taskResult, extracts the relevant values and adds them to the overall CrawlResult.
 // This function is not thread safe!
-func (c *Crawler) handleResult(procRes *processResult, result *CrawlResult) {
+func (c *Crawler) processResult(r *taskResult, result *CrawlResult, chQueueSend chan<- *task) {
 
 	// Add page to result
-	if procRes.result != nil {
+	if r.result != nil {
 
 		// Add page to crawl results
-		result.Pages = append(result.Pages, procRes.result)
+		result.Pages = append(result.Pages, r.result)
 
 		// Aggregate authentication detection into result data
-		if result.AuthSuccess == false && procRes.result.AuthSuccess == true {
+		if result.AuthSuccess == false && r.result.AuthSuccess == true {
 			result.AuthSuccess = true
-			result.AuthMethod = procRes.result.AuthMethod
+			result.AuthMethod = r.result.AuthMethod
 		} else if result.AuthMethod == "" {
-			result.AuthMethod = procRes.result.AuthMethod
+			result.AuthMethod = r.result.AuthMethod
 		}
 	}
 
 	// Validate and queue new children
-	if procRes.children != nil {
-		c.enqueueNewPages(procRes.children)
+	if r.children != nil {
+		c.queue(r.children, chQueueSend)
 	}
 
 	// Add discovered download URLs to result
-	if procRes.discoveredDownload != "" {
-		result.DiscoveredDownloads = append(result.DiscoveredDownloads, procRes.discoveredDownload)
+	if r.discoveredDownload != "" {
+		result.DiscoveredDownloads = append(result.DiscoveredDownloads, r.discoveredDownload)
 	}
 
 	// Add discovered vhosts to result
-	if procRes.discoveredVhosts != nil {
-		result.DiscoveredVhosts = utils.AppendUnique(result.DiscoveredVhosts, procRes.discoveredVhosts...)
+	if r.discoveredVhosts != nil {
+		result.DiscoveredVhosts = utils.AppendUnique(result.DiscoveredVhosts, r.discoveredVhosts...)
 	}
 
 	// Update request counter
-	result.RequestsRedirect += procRes.requestsRedirect
-	result.RequestsPartial += procRes.requestsPartial
-	result.RequestsComplete += procRes.requestsComplete
+	result.RequestsRedirect += r.requestsRedirect
+	result.RequestsPartial += r.requestsPartial
+	result.RequestsComplete += r.requestsComplete
 }
 
-// reEnqueue adds a single page to the queue. This should only be done, when an error occurs, that can be assumed to be
-// resolved within 'retryAfter' seconds. An example would be the 'TooManyRequest' status code.
-// This function is not thread safe!
-func (c *Crawler) reEnqueue(page *Page, retryTime time.Time, taskId int32) {
+// requeue allows to add a previously scanned page pack into the task queue. This might be necessary if there was a
+// temporary issue. An example would be the 'TooManyRequest' status response code.
+func (c *Crawler) requeue(page *Page, taskId int32, chQueueSend chan<- *task) {
 
 	// Check the page pointer
 	if page == nil {
-		c.logger.Warningf("Can't re-enqueue nil page.")
-		return
-	}
-
-	pageUrl := page.Url.String()
-
-	// Check if the target would be retried after the crawler's deadline
-	if retryTime.After(c.deadline) {
-		c.logger.Debugf("Skipping re-enqueue '%s' because deadline has been met.", pageUrl)
+		c.logger.Warningf("Queueing failed for nil page.")
 		return
 	}
 
 	// Increase the count of tries
+	pageUrl := page.Url.String()
 	if retries, ok := c.known[pageUrl]; ok {
 		if retries >= maxRetries {
-			c.logger.Debugf("Skipping re-enqueue '%s' because maximum retries are exhausted.", pageUrl)
+			c.logger.Debugf("Discarding '%s' because maximum retries are exceeded.", pageUrl)
 			return
 		}
 		c.known[pageUrl]++
 	} else {
-		// We haven't seen this task before, this should be added by 'enqueueNewPages'
-		c.logger.Debugf("Skipping re-enqueue because task '%d' for target '%s' is unknown.", taskId, pageUrl)
+		// We haven't seen this task before, this should be added by 'queue'
+		c.logger.Warningf("Discarding '%s' because task ID (%d) is unknown.", pageUrl, taskId)
 		return
 	}
 
-	// Create a new task in order to clear all previously set fields
-	newPage := &Page{
-		Depth: page.Depth,
-		Url:   page.Url,
-	}
-
-	// Queue page as nothing speaks against
-	c.logger.Debugf("Re-queueing task '%d' for target '%s'.", taskId, pageUrl)
-	c.queue = append(c.queue, &task{taskId, newPage})
-
-	// Reorganize queue
-	sortQueue(c.queue)
-
-	return
+	// Add task back into queue
+	c.logger.Debugf("Queueing '%s' with task ID '%d' again.", pageUrl, taskId)
+	chQueueSend <- &task{taskId, &Page{Depth: page.Depth, Url: page.Url}}
 }
 
-// enqueueNewPages validates and appends sub pages to the queue. It might still drop pages. E.g. a page that has already
-// been seen will not be enqueued once more. If appending an already crawled page is really wanted, use reEnqueue.
-// This function is not thread safe!
-func (c *Crawler) enqueueNewPages(newPages []*Page) {
-	queued := 0
+// queue validates and appends sub-pages to the task queue. It will skip pages that were already queued previously.
+// To append a previously processed page, use 'requeue'.
+func (c *Crawler) queue(newPages []*Page, chQueueSend chan<- *task) {
+
+	// Process new pages and create queued tasks if
 	for _, newPage := range newPages {
 
 		// Skip page if its URL was seen previously
 		pageUrl := newPage.Url.String()
 		if _, ok := c.known[pageUrl]; ok {
+			c.logger.Debugf("Discarding '%s' link duplicate.", pageUrl)
 			continue
 		}
 
 		// Add page URL to map of known ones to prevent queueing duplicates
 		c.known[pageUrl] = 0
 
-		// Queue page as nothing speaks against
+		// Queue page
 		c.logger.Debugf("Queueing '%s'.", pageUrl)
-		queued += 1
-		c.queue = append(c.queue, &task{c.nextTaskId(), newPage}) // Null time is always before time.Now()
+		chQueueSend <- &task{c.nextTaskId(), newPage} // Null time is always before time.Now()
 	}
-
-	if queued <= 0 {
-		c.logger.Debugf("No new URLs.")
-		return
-	}
-
-	// Reorganize queue
-	c.logger.Debugf("Queued %d new and unique URLs.", queued)
-	sortQueue(c.queue)
 }
 
 // sortQueue sorts the given queue in place. The slice is sorted by page depth and the URL path's folder depth.
@@ -1002,13 +1012,13 @@ func requestImageHash(requester *utils.Requester, requestUrl string, vhost strin
 }
 
 // streamToFile downloads the content at the given URL and writes it to the given location
-func streamToFile(source io.Reader, outputFolder string, outputName string) error {
+func streamToFile(logger utils.Logger, source io.Reader, outputFolder string, outputName string) error {
 
 	// Create tmp folder if it does not exist
 	if _, err := os.Stat(outputFolder); errors.Is(err, os.ErrNotExist) {
-		err := os.Mkdir(outputFolder, os.ModePerm)
-		if err != nil {
-			log.Println(err)
+		errMk := os.Mkdir(outputFolder, os.ModePerm)
+		if errMk != nil {
+			logger.Warningf("Could not create download folder: %s", errMk)
 		}
 	}
 
@@ -1041,7 +1051,7 @@ func parseRetryAfter(header *http.Header) (uint64, error) {
 	// Get the retry-after field from the header
 	field := header.Get("Retry-After")
 	if field == "" {
-		return 0, fmt.Errorf("could not get the 'Retry-After' field from the header '%s'", *header)
+		return 0, fmt.Errorf("could not find 'Retry-After' response header")
 	}
 
 	// Try to parse the number of seconds
@@ -1049,8 +1059,8 @@ func parseRetryAfter(header *http.Header) (uint64, error) {
 	if errParse != nil {
 
 		// Try to parse the date and calculate the difference to now
-		t, errParse := time.Parse(httpDateLayout, field)
-		if errParse != nil {
+		t, errParseTime := time.Parse(httpDateLayout, field)
+		if errParseTime != nil {
 			return 0, fmt.Errorf("could not parse 'Retry-After' value from '%s'", field)
 		} else {
 			// Check if the time has already passed

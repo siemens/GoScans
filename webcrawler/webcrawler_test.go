@@ -1,7 +1,7 @@
 /*
 * GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -346,6 +346,9 @@ func TestPrepareHrefsFile(t *testing.T) {
 
 func TestAppendHrefs(t *testing.T) {
 
+	// Retrieve test logger
+	testLogger := utils.NewTestLogger()
+
 	// Retrieve test settings
 	testSettings, errSettings := _test.GetSettings()
 	if errSettings != nil {
@@ -424,6 +427,7 @@ func TestAppendHrefs(t *testing.T) {
 
 			// Start the worker routine.
 			go appendHrefsWorker(
+				testLogger,
 				appendHrefStopChan,
 				appendHrefErrChan,
 				tt.args.filePath,

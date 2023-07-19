@@ -1,7 +1,7 @@
 /*
 * GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -124,7 +124,8 @@ func NewScanner(
 
 	if download {
 		// Prepare output path
-		outputFolder, errAbs := filepath.Abs(outputFolder)
+		var errAbs error
+		outputFolder, errAbs = filepath.Abs(outputFolder)
 		if errAbs != nil {
 			return nil, errAbs
 		}
@@ -276,6 +277,7 @@ func (s *Scanner) execute() *Result {
 
 		// Start the worker routine
 		go appendHrefsWorker(
+			s.logger,
 			appendHrefStopChan,
 			appendHrefErrChan,
 			filepath.Join(s.outputFolder, dlFileName),
@@ -570,12 +572,21 @@ func prepareHrefsFile(filePath string, header string) error {
 }
 
 func appendHrefsWorker(
+	logger utils.Logger,
 	stopCh chan struct{},
 	errCh chan error,
 	filePath string,
 	infoQueue chan *hrefInfo,
 	timestampFormat string,
 ) {
+
+	// Log potential panics before letting them move on
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf(fmt.Sprintf("Panic: %s%s", r, utils.StacktraceIndented("\t")))
+			panic(r)
+		}
+	}()
 
 	// Closure that will simply drain the queue if we run into an error, so we do not block the main program
 	drainFunc := func() {

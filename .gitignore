@@ -11,3 +11,7 @@ _test/*.bin
 # Log files, no matter where
 *.log
 *.log.*
+
+# Add-ons not part of this release
+discovery/inventory_itam.go
+discovery/inventory_itam_test.go

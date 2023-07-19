@@ -1,7 +1,7 @@
 /*
 * GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -13,7 +13,6 @@ package discovery
 import (
 	"github.com/Ullaakut/nmap/v2"
 	"github.com/siemens/GoScans/_test"
-	"github.com/siemens/GoScans/discovery/active_directory"
 	"github.com/siemens/GoScans/utils"
 	"io/ioutil"
 	"path/filepath"
@@ -107,6 +106,7 @@ func TestNewScanner(t *testing.T) {
 	testLogger := utils.NewTestLogger()
 	nmapBlacklist := []string{"20.20.20.2", "10.10.10.1"}
 	nmapBlacklistFile := filepath.Join(testSettings.PathDataDir, "discovery", "blacklist_valid.txt")
+	excludeDomains := []string{"cloudfront.net", "wildcard.cloudfront.net", "azurewebsites.net"}
 	dialTimeout := 5 * time.Second
 
 	// Initialize default scripts
@@ -148,7 +148,7 @@ func TestNewScanner(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewScanner(tt.args.logger, []string{tt.args.target}, tt.args.nmap, tt.args.nmapParameters, tt.args.nmapVersionAll, tt.args.nmapBlacklist, tt.args.nmapBlacklistFile, []string{}, tt.args.ldapServer, tt.args.ldapDomain, tt.args.ldapUser, tt.args.ldapPassword, dialTimeout)
+			_, err := NewScanner(tt.args.logger, []string{tt.args.target}, tt.args.nmap, tt.args.nmapParameters, tt.args.nmapVersionAll, tt.args.nmapBlacklist, tt.args.nmapBlacklistFile, []string{}, tt.args.ldapServer, tt.args.ldapDomain, tt.args.ldapUser, tt.args.ldapPassword, excludeDomains, dialTimeout)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewScanner() error = '%v', wantErr = '%v'", err, tt.wantErr)
 				return
@@ -426,223 +426,10 @@ func TestExtractPortScriptData(t *testing.T) {
 	}
 }
 
-func TestPostprocessingSubmit(t *testing.T) {
-
-	// Prepare test variables
-	testLogger := utils.NewTestLogger()
-	dialTimeout := 5 * time.Second
-	timeout := 10 * time.Second
-	want := 5
-	taskCnt := 0
-	hPorts := make(map[string][]int)
-	hPorts["127.0.0.1"] = []int{}
-	hPorts["127.0.0.2"] = []int{443}
-	hPorts["127.0.0.3"] = []int{443, 3389}
-	hData := []Host{
-		{
-			"127.0.0.1",
-			"localhost",
-			[]string{"local"},
-			[]string{},
-			[]string{"Windows 7 Enterprise 7601 Service Pack 1 microsoft-ds"},
-			"",
-			time.Now().Add(timeout),
-			time.Minute,
-			"",
-			[]string{},
-			[]string{},
-			[]Service{},
-			[]Script{},
-			&active_directory.Ad{},
-		},
-		{
-			"127.0.0.2",
-			"localhost2",
-			[]string{"local2"},
-			[]string{},
-			[]string{"Windows 7 Enterprise 7601 Service Pack 1 microsoft-ds"},
-			"",
-			time.Now().Add(timeout),
-			time.Minute,
-			"",
-			[]string{},
-			[]string{},
-			[]Service{},
-			[]Script{},
-			&active_directory.Ad{},
-		},
-		{
-			"127.0.0.3",
-			"localhost3",
-			[]string{"local3"},
-			[]string{},
-			[]string{""},
-			"",
-			time.Now().Add(timeout),
-			time.Minute,
-			"",
-			[]string{},
-			[]string{},
-			[]Service{},
-			[]Script{},
-			&active_directory.Ad{},
-		},
-	}
-
-	// Prepare slots and return channels
-	chThrottleUser := make(chan struct{}, 20)
-	chThrottleSans := make(chan struct{}, 50)
-	chThrottleDns := make(chan struct{}, 20)
-	chDoneUsers := make(chan *Host)
-	chDoneSans := make(chan *Host)
-	chDoneDns := make(chan *Host)
-
-	// Submit data
-	for _, h := range hData {
-		taskCnt = postprocessingSubmit(
-			testLogger,
-			taskCnt,
-			&h,
-			[]string{},
-			hPorts[h.Ip],
-			dialTimeout,
-			chThrottleUser,
-			chThrottleSans,
-			chThrottleDns,
-			chDoneUsers,
-			chDoneSans,
-			chDoneDns,
-		)
-	}
-
-	// Validate expected state
-	if taskCnt != want {
-		t.Errorf("postprocessingSubmit() = '%v', want = '%v'", taskCnt, want)
-	}
-
-	// Wait for expected results. If something went unepxected, this will block
-	chToBeRead := []chan *Host{chDoneUsers, chDoneUsers, chDoneSans, chDoneSans, chDoneDns}
-	if len(chToBeRead) != want {
-		t.Errorf("postprocessingSubmit() %v results will be read, want = '%v'", len(chToBeRead), want)
-	}
-	for _, ch := range chToBeRead {
-		<-ch
-	}
-
-	// Check if all channels are empty, as they should be now
-	select {
-	case _ = <-chDoneUsers:
-		t.Errorf("postprocessingSubmit() User done channel not empty!")
-	case _ = <-chDoneSans:
-		t.Errorf("postprocessingSubmit() SANS done channel not empty!")
-	case _ = <-chDoneDns:
-		t.Errorf("postprocessingSubmit() DNS done channel not empty!")
-	default:
-	}
-}
-
-func TestPostprocessingComplete(t *testing.T) {
-
-	// Prepare test variables
-	testLogger := utils.NewTestLogger()
-	dialTimeout := 5 * time.Second
-	taskCnt := 0
-	hPorts := make(map[string][]int)
-	hPorts["127.0.0.1"] = []int{}
-	hPorts["127.0.0.2"] = []int{443}
-	hPorts["127.0.0.3"] = []int{443, 3389}
-	hData := []Host{
-		{
-			"127.0.0.1",
-			"localhost",
-			[]string{"local"},
-			[]string{},
-			[]string{"Windows 7 Enterprise 7601 Service Pack 1 microsoft-ds"},
-			"",
-			time.Now(),
-			time.Minute,
-			"",
-			[]string{},
-			[]string{},
-			[]Service{},
-			[]Script{},
-			&active_directory.Ad{},
-		},
-		{
-			"127.0.0.2",
-			"localhost2",
-			[]string{"local2"},
-			[]string{},
-			[]string{"Windows 7 Enterprise 7601 Service Pack 1 microsoft-ds"},
-			"",
-			time.Now(),
-			time.Minute,
-			"",
-			[]string{},
-			[]string{},
-			[]Service{},
-			[]Script{},
-			&active_directory.Ad{},
-		},
-		{
-			"127.0.0.3",
-			"localhost3",
-			[]string{"local3"},
-			[]string{},
-			[]string{""},
-			"",
-			time.Now(),
-			time.Minute,
-			"",
-			[]string{},
-			[]string{},
-			[]Service{},
-			[]Script{},
-			&active_directory.Ad{},
-		},
-	}
-
-	// Prepare slots and return channels
-	chThrottleUser := make(chan struct{}, 20)
-	chThrottleSans := make(chan struct{}, 50)
-	chThrottleDns := make(chan struct{}, 20)
-	chDoneUsers := make(chan *Host)
-	chDoneSans := make(chan *Host)
-	chDoneDns := make(chan *Host)
-
-	// Submit data
-	for _, h := range hData {
-		taskCnt = postprocessingSubmit(
-			testLogger,
-			taskCnt,
-			&h,
-			[]string{},
-			hPorts[h.Ip],
-			dialTimeout,
-			chThrottleUser,
-			chThrottleSans,
-			chThrottleDns,
-			chDoneUsers,
-			chDoneSans,
-			chDoneDns,
-		)
-	}
-
-	// Check if postprocessing finishes
-	postprocessingComplete(
-		testLogger,
-		&ldapConf{},
-		taskCnt,
-		[]string{},
-		dialTimeout,
-		chThrottleDns,
-		chDoneUsers,
-		chDoneSans,
-		chDoneDns,
-	)
-}
-
 func TestDecideDnsName(t *testing.T) {
+
+	// Prepare test variables
+	excludeDomains := []string{"cloudfront.net", "wildcard.cloudfront.net", "azurewebsites.net"}
 
 	// Prepare and run test cases
 	type args struct {
@@ -663,37 +450,35 @@ func TestDecideDnsName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 
 			// Launch function asynchronously
-			go decideDnsName(tt.args.hData, []string{}, tt.args.chThrottle, tt.args.chResults)
+			decideDnsName(tt.args.hData, []string{}, excludeDomains)
 
-			// Check result sent via channel
-			select {
-			case updatedHost := <-tt.args.chResults:
-				if !reflect.DeepEqual(updatedHost.DnsName, tt.want) {
-					t.Errorf("decideDnsName() DNS Name = '%v', want = '%v'", updatedHost.DnsName, tt.want)
-				}
-				if !reflect.DeepEqual(updatedHost.OtherNames, tt.want2) {
-					t.Errorf("decideDnsName() Other Names = '%v', want2 = '%v'", updatedHost.OtherNames, tt.want2)
-				}
+			// Check result
+			if !reflect.DeepEqual(tt.args.hData.DnsName, tt.want) {
+				t.Errorf("decideDnsName() DNS Name = '%v', want = '%v'", tt.args.hData.DnsName, tt.want)
+			}
+			if !reflect.DeepEqual(tt.args.hData.OtherNames, tt.want2) {
+				t.Errorf("decideDnsName() Other Names = '%v', want2 = '%v'", tt.args.hData.OtherNames, tt.want2)
 			}
 		})
 	}
 }
 
 func Test_sanitizeDnsNames(t *testing.T) {
-	input := []string{"sub1.cert.domain.tld", "sub2.domain.tld", "SuB2.domain.tld", "nothing", "A", "sub.domain.tld", "", "", "127.0.0.1", "127.0.0.1", "127.0.0.1", "127.0.0.1", "1::", "*.sub.domain.tld"}
+	input := []string{"sub1.cert.domain.tld", "sub2.domain.tld", "SuB2.domain.tld", "nothing", "A", "sub.domain.tld", "", "", "127.0.0.1", "127.0.0.1", "127.0.0.1", "127.0.0.1", "1::", "*.sub.domain.tld", "azurewebsites.net"}
 	output := []string{"sub1.cert.domain.tld", "sub2.domain.tld", "nothing", "a", "sub.domain.tld", "wildcard.sub.domain.tld"}
 
 	// Prepare and run test cases
 	tests := []struct {
-		name      string
-		hostnames []string
-		want      []string
+		name           string
+		hostnames      []string
+		excludeDomains []string
+		want           []string
 	}{
-		{"test1", input, output},
+		{"test1", input, []string{"cloudfront.net", "wildcard.cloudfront.net", "azurewebsites.net"}, output},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := sanitizeDnsNames(tt.hostnames); !reflect.DeepEqual(got, tt.want) {
+			if got := sanitizeDnsNames(tt.hostnames, tt.excludeDomains); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("sanitizeDnsNames() = '%v', want = '%v'", got, tt.want)
 			}
 		})
@@ -744,6 +529,7 @@ func Test_orderDnsNames(t *testing.T) {
 		{"disorder17", utils.Shuffle([]string{"some.hosting.com", "anythingelse"}), []string{"some.hosting.com", "anythingelse"}},
 		{"disorder18", utils.Shuffle(order), order},
 		{"disorder19", utils.Shuffle([]string{"localhost", "hostname", "domain.com", "some.hosting.com", "anythingelse"}), []string{"domain.com", "some.hosting.com", "anythingelse", "hostname", "localhost"}},
+		{"disorder20", utils.Shuffle([]string{"abcde", "abcde.domain.tld", "abcde.domain2.tld"}), []string{"abcde.domain.tld", "abcde.domain2.tld", "abcde"}},
 
 		// Prefer FQDNs over incomplete hostnames
 		{"disorder20", []string{"hostname", "hostname.domain.tld"}, []string{"hostname.domain.tld", "hostname"}},

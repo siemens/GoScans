@@ -1,7 +1,7 @@
 /*
 * GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -338,7 +338,14 @@ func CheckNmapFirewall(nmap string) error {
 
 	// Define command
 	cmd := "netsh"
-	args := []string{"Advfirewall", "firewall", "show", "rule", "all", "verbose"}
+	args := []string{
+		"Advfirewall",
+		"firewall",
+		"show",
+		"rule",
+		fmt.Sprintf("name=\"%s\"", firewallRuleName), // Some antivirus might silently kill the process if *all* rules are queried
+		"verbose",
+	}
 
 	// Run command
 	out, err := exec.Command(cmd, args...).CombinedOutput()
@@ -361,7 +368,7 @@ func SetNmapFirewall(nmap string) error {
 
 	// Check if the path is absolute, if not making a firewall rule is not possible
 	if !filepath.IsAbs(nmap) {
-		fmt.Errorf("expected absolute path for firewall rule, but '%s' is relative", nmap)
+		return fmt.Errorf("expected absolute path for firewall rule, but '%s' is relative", nmap)
 	}
 
 	// Delete old firewall rule by name. If it returns an error there is no old rule

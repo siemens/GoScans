@@ -1,7 +1,7 @@
 /*
 * GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -15,7 +15,7 @@ import (
 	"strings"
 )
 
-// UniqueStrings gets rid of redundant elements
+// UniqueStrings gets rid of duplicate entries in the slice
 func UniqueStrings(elements []string) []string {
 
 	// Use map to record duplicates as we find them.
@@ -133,7 +133,7 @@ func StrContained(candidate string, slices ...[]string) bool {
 	return false
 }
 
-// Checks whether a given substring can be found within the strings within the given slices. This
+// SubstrContained checks whether a given substring can be found within the strings within the given slices. This
 // function is like StrContained but not looking for *exact* matches.
 func SubstrContained(candidate string, slices ...[]string) bool {
 	for _, slice := range slices {
@@ -146,7 +146,7 @@ func SubstrContained(candidate string, slices ...[]string) bool {
 	return false
 }
 
-// Check if two slices of strings contain the same elements and also the same amount of those,
+// Equals checks if two slices of strings contain the same elements and also the same amount of those,
 // but with no regard to their order
 // []string{"a","a","c"} == []string{"c","a","c"} >>> false
 // []string{"z","z","x"} == []string{"x","z","z"} >>> true
@@ -191,7 +191,7 @@ func RemoveFromSlice(list []string, s string) []string {
 	return retList
 }
 
-// Makes the fist letter (and only the first letter) of the string uppercase
+// TitleFirstLetter makes the fist letter (and only the first letter) of the string uppercase
 func TitleFirstLetter(s string) string {
 	if s == "" {
 		return s

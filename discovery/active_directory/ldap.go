@@ -1,7 +1,7 @@
 /*
 * GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2023.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -62,7 +62,7 @@ func LdapQuery(
 		fmt.Sprintf("(&(objectClass=computer)(cn=%s))", searchCn), // The filter to apply
 		[]string{
 			"name", "distinguishedName", "dNSHostName", "description", "whenCreated", "managedBy", "lastLogon",
-			"pwdLastSet", "location", "operatingSystem", "operatingSystemServicePack", "operatingSystemVersion",
+			"pwdLastSet", "location", "operatingSystem", "operatingSystemVersion",
 			"servicePrincipalName", "isCriticalSystemObject",
 		},
 		nil,
@@ -149,7 +149,6 @@ func LdapQuery(
 		Location:             entry.GetAttributeValue("location"),
 		ManagedBy:            managedBy,
 		Os:                   entry.GetAttributeValue("operatingSystem"),
-		OsServicePack:        entry.GetAttributeValue("operatingSystemServicePack"),
 		OsVersion:            entry.GetAttributeValue("operatingSystemVersion"),
 		ServicePrincipalName: entry.GetAttributeValues("servicePrincipalName"),
 		CriticalObject:       criticalObject,
