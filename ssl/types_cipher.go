@@ -28,7 +28,7 @@ type CipherInfo struct {
 	EncBits     int            `json:"enc_bits"`     //
 	EncMode     EncryptionMode `json:"enc_mode"`     //
 	Mac         Mac            `json:"mac"`          // Message authentication code algorithm
-	Prf         Prf            `sjon:"prf"`          // Pseudorandom function family if existing
+	Prf         Prf            `json:"prf"`          // Pseudorandom function family if existing
 	Export      bool           `json:"export"`       // export indicator, if the string is not empty it's an exportable cipher
 }
 
