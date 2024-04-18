@@ -12,7 +12,7 @@ package utils
 
 import (
 	"bytes"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -408,7 +408,7 @@ func TestReadBody(t *testing.T) {
 
 			// Prepare dummy response with test data
 			r := http.Response{
-				Body: ioutil.NopCloser(bytes.NewReader(tt.contentBytes)),
+				Body: io.NopCloser(bytes.NewReader(tt.contentBytes)),
 			}
 			r.Header = make(http.Header)
 			r.Header.Add("Content-Type", tt.contentType)

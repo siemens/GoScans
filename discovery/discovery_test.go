@@ -11,10 +11,10 @@
 package discovery
 
 import (
-	"github.com/Ullaakut/nmap/v2"
+	"github.com/Ullaakut/nmap/v3"
 	"github.com/siemens/GoScans/_test"
 	"github.com/siemens/GoScans/utils"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -170,21 +170,16 @@ func TestExtractHostData(t *testing.T) {
 	nmapXml := filepath.Join(testSettings.PathDataDir, "discovery", "host123.domain.tld.xml")
 
 	// Read Nmap result form file
-	in, err := ioutil.ReadFile(nmapXml)
+	in, err := os.ReadFile(nmapXml)
 	if err != nil {
 		t.Errorf("Rading Nmap sample result failed: %s", err)
 	}
 
 	// Parse Nmap result
-	scanResult, err := nmap.Parse(in)
-	if err != nil {
-		t.Errorf("Parsing Nmap sample result failed: %s", err)
-	}
-
-	// Some location in the CET timezone
-	location, err := time.LoadLocation("Europe/Berlin")
-	if err != nil {
-		t.Errorf("could not load location for test: %s", err)
+	scanResult := nmap.Run{}
+	errParse := nmap.Parse(in, &scanResult)
+	if errParse != nil {
+		t.Errorf("Parsing Nmap sample result failed: %s", errParse)
 	}
 
 	// Prepare and run test cases
@@ -201,9 +196,9 @@ func TestExtractHostData(t *testing.T) {
 			"valid",
 			scanResult.Hosts[0],
 			[]string{"host123.sub.domain.tld", "HOST123.sub.domain.tld"},
-			[]string{},
+			nil,
 			[]string{"96% Microsoft Windows 7 SP1", "92% Microsoft Windows 8.1 Update 1", "92% Microsoft Windows Phone 7.5 or 8.0", "91% Microsoft Windows 7 or Windows Server 2008 R2", "91% Microsoft Windows Server 2008 R2", "91% Microsoft Windows Server 2008 R2 or Windows 8.1", "91% Microsoft Windows Server 2008 R2 SP1 or Windows 8", "91% Microsoft Windows 7", "91% Microsoft Windows 7 Professional or Windows 8", "91% Microsoft Windows 7 SP1 or Windows Server 2008 R2"},
-			time.Date(2019, 02, 21, 15, 32, 49, 0, location),
+			time.Date(2019, 02, 21, 14, 32, 49, 0, &time.Location{}),
 			time.Second * 20776,
 		},
 	}
@@ -214,16 +209,16 @@ func TestExtractHostData(t *testing.T) {
 				t.Errorf("extractHostData() = '%v', want = '%v'", got, tt.want)
 			}
 			if !reflect.DeepEqual(got1, tt.want1) {
-				t.Errorf("extractHostData() got3 = '%v', want3 = '%v'", got3, tt.want3)
-			}
-			if !reflect.DeepEqual(got2, tt.want2) {
 				t.Errorf("extractHostData() got1 = '%v', want1 = '%v'", got1, tt.want1)
 			}
-			if !reflect.DeepEqual(got3, tt.want3) {
+			if !reflect.DeepEqual(got2, tt.want2) {
 				t.Errorf("extractHostData() got2 = '%v', want2 = '%v'", got2, tt.want2)
 			}
-			if !reflect.DeepEqual(got4, tt.want4) {
+			if !reflect.DeepEqual(got3, tt.want3) {
 				t.Errorf("extractHostData() got3 = '%v', want3 = '%v'", got3, tt.want3)
+			}
+			if !reflect.DeepEqual(got4, tt.want4) {
+				t.Errorf("extractHostData() got4 = '%v', want4 = '%v'", got4, tt.want4)
 			}
 		})
 	}
@@ -242,15 +237,16 @@ func TestExtractPortData(t *testing.T) {
 	nmapXml := filepath.Join(testSettings.PathDataDir, "discovery", "host123.domain.tld.xml")
 
 	// Read Nmap result form file
-	in, err := ioutil.ReadFile(nmapXml)
+	in, err := os.ReadFile(nmapXml)
 	if err != nil {
 		t.Errorf("Rading Nmap sample result failed: %s", err)
 	}
 
 	// Parse Nmap result
-	scanResult, err := nmap.Parse(in)
-	if err != nil {
-		t.Errorf("Parsing Nmap sample result failed: %s", err)
+	scanResult := nmap.Run{}
+	errParse := nmap.Parse(in, &scanResult)
+	if errParse != nil {
+		t.Errorf("Parsing Nmap sample result failed: %s", errParse)
 	}
 
 	// Define expected read data
@@ -259,11 +255,11 @@ func TestExtractPortData(t *testing.T) {
 			445,
 			"tcp",
 			"microsoft-ds",
+			"",
 			"Windows 7 Enterprise 7601 Service Pack 1 microsoft-ds",
 			"",
 			"",
 			"Windows",
-			"",
 			[]string{"cpe:/o:microsoft:windows"},
 			"workgroup: SUB",
 			"probed",
@@ -273,7 +269,7 @@ func TestExtractPortData(t *testing.T) {
 			3389,
 			"tcp",
 			"ms-wbt-server",
-			"",
+			"ssl",
 			"",
 			"",
 			"",
@@ -320,13 +316,14 @@ func TestExtractHostScriptData(t *testing.T) {
 	nmapXml := filepath.Join(testSettings.PathDataDir, "discovery", "host123.domain.tld.xml")
 
 	// Read Nmap result form file
-	in, errRead := ioutil.ReadFile(nmapXml)
+	in, errRead := os.ReadFile(nmapXml)
 	if errRead != nil {
 		t.Errorf("Rading Nmap sample result failed: %s", errRead)
 	}
 
 	// Parse Nmap result
-	scanResult, errParse := nmap.Parse(in)
+	scanResult := nmap.Run{}
+	errParse := nmap.Parse(in, &scanResult)
 	if errParse != nil {
 		t.Errorf("Parsing Nmap sample result failed: %s", errParse)
 	}
@@ -383,13 +380,14 @@ func TestExtractPortScriptData(t *testing.T) {
 	nmapXml := filepath.Join(testSettings.PathDataDir, "discovery", "host123.domain.tld.xml")
 
 	// Read Nmap result form file
-	in, errRead := ioutil.ReadFile(nmapXml)
+	in, errRead := os.ReadFile(nmapXml)
 	if errRead != nil {
 		t.Errorf("Rading Nmap sample result failed: %s", errRead)
 	}
 
 	// Parse Nmap result
-	scanResult, errParse := nmap.Parse(in)
+	scanResult := nmap.Run{}
+	errParse := nmap.Parse(in, &scanResult)
 	if errParse != nil {
 		t.Errorf("Parsing Nmap sample result failed: %s", errParse)
 	}

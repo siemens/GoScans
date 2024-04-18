@@ -12,15 +12,16 @@ package webcrawler
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/siemens/GoScans/_test"
 	"github.com/siemens/GoScans/utils"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 )
@@ -109,19 +110,24 @@ func Test_NewCrawler(t *testing.T) {
 
 func Test_sortQueue(t *testing.T) {
 
-	// The IDs have no effekt on the sorting.
+	// The IDs have no effect on the sorting.
 	want := []*task{
+		{19, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: ""}, Depth: 0}},
 		{1, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/"}, Depth: 0}},
 		{42, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/admi"}, Depth: 1}},
-		{2, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/inde"}, Depth: 1}},
-		{0, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/logi"}, Depth: 1}},
 		{5, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/home"}, Depth: 1}},
 		{7, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/home"}, Depth: 1}},
+		{17, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "images"}, Depth: 1}},
+		{2, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/inde"}, Depth: 1}},
+		{0, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/logi"}, Depth: 1}},
 		{11, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/some/subb/"}, Depth: 1}},
 		{16, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/some/subb/url"}, Depth: 1}},
 		{3, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/admi/stop"}, Depth: 2}},
-		{4, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/some/subb/"}, Depth: 2}},
+		{13, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "data/"}, Depth: 2}},
+		{23, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "data/subb"}, Depth: 2}},
 		{22, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/admi/stop/asfdasfasdf"}, Depth: 2}},
+		{4, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/some/subb/"}, Depth: 2}},
+		{29, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "user/home/"}, Depth: 2}},
 		{30, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/admi/stop/asfdasfasdf/"}, Depth: 2}},
 	}
 	tests := []struct {
@@ -132,16 +138,21 @@ func Test_sortQueue(t *testing.T) {
 			"disorder-1",
 			[]*task{
 				{22, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/admi/stop/asfdasfasdf/"}, Depth: 2}},
+				{17, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "images"}, Depth: 1}},
 				{11, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/some/subb/"}, Depth: 2}},
 				{2, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/inde"}, Depth: 1}},
 				{1, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/"}, Depth: 0}},
+				{29, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "user/home/"}, Depth: 2}},
 				{0, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/logi"}, Depth: 1}},
 				{5, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/home"}, Depth: 1}},
 				{42, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/admi"}, Depth: 1}},
 				{3, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/admi/stop"}, Depth: 2}},
+				{19, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: ""}, Depth: 0}},
 				{4, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/some/subb/"}, Depth: 1}},
 				{16, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/some/subb/url"}, Depth: 1}},
+				{13, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "data/"}, Depth: 2}},
 				{7, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/home"}, Depth: 1}},
+				{23, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "data/subb"}, Depth: 2}},
 				{30, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/admi/stop/asfdasfasdf"}, Depth: 2}},
 			},
 		},
@@ -401,7 +412,7 @@ func Test_streamToFile(t *testing.T) {
 				t.Errorf("streamToFile() error = '%v', wantErr '%v'", err, tt.wantErr)
 				return
 			}
-			content, errRead := ioutil.ReadFile(p)
+			content, errRead := os.ReadFile(p)
 			if errRead != nil {
 				t.Errorf("streamToFile() errRead: Could not read output file")
 				return
@@ -454,4 +465,54 @@ func Test_parseRetryAfter(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCrawler_Test(t *testing.T) {
+
+	// Recover potential panics to gracefully shut down scan
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println(fmt.Sprintf("Unexpected panic: %s\n%s", r, utils.StacktraceIndented("\t")))
+		}
+	}()
+
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Println(fmt.Sprintf("Unexpected panic: %s\n%s", r, utils.StacktraceIndented("\t")))
+			}
+		}()
+
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Println(fmt.Sprintf("Unexpected panic: %s\n%s", r, utils.StacktraceIndented("\t")))
+				}
+			}()
+
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						fmt.Println(fmt.Sprintf("Unexpected panic: %s%s", r, utils.StacktraceIndented("\t")))
+						wg.Done()
+					}
+				}()
+
+				a := 1
+				a -= 1
+				_ = 12 / a
+				fmt.Println("Executing")
+				wg.Done()
+			}()
+		}()
+	}()
+
+	fmt.Println("Waiting")
+	wg.Wait()
+
+	fmt.Println("Terminating")
+
 }

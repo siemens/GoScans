@@ -1,5 +1,6 @@
 # Goland (developer-specific stuff)
 .idea/workspace.xml
+.idea/dataSources.xml
 
 # Unit test output
 _test/tmp/

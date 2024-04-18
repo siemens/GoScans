@@ -11,8 +11,10 @@
 package discovery
 
 import (
+	"context"
+	"errors"
 	"fmt"
-	"github.com/Ullaakut/nmap/v2"
+	"github.com/Ullaakut/nmap/v3"
 	"github.com/siemens/GoScans/discovery/active_directory"
 	"github.com/siemens/GoScans/discovery/netapi"
 	"github.com/siemens/GoScans/utils"
@@ -236,7 +238,7 @@ func NewScanner(
 	forceArgs := []string{"--reason", "--webxml"}
 
 	// Compile list of Nmap configurations
-	var options []func(*nmap.Scanner)
+	var options []nmap.Option
 	options = append(options, nmap.WithBinaryPath(nmapPath))
 	options = append(options, nmap.WithCustomArguments(nmapArgs...))
 	options = append(options, nmap.WithCustomArguments(forceArgs...))
@@ -253,7 +255,7 @@ func NewScanner(
 	options = append(options, nmap.WithTargets(targets...))
 
 	// Prepare Nmap scan to receive direct feedback in case of errors
-	proc, errNew := nmap.NewScanner(options...)
+	proc, errNew := nmap.NewScanner(context.Background(), options...)
 	if errNew != nil {
 		return nil, errNew
 	}
@@ -338,6 +340,7 @@ func initDefaultScripts(nmapPath string) (err error) {
 
 			// Prepare check for script support
 			checkScript, errCheck := nmap.NewScanner(
+				context.Background(),
 				nmap.WithBinaryPath(nmapPath),
 				nmap.WithScripts(script),
 			)
@@ -396,7 +399,7 @@ func (s *Scanner) execute() *Result {
 			// Handle scan timeout error, which should not happen in this discovery module, because no global
 			// scan timeout is specified. It's rather advised to set scan timeouts indirectly with Nmap's
 			// '--host-timeout' attribute.
-			if errRun == nmap.ErrScanTimeout {
+			if errors.Is(errRun, nmap.ErrScanTimeout) {
 				s.logger.Errorf("Scan aborted due to timeout.")
 				return &Result{
 					nil,
@@ -407,9 +410,9 @@ func (s *Scanner) execute() *Result {
 
 			// Prepare error message
 			exceptionMsg := ""
-			if errRun == nmap.ErrParseOutput {
+			if errors.Is(errRun, nmap.ErrParseOutput) {
 				exceptionMsg = "Nmap output could not be parsed:"
-				for _, warning := range warnings {
+				for _, warning := range *warnings {
 					if utils.SubstrContained(warning, []string{ // Skip useless warnings
 						"QUITTING!",
 						"-- is this port really open?",
@@ -418,9 +421,9 @@ func (s *Scanner) execute() *Result {
 					}
 					exceptionMsg += fmt.Sprintf("\n%s", warning)
 				}
-			} else if errRun == nmap.ErrMallocFailed {
+			} else if errors.Is(errRun, nmap.ErrMallocFailed) {
 				exceptionMsg = fmt.Sprintf("Nmap could not scan such large target network.")
-			} else if errRun == nmap.ErrResolveName { // Critical resolve error only thrown if related to blacklist hosts
+			} else if errors.Is(errRun, nmap.ErrResolveName) { // Critical resolve error only thrown if related to blacklist hosts
 				exceptionMsg = fmt.Sprintf("Nmap could not resolve host(s) on exclude list.")
 			} else {
 				exceptionMsg = fmt.Sprintf("Nmap scan failed with unexpected error: %s", errRun)
@@ -439,7 +442,7 @@ func (s *Scanner) execute() *Result {
 	}
 
 	// Check for nmap warnings that are critical to us
-	for _, warning := range warnings {
+	for _, warning := range *warnings {
 		if warning == "" || warning == " " {
 			continue
 		} else if strings.Contains(warning, "Failed to resolve") { // The same warning is returned if host from blacklist could not be resolved, but in that case an error is already returned and handled above
@@ -1059,7 +1062,8 @@ func hostExtractSans(
 		sans, err := utils.GetSubjectAlternativeNames(ip, port, dialTimeout)
 		if err != nil {
 			// Don't warn on connection issues, but warn on unexpected errors during SANs extraction
-			if _, ok := err.(net.Error); ok { // Check if error is connection related (timeout errors count as connection related as well)
+			var errNet net.Error
+			if errors.As(err, &errNet) { // Check if error is connection related (timeout errors count as connection related as well)
 				logger.Debugf(
 					"Post-processing '%s': Could not connect on port %d for subject alternative names extraction: %s", ip, port, err)
 			} else { // Otherwise log warning message with details

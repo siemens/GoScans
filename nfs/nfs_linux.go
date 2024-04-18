@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"github.com/siemens/GoScans/filecrawler"
 	"github.com/siemens/GoScans/utils"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"os/user"
@@ -148,7 +147,7 @@ func (s *Scanner) getExportsV4() (map[string][]string, error) {
 	}()
 
 	// Try to read all sub folders aka the exports (of an NFSv4)
-	dirs, errRead := ioutil.ReadDir(mountPoint)
+	dirs, errRead := os.ReadDir(mountPoint)
 	if errRead != nil {
 		return exports, errRead
 	}

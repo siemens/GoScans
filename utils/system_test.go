@@ -12,7 +12,6 @@ package utils
 
 import (
 	"github.com/siemens/GoScans/_test"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -178,11 +177,11 @@ func TestSanitizeFilename(t *testing.T) {
 				t.Errorf("SanitizeFilename() = '%v', want = '%v'", got, tt.want)
 			}
 			p := filepath.Join(testSettings.PathTmpDir, tt.want+".txt")
-			errWrite := ioutil.WriteFile(p, testContent, 666)
+			errWrite := os.WriteFile(p, testContent, 666)
 			if errWrite != nil {
 				t.Errorf("SanitizeFilename() Writing test file failed!")
 			}
-			content, errRead := ioutil.ReadFile(p)
+			content, errRead := os.ReadFile(p)
 			if errRead != nil {
 				t.Errorf("SanitizeFilename() Reading test file failed!")
 			}

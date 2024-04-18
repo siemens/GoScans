@@ -880,9 +880,33 @@ func sortQueue(queue []*task) {
 			subFoldersI := strings.Count(queue[i].page.Url.Path, "/")
 			subFoldersJ := strings.Count(queue[j].page.Url.Path, "/")
 
+			// Cover case when there is no leading "/"
+			// Without modifying the original Slice
+			normalizedPathI := queue[i].page.Url.Path
+			normalizedPathJ := queue[j].page.Url.Path
+			if !strings.HasPrefix(normalizedPathI, "/") {
+
+				// Keep empty Url.Path on top
+				if normalizedPathI == "" {
+					return true
+				}
+				normalizedPathI = "/" + normalizedPathI
+				subFoldersI++
+			}
+			if !strings.HasPrefix(normalizedPathJ, "/") {
+				normalizedPathJ = "/" + normalizedPathJ
+				subFoldersJ++
+			}
+
 			// Lower folder depth first
 			if subFoldersI < subFoldersJ {
 				return true
+			} else if subFoldersI == subFoldersJ {
+
+				// Sort last elements by alphabet
+				if normalizedPathI < normalizedPathJ {
+					return true
+				}
 			}
 		}
 		return false

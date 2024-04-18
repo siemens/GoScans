@@ -13,7 +13,6 @@ package webcrawler
 import (
 	"github.com/siemens/GoScans/_test"
 	"github.com/siemens/GoScans/utils"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -330,7 +329,7 @@ func TestPrepareHrefsFile(t *testing.T) {
 			if err := prepareHrefsFile(tt.args.filePath, tt.args.header); (err != nil) != tt.wantErr {
 				t.Errorf("prepareHrefsFile() error = '%v', wantErr '%v'", err, tt.wantErr)
 			} else if !tt.wantErr {
-				content, errRead := ioutil.ReadFile(testFile)
+				content, errRead := os.ReadFile(testFile)
 				if errRead != nil {
 					t.Errorf("prepareHrefsFile() could not read file: '%v'", errRead)
 					return
@@ -466,7 +465,7 @@ func TestAppendHrefs(t *testing.T) {
 
 			// Check if the data written to the file is correct.
 			if !tt.wantErr {
-				content, errRead := ioutil.ReadFile(tt.args.filePath)
+				content, errRead := os.ReadFile(tt.args.filePath)
 				if errRead != nil {
 					t.Errorf("appendHrefs() could not read file: '%v'", errRead)
 					return

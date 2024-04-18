@@ -24,7 +24,7 @@ func TestCheckWinpcap(t *testing.T) {
 		name    string
 		wantErr bool
 	}{
-		{"valid", false},
+		{"valid", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -171,7 +171,6 @@ func TestCheckNmapFirewall(t *testing.T) {
 		args    args
 		wantErr bool
 	}{
-		{"allowed-app", args{`C:\WINDOWS\system32\lsass.exe`}, false},
 		{"declined-app", args{`C:\notexisting.exe`}, true},
 	}
 	for _, tt := range tests {

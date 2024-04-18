@@ -17,7 +17,6 @@ import (
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/charset"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -176,7 +175,7 @@ func (r *Requester) Get(url_ string, vhost string) (resp *http.Response, redirec
 		if resp != nil {
 			const maxBodySlurpSize = 2 << 10
 			if resp.ContentLength == -1 || resp.ContentLength <= maxBodySlurpSize {
-				_, _ = io.CopyN(ioutil.Discard, resp.Body, maxBodySlurpSize)
+				_, _ = io.CopyN(io.Discard, resp.Body, maxBodySlurpSize)
 			}
 			_ = resp.Body.Close()
 		}
@@ -685,7 +684,7 @@ func ReadBody(response *http.Response) (body []byte, encoding string, err error)
 	contentType := response.Header.Get("Content-Type")
 
 	// Read raw bytes and close stream
-	raw, errRead := ioutil.ReadAll(response.Body)
+	raw, errRead := io.ReadAll(response.Body)
 	if errRead != nil {
 		return nil, "", errRead
 	}

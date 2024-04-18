@@ -54,7 +54,7 @@ func IsValidProtocol(p Protocol) bool {
 	return p > 0 && p <= Tlsv1_3
 }
 
-//  Algorithms used for the key exchange.
+// Algorithms used for the key exchange.
 type KeyExchange uint8
 
 // KEX_ECMQV: https://tools.ietf.org/html/draft-campagna-tls-ecmqv-ecqv-01
@@ -108,7 +108,7 @@ func (k KeyExchange) getStrength(size uint64) (float64, error) {
 	}
 }
 
-//  Algorithms used to authenticate the server and (optionally) client.
+// Algorithms used to authenticate the server and (optionally) client.
 type Authentication uint8
 
 // AUTH_GOSTR341001: elliptic curve version

@@ -19,7 +19,6 @@ import (
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/siemens/GoScans/utils"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -337,7 +336,7 @@ func (c *Crawler) processFolder(folderTask *task, processId int, chProcessResult
 	}
 
 	// Get all folders and files
-	content, errDir := ioutil.ReadDir(folderTask.path)
+	content, errDir := os.ReadDir(folderTask.path)
 	if errDir != nil { // Log if an unexpected error occurred
 		pErr, ok := errDir.(*os.PathError)
 		if ok && !(errors.Is(pErr, os.ErrPermission) || pErr.Err.Error() == os.ErrPermission.Error()) {
