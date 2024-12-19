@@ -184,7 +184,7 @@ func parseCertificate(logger utils.Logger, sslyzeCert *gosslyze.Certificate, tar
 		certificate.ExtendedKeyUsage = makeExtKeyUsageSlice(logger, x509Cert.ExtKeyUsage)
 
 		// Check the public key for inconsistency. Golang does not support the Curve448 yet and will probably also not
-		// for the near future. Therefore we have to exclude that one from the check.
+		// for the near future. Therefore, we have to exclude that one from the check.
 		publicKeyAlg := makePublicKeyFromX509(logger, x509Cert.PublicKeyAlgorithm)
 		if publicKeyAlg != certificate.PublicKeyAlgorithm && certificate.PublicKeyAlgorithm != PUB_K_ED448 {
 			logger.Warningf("Inconsistency between SSLyze and Golang: Public key algorithm '%s' != '%s'.",

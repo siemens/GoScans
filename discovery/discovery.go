@@ -1188,36 +1188,93 @@ func hostLookupInventory(
 	// Search asset information inventories
 	for inventoryName, inventory := range inventories {
 
+		// Check if inventory is initialized
+		if !inventory.Initialized() {
+			continue
+		}
+
 		// Abort search once data was found
 		if company != "" || department != "" || owner != "" {
 			break
 		}
 
+		// Prepare slice of IPs to search for
+		allIps := append([]string{hData.Ip}, hData.OtherIps...)
+		for _, otherName := range hData.OtherNames {
+			if utils.IsValidIp(otherName) {
+				allIps = append(allIps, otherName)
+			}
+		}
+		allIps = utils.UniqueStrings(allIps)
+
 		// Search asset information inventory
 		if searchByIp {
 
-			// Log asset inventory action
-			logger.Debugf("Searching '%s' asset inventory for '%s'", inventoryName, hData.Ip)
+			// Log warning on big lookups
+			if len(allIps) > 10 {
+				logger.Warningf("Searching '%s' asset inventory inventory with %d IPs.", inventoryName, len(allIps))
+			}
 
-			// Search asset inventory by IP. The lookup should only return information about assets with fixed IP
-			// addresses, or if it is certain that the inventory has reliable information in case of dynamic ones!
-			company, department, owner, hostnames, ips, critical, errLookup = inventory.ByIp(logger, hData.Ip)
+			// Iterate IPs and lookup
+			for _, ip := range allIps {
+
+				// Log asset inventory action
+				logger.Debugf("Searching '%s' asset inventory for '%s'", inventoryName, hData.Ip)
+
+				// Search asset inventory by IP. The lookup should only return information about assets with fixed IP
+				// addresses, or if it is certain that the inventory has reliable information in case of dynamic ones!
+				company, department, owner, hostnames, ips, critical, errLookup = inventory.ByIp(logger, ip)
+
+				// Handle lookup error
+				if errLookup != nil {
+					logger.Warningf("Searching '%s' asset inventory inventory by '%s' failed: %s", inventoryName, ip, errLookup)
+				}
+
+				// Abort further lookups on success
+				if company != "" || department != "" || owner != "" {
+					break
+				}
+			}
+
 		} else {
 
-			// Log asset inventory action
-			logger.Debugf("Searching '%s' asset inventory for '%s'", inventoryName, hData.DnsName)
+			// Prepare slice of IPs to search for
+			allDnsNames := []string{hData.DnsName}
+			for _, otherName := range hData.OtherNames {
+				if utils.IsValidHostname(otherName) {
+					allDnsNames = append(allDnsNames, otherName)
+				}
+			}
+			allDnsNames = utils.UniqueStrings(allDnsNames)
 
-			// Search asset inventory by FQDN
-			company, department, owner, hostnames, ips, critical, errLookup = inventory.ByFqdn(
-				logger,
-				hData.DnsName,
-				hData.Ip,
-			)
-		}
+			// Log warning on big lookups
+			if len(allDnsNames) > 10 {
+				logger.Warningf("Searching '%s' asset inventory inventory with %d DNS names.", inventoryName, len(allDnsNames))
+			}
 
-		// Handle lookup error
-		if errLookup != nil {
-			logger.Warningf("Searching '%s' asset inventory inventory failed: %s", inventoryName, errLookup)
+			// Iterate IPs and lookup
+			for _, dnsName := range allDnsNames {
+
+				// Log asset inventory action
+				logger.Debugf("Searching '%s' asset inventory for '%s'", inventoryName, dnsName)
+
+				// Search asset inventory by FQDN
+				company, department, owner, hostnames, ips, critical, errLookup = inventory.ByFqdn(
+					logger,
+					dnsName,
+					allIps,
+				)
+
+				// Handle lookup error
+				if errLookup != nil {
+					logger.Warningf("Searching '%s' asset inventory inventory failed: %s", inventoryName, errLookup)
+				}
+
+				// Abort further lookups on success
+				if company != "" || department != "" || owner != "" {
+					break
+				}
+			}
 		}
 	}
 

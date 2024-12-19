@@ -4,6 +4,7 @@
 
 # Unit test output
 _test/tmp/
+_test/tools/*
 
 # Compiled executables
 _test/*.exe
@@ -12,7 +13,3 @@ _test/*.bin
 # Log files, no matter where
 *.log
 *.log.*
-
-# Add-ons not part of this release
-discovery/inventory_itam.go
-discovery/inventory_itam_test.go

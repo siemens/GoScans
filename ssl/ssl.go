@@ -399,14 +399,17 @@ func (s *Scanner) execute() *Result {
 
 			// Check if the scan timed out
 			if errSslyze.Error() == "SSLyze scan timed out" {
-				s.logger.Debugf("SSLyze scan timout reached during SNI '%s'", target, errSslyze)
+				s.logger.Debugf("SSLyze scan timout reached during SNI '%s'", target)
 				result.Status = utils.StatusDeadline
 				break
 			}
 
-			// We expect some scans of vhosts to fail therefore the overall scan is not failed, we only want to log it
+			// Abort scans because there was some error during the execution of the scanner
 			s.logger.Errorf("SSLyze scan failed for target '%s': %s", target, errSslyze)
-			continue
+			result.Data = nil
+			result.Status = errSslyze.Error()
+			result.Exception = true
+			break
 		}
 
 		// Release the resources associated with the context, if the timeout was not reached yet.
@@ -429,10 +432,13 @@ func (s *Scanner) execute() *Result {
 
 		// Append result
 		result.Data = append(result.Data, parsedData)
+
+		// Log action
+		s.logger.Debugf("Appending scan result.")
 	}
 
 	// Return pointer to result struct
-	s.logger.Debugf("Returning scan result")
+	s.logger.Debugf("Returning scan result.")
 	return &result
 }
 
