@@ -12,7 +12,6 @@
 package nuclei
 
 import (
-	"archive/zip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -39,6 +38,7 @@ import (
 	"github.com/siemens/GoScans/utils"
 )
 
+// Label identifies the scan module in logs and results
 const Label = "Nuclei"
 
 // Setup configures the environment accordingly, if the scan module has some special requirements.
@@ -52,9 +52,9 @@ func Setup(logger utils.Logger, pathTemplates string) error {
 	client := &http.Client{Timeout: 120 * time.Second}
 
 	// Resolve the latest release tag from the GitHub releases API
-	releaseTag, errTag := fetchLatestReleaseTag(client, "https://api.github.com/repos/projectdiscovery/nuclei-templates/releases/latest")
-	if errTag != nil {
-		return fmt.Errorf("could not resolve latest Nuclei templates release: %w", errTag)
+	releaseTag, errReleaseTag := fetchLatestReleaseTag(client, "https://api.github.com/repos/projectdiscovery/nuclei-templates/releases/latest")
+	if errReleaseTag != nil {
+		return fmt.Errorf("could not resolve latest Nuclei templates release: %w", errReleaseTag)
 	}
 
 	// Wipe the existing templates directory to guarantee a clean re-download
@@ -96,9 +96,9 @@ func Setup(logger utils.Logger, pathTemplates string) error {
 	downloadPath := filepath.Join(pathTemplates, fmt.Sprintf("nuclei-templates-%s.zip", releaseTag))
 
 	// Fetch the archive from GitHub
-	resp, errClient := client.Get(downloadUrl)
-	if errClient != nil {
-		return fmt.Errorf("could not download Nuclei templates: %w", errClient)
+	resp, errResp := client.Get(downloadUrl)
+	if errResp != nil {
+		return fmt.Errorf("could not download Nuclei templates: %w", errResp)
 	}
 
 	// Make sure client gets closed again
@@ -122,7 +122,7 @@ func Setup(logger utils.Logger, pathTemplates string) error {
 
 	// Extract the downloaded archive into the templates' directory
 	logger.Debugf("Extracting Nuclei templates.")
-	errUnzip := unzip(downloadPath, pathTemplates)
+	errUnzip := utils.Unzip(downloadPath, pathTemplates)
 	if errUnzip != nil {
 		return fmt.Errorf("could not unzip Nuclei templates: %w", errUnzip)
 	}
@@ -151,7 +151,7 @@ func Setup(logger utils.Logger, pathTemplates string) error {
 		dst := filepath.Join(pathTemplates, e.Name())
 
 		// Move directory or file safely
-		errMove := moveDirSafe(src, dst)
+		errMove := utils.MoveDirSafe(src, dst)
 		if errMove != nil {
 
 			// Continue to the next entry
@@ -177,6 +177,12 @@ func Setup(logger utils.Logger, pathTemplates string) error {
 	errChown := chownDirTree(logger, pathTemplates)
 	if errChown != nil {
 		return fmt.Errorf("could not chown Nuclei templates: %w", errChown)
+	}
+
+	// Invalidate cached metadata after successfully replacing the installed templates
+	errInvalidate := invalidateTemplateCatalog(pathTemplates)
+	if errInvalidate != nil {
+		return fmt.Errorf("could not invalidate Nuclei template catalog: %w", errInvalidate)
 	}
 
 	// Return nil as everything went fine
@@ -217,6 +223,12 @@ func CheckSetup(logger utils.Logger, pathTemplates string) error {
 				return fmt.Errorf("could not preprocess Nuclei templates: %w", errProcess)
 			}
 
+			// Invalidate cached metadata after replacing the installed templates
+			errInvalidate := invalidateTemplateCatalog(pathTemplates)
+			if errInvalidate != nil {
+				return fmt.Errorf("could not invalidate Nuclei template catalog: %w", errInvalidate)
+			}
+
 			// Return nil as everything went fine
 			return nil
 		}
@@ -242,25 +254,25 @@ type Result struct {
 
 // Scanner holds configuration and runtime state for a single Nuclei scan.
 type Scanner struct {
-	Label               string
-	Started             time.Time
-	Finished            time.Time
-	logger              utils.Logger
-	target              string              // Address to be scanned (might be IPv4, IPv6 or hostname)
-	port                *int                // Pointer to differentiate between service- and host-based scans
-	pathTemplates       string              // Path to the templates
-	includeSeverities   string              // Filter by including severities (CSV: info,low,medium,high,critical)
-	excludeSeverities   string              // Filter by excluding severities (CSV: info,low,medium,high,critical)
-	includeTags         []string            // Filter by including tags present in template
-	excludeTags         []string            // Filter by excluding tags present in template
-	includeIds          []string            // Filter by template IDs
-	excludeIds          []string            // Filter by excluding template IDs
-	includeProtocols    string              // Filter by including protocol types
-	excludeProtocols    string              // Filter by excluding protocol types (CSV: tcp,http,dns)
-	username            string              // (Optional) will be included in templates requiring it as variable
-	password            string              // (Optional) will be included in templates requiring it as variable
-	helperFileAllowlist map[string]struct{} // Helper paths discovered at setup time by walking <pathTemplates>/helpers/
-	proxy               *url.URL
+	Label             string
+	Started           time.Time
+	Finished          time.Time
+	logger            utils.Logger
+	target            string           // Address to be scanned (might be IPv4, IPv6 or hostname)
+	port              *int             // Pointer to differentiate between service- and host-based scans
+	pathTemplates     string           // Path to the templates
+	catalog           *templateCatalog // Shared catalog selection and parser cache for pathTemplates
+	includeSeverities string           // Filter by including severities (CSV: info,low,medium,high,critical)
+	excludeSeverities string           // Filter by excluding severities (CSV: info,low,medium,high,critical)
+	includeTags       []string         // Filter by including tags present in template
+	excludeTags       []string         // Filter by excluding tags present in template
+	includeIds        []string         // Filter by template IDs
+	excludeIds        []string         // Filter by excluding template IDs
+	includeProtocols  string           // Filter by including protocol types
+	excludeProtocols  string           // Filter by excluding protocol types (CSV: tcp,http,dns)
+	username          string           // (Optional) will be included in templates requiring it as variable
+	password          string           // (Optional) will be included in templates requiring it as variable
+	proxy             *url.URL
 
 	contextInner       context.Context    // Context for the scan, within which the scan should execute. Might optionally wrap an outer context. If outer context is cancelled, inner one should cancel too, but not the other way around.
 	contextInnerCancel context.CancelFunc // Context cancel function of inner context, not impacting optional outer one.
@@ -300,23 +312,17 @@ func NewScanner(
 		return nil, fmt.Errorf("could not find '.nuclei-ignore' in template path '%s'", pathTemplates)
 	}
 
-	// Sanitization Step
-	var errIds error
-	includeIds, excludeIds, errIds = sanitizeTemplateIds(pathTemplates, includeIds, excludeIds)
-	if errIds != nil {
-		return nil, fmt.Errorf("could not sanitize template IDs '%s'", errIds)
+	// Acquire the shared cache and expand split variants from its index
+	catalog, errCatalog := acquireTemplateCatalog(pathTemplates)
+	if errCatalog != nil {
+		return nil, fmt.Errorf("could not acquire template catalog: %w", errCatalog)
 	}
-
-	// Compute the helper-file allowlist eagerly because templates are already verified to exist at this call site
-	helperAllowlist, errAllowlist := discoverHelperFiles(pathTemplates)
-	if errAllowlist != nil {
-		return nil, fmt.Errorf("could not discover helper files: %w", errAllowlist)
-	}
+	includeIds, excludeIds = catalog.expandTemplateIds(includeIds, excludeIds)
 
 	// Prepare proxy, *url.URL with appropriate scheme required
-	proxyUrl, errProxy := utils.ProxyStringToUrl(proxy) // Returns nil proxy on empty input
-	if errProxy != nil {
-		return nil, errProxy
+	proxyUrl, errProxyUrl := utils.ProxyStringToUrl(proxy) // Returns nil proxy on empty input
+	if errProxyUrl != nil {
+		return nil, errProxyUrl
 	}
 
 	// Initiate scanner with sanitized input values
@@ -327,7 +333,8 @@ func NewScanner(
 		logger,
 		target, // Address to be scanned (might be IPv4, IPv6 or hostname)
 		port,
-		pathTemplates,
+		catalog.root,
+		catalog,
 		includeSeverities,
 		excludeSeverities,
 		includeTags,
@@ -338,7 +345,6 @@ func NewScanner(
 		excludeProtocols,
 		username,
 		password,
-		helperAllowlist,
 		proxyUrl,
 		nil,
 		nil,
@@ -414,6 +420,7 @@ func (s *Scanner) Run(timeout time.Duration) (res *Result) {
 	return res
 }
 
+// execute runs one isolated Nuclei engine and returns its local findings
 func (s *Scanner) execute() *Result {
 
 	// Cleanup inner context if set
@@ -437,8 +444,9 @@ func (s *Scanner) execute() *Result {
 		}
 	}
 
-	// Prepare target var
+	// Prepare execution inputs
 	var target string
+	var templatePaths []string
 
 	// Check which type of scan to run
 	if s.port != nil {
@@ -456,15 +464,19 @@ func (s *Scanner) execute() *Result {
 
 		// Explicitly include only templates that have matching port or dynamic port
 		s.logger.Debugf("Loading relevant templates.")
-		portIncludedIds, err := GetPortTemplates(s.logger, s.pathTemplates, *s.port, s.includeIds, s.excludeIds)
-		if err != nil {
-			s.logger.Debugf("Could not filter templates by port %d: %v", *s.port, err)
+		_, portTemplatePaths, errPort := selectPortTemplates(
+			s.logger,
+			s.catalog,
+			*s.port,
+			s.includeIds,
+			s.excludeIds,
+		)
+		if errPort != nil {
+			s.logger.Debugf("Could not filter templates by port %d: %v", *s.port, errPort)
 		}
 
-		// Override include ids
-		if portIncludedIds != nil {
-			s.includeIds = portIncludedIds
-		} else {
+		// Abort early if no template is relevant for this port
+		if len(portTemplatePaths) == 0 {
 			s.logger.Debugf("Could not find matching templates for port %d", *s.port)
 			return &Result{
 				nil,
@@ -472,6 +484,9 @@ func (s *Scanner) execute() *Result {
 				false,
 			}
 		}
+
+		// Load exactly the templates selected for this port
+		templatePaths = portTemplatePaths
 
 	} else {
 
@@ -496,6 +511,16 @@ func (s *Scanner) execute() *Result {
 				}
 			}
 		}
+
+		hostSources, errHostSources := s.catalog.hostSources(s.logger)
+		if errHostSources != nil {
+			s.logger.Debugf("Could not select host templates: %v", errHostSources)
+			return &Result{nil, fmt.Sprintf("Could not select host templates: %v", errHostSources), false}
+		}
+		_, templatePaths = filterTemplateSources(hostSources, s.includeIds, s.excludeIds)
+		if len(templatePaths) == 0 {
+			return &Result{nil, "No matching templates for scan", false}
+		}
 	}
 
 	// Log information about templates to be loaded
@@ -508,35 +533,43 @@ func (s *Scanner) execute() *Result {
 	s.logger.Debugf("Selected include severities: %s", s.includeSeverities)
 	s.logger.Debugf("Selected exclude severities: %s", s.excludeSeverities)
 
-	// Build and merge Nuclei options
-	options, errOptions := s.prepareNucleiOptions()
+	// Build a private engine while injecting only the shared parser cache
+	options, errOptions := s.prepareNucleiOptions(templatePaths)
 	if errOptions != nil {
 		s.logger.Errorf("Could not prepare Nuclei options: %v", errOptions)
 		return &Result{nil, fmt.Sprintf("Could not prepare options: %v", errOptions), false}
 	}
 
-	// Create Nuclei thread-safe engine
-	engine, errEngine := nucleilib.NewThreadSafeNucleiEngineCtx(s.contextInner, options...)
+	// Create the private engine for this Scanner
+	engine, errEngine := nucleilib.NewNucleiEngineCtx(s.contextInner, options...)
 	if errEngine != nil {
 		s.logger.Errorf("Could not create Nuclei engine for %s: %s", s.target, errEngine)
 		return &Result{nil, fmt.Sprintf("Could not create engine: %v", errEngine), true}
 	}
-
-	// Ensure the engine instance is closed after the scan
 	defer engine.Close()
 
-	// Append findings via GlobalResultCallback
-	engine.GlobalResultCallback(func(ev *nulcleioutput.ResultEvent) {
-		if ev.MatcherStatus {
+	// Load only the paths selected for this scan
+	errLoad := engine.LoadAllTemplates()
+	if errLoad != nil {
+		s.logger.Errorf("Could not load Nuclei templates: %s", errLoad)
+		return &Result{nil, fmt.Sprintf("Could not load templates: %v", errLoad), true}
+	}
+	engine.LoadTargets([]string{target}, false)
+
+	// Collect findings through this engine's local callback
+	resultCallback := func(event *nulcleioutput.ResultEvent) {
+
+		// Retain successful matcher events in this scan's result
+		if event.MatcherStatus {
 			findingsMutex.Lock()
-			results.Findings = append(results.Findings, ev)
+			results.Findings = append(results.Findings, event)
 			findingsMutex.Unlock()
 		}
-	})
+	}
 
-	// Execute Nuclei scan
+	// Execute the selected templates on this scan's private engine
 	s.logger.Debugf("Executing Nuclei scan of '%s'", target)
-	errExec := engine.ExecuteNucleiWithOptsCtx(s.contextInner, []string{target}, options...)
+	errExec := engine.ExecuteCallbackWithCtx(s.contextInner, resultCallback)
 	if errExec != nil {
 		if errors.Is(errExec, context.DeadlineExceeded) {
 			s.logger.Debugf("Stopped scan of '%s' due to timeout", target)
@@ -550,7 +583,7 @@ func (s *Scanner) execute() *Result {
 	}
 
 	// Return pointer to result struct
-	s.logger.Debugf("Returning scan result")
+	s.logger.Debugf("Returning scan result.")
 	return &Result{
 		results,
 		utils.StatusCompleted,
@@ -558,20 +591,13 @@ func (s *Scanner) execute() *Result {
 	}
 }
 
-// prepareNucleiOptions builds and merges all Nuclei options cleanly.
+// prepareNucleiOptions builds the complete options for one private engine
 //
-// NOTE:
-// We are currently forced to manually construct and configure the Nuclei engine options
-// instead of using the higher-level `With*` helper functions (e.g., `WithTemplateFilters`,
-// `WithVars`, `WithTemplatesOrWorkflows`, etc.). The reason is that currently Nuclei in thread safe mode
-// provides no way to customize critical execution parameters such as
-// `Timeout`, `Retries` or `MaxHostError`, while the provided helper `WithOptions` sets all options at once
-// and overrides the already set ones.
-//
-// By setting all values directly on a single `base` options instance here, we ensure that
-// both the template/filter configuration and low-level runtime settings are preserved
-// consistently when passed through `WithOptions(base)`.
-func (s *Scanner) prepareNucleiOptions() ([]nucleilib.NucleiSDKOptions, error) {
+// Nuclei SDK helpers mutate one options instance while WithOptions replaces that instance completely
+// Building one base value keeps runtime limits, filters, selected paths, credentials and parser configuration together
+// The parsed cache is shared because Nuclei provides it for reuse across engines
+// Compiled executors remain private because Nuclei rebinds their request options to the active engine
+func (s *Scanner) prepareNucleiOptions(templatePaths []string) ([]nucleilib.NucleiSDKOptions, error) {
 
 	// Prepare options variable
 	var opts = []nucleilib.NucleiSDKOptions{
@@ -600,14 +626,17 @@ func (s *Scanner) prepareNucleiOptions() ([]nucleilib.NucleiSDKOptions, error) {
 
 	// Restrict helper-file loading to the dynamically discovered allowlist
 	base.AllowLocalFileAccess = false
-	base.LoadHelperFileFunction = makeHelperFileLoader(filepath.Clean(s.pathTemplates), s.helperFileAllowlist)
+	base.LoadHelperFileFunction = makeHelperFileLoader(s.pathTemplates, s.catalog.helperAllowlist)
 
 	// Disable Template Updates
 	base.PublicTemplateDisableDownload = true
 	base.UpdateTemplates = false
 
 	// Template source
-	base.Templates = []string{s.pathTemplates}
+	base.Templates = templatePaths
+
+	// Share parsed metadata while retaining private compiled executors for each engine
+	base.Parser = s.catalog.newExecutionParser()
 
 	// Repoint config dir to custom templates location
 	cfg := nucleiconfig.DefaultConfig
@@ -616,20 +645,20 @@ func (s *Scanner) prepareNucleiOptions() ([]nucleilib.NucleiSDKOptions, error) {
 	// Template filters
 	// Perform necessary transformations
 	sev := nucleiseverity.Severities{}
-	if err := sev.Set(s.includeSeverities); err != nil {
-		return opts, err
+	if errSet := sev.Set(s.includeSeverities); errSet != nil {
+		return opts, errSet
 	}
 	es := nucleiseverity.Severities{}
-	if err := es.Set(s.excludeSeverities); err != nil {
-		return opts, err
+	if errSet := es.Set(s.excludeSeverities); errSet != nil {
+		return opts, errSet
 	}
 	pt := nucleitemplatetypes.ProtocolTypes{}
-	if err := pt.Set(s.includeProtocols); err != nil {
-		return opts, err
+	if errSet := pt.Set(s.includeProtocols); errSet != nil {
+		return opts, errSet
 	}
 	ept := nucleitemplatetypes.ProtocolTypes{}
-	if err := ept.Set(s.excludeProtocols); err != nil {
-		return opts, err
+	if errSet := ept.Set(s.excludeProtocols); errSet != nil {
+		return opts, errSet
 	}
 
 	// Apply custom template filters
@@ -644,11 +673,11 @@ func (s *Scanner) prepareNucleiOptions() ([]nucleilib.NucleiSDKOptions, error) {
 
 	// Prepare Custom variables
 	runtimeVars := nucleigoflags.RuntimeMap{}
-	if err := runtimeVars.Set(fmt.Sprintf("username=%s", s.username)); err != nil {
-		return nil, fmt.Errorf("could not set username var: %w", err)
+	if errSet := runtimeVars.Set(fmt.Sprintf("username=%s", s.username)); errSet != nil {
+		return nil, fmt.Errorf("could not set username var: %w", errSet)
 	}
-	if err := runtimeVars.Set(fmt.Sprintf("password=%s", s.password)); err != nil {
-		return nil, fmt.Errorf("could not set password var: %w", err)
+	if errSet := runtimeVars.Set(fmt.Sprintf("password=%s", s.password)); errSet != nil {
+		return nil, fmt.Errorf("could not set password var: %w", errSet)
 	}
 
 	// Set Custom variables
@@ -659,151 +688,6 @@ func (s *Scanner) prepareNucleiOptions() ([]nucleilib.NucleiSDKOptions, error) {
 
 	// Return options
 	return opts, nil
-}
-
-// moveDirSafe copies a file or directory recursively and deletes the source afterward.
-// This replaces os.Rename to ensure compatibility across all operating systems (Windows, macOS, Linux).
-func moveDirSafe(src, dst string) error {
-
-	// Stat the source path
-	info, errInfo := os.Stat(src)
-	if errInfo != nil {
-		return errInfo
-	}
-
-	// If source is a directory, copy recursively
-	if info.IsDir() {
-
-		// Create destination directory
-		errMkdir := os.MkdirAll(dst, info.Mode())
-		if errMkdir != nil {
-			return errMkdir
-		}
-
-		// Read entries in the source directory
-		entries, errEntries := os.ReadDir(src)
-		if errEntries != nil {
-			return errEntries
-		}
-
-		// Move each entry
-		for _, entry := range entries {
-			errMove := moveDirSafe(filepath.Join(src, entry.Name()), filepath.Join(dst, entry.Name()))
-			if errMove != nil {
-				return errMove
-			}
-		}
-
-		// Remove the source directory after moving contents
-		return os.RemoveAll(src)
-	}
-
-	// Copy file
-	in, errIn := os.Open(src)
-	if errIn != nil {
-		return errIn
-	}
-
-	out, errOut := os.Create(dst)
-	if errOut != nil {
-		return errOut
-	}
-
-	// Close file at the end
-	defer func() { _ = out.Close() }()
-
-	// Copy the file contents
-	_, errCopy := io.Copy(out, in)
-	if errCopy != nil {
-		return errCopy
-	}
-
-	// Close input file
-	_ = in.Close()
-
-	// Ensure the file is flushed
-	if errClose := out.Close(); errClose != nil {
-		return errClose
-	}
-
-	// Remove the original file
-	return os.Remove(src)
-}
-
-// sanitizeTemplateIds ensures that all port-split template variants (<id>_<port>)
-// are included/excluded if their base template ID is present in includeIds or excludeIds.
-// If the lists are empty, this function returns immediately without doing any work.
-func sanitizeTemplateIds(pathTemplates string, includeIds, excludeIds []string) ([]string, []string, error) {
-
-	// If no include or exclude IDs provided, nothing to do
-	if len(includeIds) == 0 && len(excludeIds) == 0 {
-		return includeIds, excludeIds, nil
-	}
-
-	// Create quick lookup map for includeIds
-	includeSet := make(map[string]struct{}, len(includeIds))
-	for _, id := range includeIds {
-		includeSet[id] = struct{}{}
-	}
-
-	// Create quick lookup map for excludeIds
-	excludeSet := make(map[string]struct{}, len(excludeIds))
-	for _, id := range excludeIds {
-		excludeSet[id] = struct{}{}
-	}
-
-	// Helper to append only unique IDs
-	addUnique := func(list []string, id string) []string {
-		for _, existing := range list {
-			if existing == id {
-				return list
-			}
-		}
-		return append(list, id)
-	}
-
-	// Walk through templates folder and look for split variants
-	err := filepath.Walk(pathTemplates, func(path string, info os.FileInfo, err error) error {
-
-		// Check if err holds an error now
-		if err != nil {
-			return err
-		}
-
-		// Skip directories and non-YAML files
-		if info.IsDir() || (!strings.HasSuffix(info.Name(), ".yaml") && !strings.HasSuffix(info.Name(), ".yml")) {
-			return nil
-		}
-
-		// Extract base ID from file name (remove .yaml)
-		filename := strings.TrimSuffix(info.Name(), filepath.Ext(info.Name()))
-
-		// Find last underscore, e.g. ssl-heartbleed_443 -> baseID=ssl-heartbleed
-		parts := strings.Split(filename, "_")
-		if len(parts) < 2 {
-			return nil // not a split template
-		}
-		baseId := strings.Join(parts[:len(parts)-1], "_")
-
-		// If baseID is in include or exclude list, add this variant too
-		if _, ok := includeSet[baseId]; ok {
-			includeIds = addUnique(includeIds, filename)
-		}
-		if _, ok := excludeSet[baseId]; ok {
-			excludeIds = addUnique(excludeIds, filename)
-		}
-
-		// Return nil as everything went fine
-		return nil
-	})
-
-	// Return error
-	if err != nil {
-		return includeIds, excludeIds, err
-	}
-
-	// Return the modified slices
-	return includeIds, excludeIds, nil
 }
 
 // filterIntersection returns the intersection of two CSV lists (deduplicated).
@@ -919,9 +803,9 @@ func mergeCsv(existing, enforced string) string {
 func fetchLatestReleaseTag(client *http.Client, apiUrl string) (string, error) {
 
 	// Fetch the latest release metadata from the GitHub API
-	resp, errGet := client.Get(apiUrl)
-	if errGet != nil {
-		return "", fmt.Errorf("could not fetch latest Nuclei templates release: %w", errGet)
+	resp, errResp := client.Get(apiUrl)
+	if errResp != nil {
+		return "", fmt.Errorf("could not fetch latest Nuclei templates release: %w", errResp)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -970,7 +854,7 @@ func makeHelperFileLoader(root string, allowlist map[string]struct{}) nucleitype
 			return nil, fmt.Errorf("helper file %q escapes templates directory", helperFile)
 		}
 
-		// Compute the normalised relative path for allowlist lookup
+		// Compute the normalized relative path for allowlist lookup
 		rel := filepath.ToSlash(resolved[len(rootPrefix):])
 
 		// (a) Reject paths not present in the allowlist
@@ -979,106 +863,23 @@ func makeHelperFileLoader(root string, allowlist map[string]struct{}) nucleitype
 		}
 
 		// (c) Evaluate symlinks and re-check containment
-		realPath, errEval := filepath.EvalSymlinks(resolved)
-		if errEval != nil {
-			return nil, fmt.Errorf("could not resolve helper file path: %w", errEval)
+		realPath, errRealPath := filepath.EvalSymlinks(resolved)
+		if errRealPath != nil {
+			return nil, fmt.Errorf("could not resolve helper file path: %w", errRealPath)
 		}
 		if !strings.HasPrefix(filepath.Clean(realPath), rootPrefix) {
 			return nil, fmt.Errorf("helper file %q symlink resolves outside templates directory", helperFile)
 		}
 
 		// Open and return the file
-		f, errFile := os.Open(resolved)
-		if errFile != nil {
-			return nil, fmt.Errorf("could not open helper file: %w", errFile)
+		f, errF := os.Open(resolved)
+		if errF != nil {
+			return nil, fmt.Errorf("could not open helper file: %w", errF)
 		}
 
 		// Return nil as everything went fine
 		return f, nil
 	}
-}
-
-// unzip extracts a ZIP file to the destination directory with security checks to prevent zip slip attacks.
-func unzip(zipPath, destDir string) error {
-
-	// Define helper function to extract a single file from the ZIP archive
-	extractZipFile := func(filePath string, file *zip.File) error {
-
-		// Open the file inside the ZIP for reading
-		srcFile, errOpenSrc := file.Open()
-		if errOpenSrc != nil {
-			return fmt.Errorf("could not open file in zip: %w", errOpenSrc)
-		}
-		// Make sure source file gets closed
-		defer func() { _ = srcFile.Close() }()
-
-		// Create the destination file for writing
-		dstFile, errCreateDst := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, file.Mode())
-		if errCreateDst != nil {
-			return fmt.Errorf("could not create extraction target: %w", errCreateDst)
-		}
-		// Make sure destination file gets closed
-		defer func() { _ = dstFile.Close() }()
-
-		// Copy the file contents from ZIP to destination
-		_, errCopy := io.Copy(dstFile, srcFile)
-		if errCopy != nil {
-			return fmt.Errorf("could not extract file: %w", errCopy)
-		}
-
-		// Return nil as file extraction completed successfully
-		return nil
-	}
-
-	// Open the ZIP file for reading
-	zipReader, errOpen := zip.OpenReader(zipPath)
-	if errOpen != nil {
-		return fmt.Errorf("could not open zip file: %w", errOpen)
-	}
-	// Make sure Reader gets closed
-	defer func() { _ = zipReader.Close() }()
-
-	// Iterate through all files in the ZIP archive
-	for _, file := range zipReader.File {
-
-		// Construct the full file path for extraction
-		filePath := filepath.Join(destDir, file.Name)
-
-		// Prevent zip slip vulnerability by validating the file path stays within destDir
-		cleanFilePath := filepath.Clean(filePath)
-		cleanDestDir := filepath.Clean(destDir) + string(os.PathSeparator)
-		if !strings.HasPrefix(cleanFilePath, cleanDestDir) {
-			return fmt.Errorf("illegal file path in zip: %s", file.Name)
-		}
-
-		// Handle directory entries by creating them
-		if file.FileInfo().IsDir() {
-
-			// Create the directory with appropriate permissions
-			errMkdir := os.MkdirAll(filePath, file.Mode())
-			if errMkdir != nil {
-				return fmt.Errorf("could not create directory: %w", errMkdir)
-			}
-
-			// Continue to the next entry
-			continue
-		}
-
-		// Create parent directories if they don't exist
-		errParentDir := os.MkdirAll(filepath.Dir(filePath), 0700)
-		if errParentDir != nil {
-			return fmt.Errorf("could not create parent directory: %w", errParentDir)
-		}
-
-		// Extract the file from the archive
-		errExtractFile := extractZipFile(filePath, file)
-		if errExtractFile != nil {
-			return errExtractFile
-		}
-	}
-
-	// Return nil as everything went fine
-	return nil
 }
 
 // targetAddr returns "host:port" if a port is set, otherwise just "host".

@@ -14,8 +14,11 @@ package banner
 import (
 	"bytes"
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"io"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,13 +26,13 @@ import (
 	"github.com/ziutek/telnet"
 )
 
-const Label = "Banner"
-const receiveSize = 2048
-const tagPlain = "Plain"
-const tagSsl = "Ssl"
-const tagTelnet = "Telnet"
-const tagHttp = "Http"
-const tagHttps = "Https"
+const Label = "Banner"                                   // Scan-module label
+const receiveSize = 2048                                 // Maximum bytes read from a banner response
+const tagPlain = "Plain"                                 // Plain TCP result tag
+const tagSsl = "Ssl"                                     // TLS result tag
+const tagTelnet = "Telnet"                               // Telnet result tag
+const tagHttp = "Http"                                   // HTTP result tag
+const tagHttps = "Https"                                 // HTTPS result tag
 const triggerWindows = "\r\n"                            // Line feed to use. However, Linux systems often don't like it and don't respond to it
 const triggerLinux = "\n"                                // Line feed that makes Linux systems happy to respond
 const triggerHttp = "GET / HTTP/1.1\r\nHost: %s\r\n\r\n" // GET request that makes HTTP servers to respond. They usually don't care about the used line feed, independent of the underlying OS
@@ -45,6 +48,7 @@ func CheckSetup() error {
 	return nil
 }
 
+// ResultData holds the raw banner bytes captured from each protocol probe.
 type ResultData struct {
 	Plain  []byte
 	Ssl    []byte
@@ -53,6 +57,7 @@ type ResultData struct {
 	Https  []byte
 }
 
+// Result wraps ResultData with a scan status and an exception flag for the caller to inspect.
 type Result struct {
 	Data      *ResultData // Bytes array, to be converted by consumer as required
 	Status    string      // Final scan status (success or graceful error). Should be stored along with the scan results.
@@ -61,6 +66,7 @@ type Result struct {
 	// this flag! This flag may additionally come along with a message put into the status attribute.
 }
 
+// Scanner holds the target configuration and timeouts for a single banner grabbing session.
 type Scanner struct {
 	Label          string
 	Started        time.Time
@@ -73,6 +79,7 @@ type Scanner struct {
 	receiveTimeout time.Duration
 }
 
+// NewScanner validates and initialises a Scanner for the given target, port, and protocol.
 func NewScanner(
 	logger utils.Logger, // Can be any logger implementing our minimalistic interface. Wrap your logger to satisfy the interface, if necessary (like utils.LoggerTest).
 	target string,
@@ -121,7 +128,7 @@ func (s *Scanner) Run() (res *Result) {
 		if r := recover(); r != nil {
 
 			// Log exception
-			s.logger.Errorf(fmt.Sprintf("Unexpected error: %s", r))
+			s.logger.Errorf("Unexpected error: %s", r)
 
 			// Build error status from error message and formatted stacktrace
 			errMsg := fmt.Sprintf("%s%s", r, utils.StacktraceIndented("\t"))
@@ -151,6 +158,7 @@ func (s *Scanner) Run() (res *Result) {
 	return res
 }
 
+// execute runs all protocol probes in order and returns the aggregated banner results.
 func (s *Scanner) execute() *Result {
 
 	// Declare temporary results variable collecting intermediate results
@@ -158,10 +166,10 @@ func (s *Scanner) execute() *Result {
 
 	// Try plain socket trigger for Windows
 	s.logger.Debugf("Sending plain socket trigger (Windows).")
-	respPlainWin, errPlainWin := sendPlain(s.target, s.port, s.protocol, triggerWindows, s.dialTimeout, s.receiveTimeout)
+	respPlainWin, errRespPlainWin := sendPlain(s.target, s.port, s.protocol, triggerWindows, s.dialTimeout, s.receiveTimeout)
 
-	// Check first error response for connection timeout. Don't proceed if host/port ist not reachable at all
-	if socketErrorType(errPlainWin) == "dial" {
+	// Check first error response for connection timeout. Don't proceed if host/port is not reachable at all
+	if socketErrorType(errRespPlainWin) == "dial" {
 		s.logger.Debugf("Endpoint not reachable, aborting scan.")
 		return &Result{
 			&ResultData{},
@@ -171,13 +179,13 @@ func (s *Scanner) execute() *Result {
 	}
 
 	// Store result if not empty
-	s.updateResultMap(tmpResults, tagPlain, respPlainWin, errPlainWin)
+	s.updateResultMap(tmpResults, tagPlain, respPlainWin, errRespPlainWin)
 
 	// Try Linux line feed if Windows line feed did not work (wrong line feed might cause read timeout)
 	if _, ok := tmpResults[tagPlain]; !ok {
 		s.logger.Debugf("Sending plain socket trigger (Linux).")
-		respPlainLin, errPlainLin := sendPlain(s.target, s.port, s.protocol, triggerLinux, s.dialTimeout, s.receiveTimeout)
-		s.updateResultMap(tmpResults, tagPlain, respPlainLin, errPlainLin) // Store result if not empty
+		respPlainLin, errRespPlainLin := sendPlain(s.target, s.port, s.protocol, triggerLinux, s.dialTimeout, s.receiveTimeout)
+		s.updateResultMap(tmpResults, tagPlain, respPlainLin, errRespPlainLin) // Store result if not empty
 	}
 
 	// Continue with triggers only working on TCP
@@ -185,42 +193,42 @@ func (s *Scanner) execute() *Result {
 
 		// Try SSL socket trigger for Windows
 		s.logger.Debugf("Sending SSL socket trigger (Windows).")
-		respSslWin, errSslWin := sendSsl(s.target, s.port, triggerWindows, s.dialTimeout, s.receiveTimeout)
-		s.updateResultMap(tmpResults, tagSsl, respSslWin, errSslWin) // Store result if not empty
+		respSslWin, errRespSslWin := sendSsl(s.target, s.port, triggerWindows, s.dialTimeout, s.receiveTimeout)
+		s.updateResultMap(tmpResults, tagSsl, respSslWin, errRespSslWin) // Store result if not empty
 
 		// Try Linux line feed if Windows line feed did not work (wrong line feed might cause read timeout)
 		if _, ok := tmpResults[tagSsl]; !ok {
 			// Try SSL socket trigger for Linux
 			s.logger.Debugf("Sending SSL socket trigger (Linux).")
-			respSslLin, errSslLin := sendSsl(s.target, s.port, triggerLinux, s.dialTimeout, s.receiveTimeout)
-			s.updateResultMap(tmpResults, tagSsl, respSslLin, errSslLin) // Store result if not empty
+			respSslLin, errRespSslLin := sendSsl(s.target, s.port, triggerLinux, s.dialTimeout, s.receiveTimeout)
+			s.updateResultMap(tmpResults, tagSsl, respSslLin, errRespSslLin) // Store result if not empty
 		}
 
 		// Try telnet trigger for Windows
 		s.logger.Debugf("Sending telnet trigger (Windows).")
-		respTelnetWin, errTelWin := sendTelnet(s.target, s.port, true, s.dialTimeout, s.receiveTimeout)
-		s.updateResultMap(tmpResults, tagTelnet, respTelnetWin, errTelWin) // Store result if not empty
+		respTelnetWin, errRespTelnetWin := sendTelnet(s.target, s.port, true, s.dialTimeout, s.receiveTimeout)
+		s.updateResultMap(tmpResults, tagTelnet, respTelnetWin, errRespTelnetWin) // Store result if not empty
 
 		// Try Linux line feed if Windows line feed did not work (wrong line feed might cause read timeout)
 		if _, ok := tmpResults[tagTelnet]; !ok {
 			// Try telnet trigger for Linux
 			s.logger.Debugf("Sending telnet trigger (Linux).")
-			respTelnetLin, errTelLin := sendTelnet(s.target, s.port, false, s.dialTimeout, s.receiveTimeout)
-			s.updateResultMap(tmpResults, tagTelnet, respTelnetLin, errTelLin) // Store result if not empty
+			respTelnetLin, errRespTelnetLin := sendTelnet(s.target, s.port, false, s.dialTimeout, s.receiveTimeout)
+			s.updateResultMap(tmpResults, tagTelnet, respTelnetLin, errRespTelnetLin) // Store result if not empty
 		}
 
 		// Prepare HTTP request
-		req := fmt.Sprintf(triggerHttp, s.target)
+		req := fmt.Sprintf(triggerHttp, net.JoinHostPort(s.target, strconv.Itoa(s.port)))
 
 		// Try HTTP trigger
 		s.logger.Debugf("Sending HTTP trigger.")
-		respHttp, errHttp := sendPlain(s.target, s.port, "tcp", req, s.dialTimeout, s.receiveTimeout)
-		s.updateResultMap(tmpResults, tagHttp, respHttp, errHttp) // Store result if not empty
+		respHttp, errRespHttp := sendPlain(s.target, s.port, "tcp", req, s.dialTimeout, s.receiveTimeout)
+		s.updateResultMap(tmpResults, tagHttp, respHttp, errRespHttp) // Store result if not empty
 
 		// Try HTTPs trigger
 		s.logger.Debugf("Sending HTTPS trigger.")
-		respHttps, errHttps := sendSsl(s.target, s.port, req, s.dialTimeout, s.receiveTimeout)
-		s.updateResultMap(tmpResults, tagHttps, respHttps, errHttps) // Store result if not empty
+		respHttps, errRespHttps := sendSsl(s.target, s.port, req, s.dialTimeout, s.receiveTimeout)
+		s.updateResultMap(tmpResults, tagHttps, respHttps, errRespHttps) // Store result if not empty
 	}
 
 	// Prepare results data
@@ -233,7 +241,7 @@ func (s *Scanner) execute() *Result {
 	}
 
 	// Return pointer to result struct
-	s.logger.Debugf("Returning scan result")
+	s.logger.Debugf("Returning scan result.")
 	return &Result{
 		results,
 		utils.StatusCompleted,
@@ -241,6 +249,7 @@ func (s *Scanner) execute() *Result {
 	}
 }
 
+// updateResultMap trims the response and stores it in res under triggerName, logging and skipping empty or errored responses.
 func (s *Scanner) updateResultMap(res map[string][]byte, triggerName string, response []byte, err error) {
 
 	// Get rid of whitespaces
@@ -256,6 +265,7 @@ func (s *Scanner) updateResultMap(res map[string][]byte, triggerName string, res
 	}
 }
 
+// sendPlain opens a raw TCP or UDP connection, writes trigger, and returns the first response bytes.
 func sendPlain(
 	address string,
 	port int,
@@ -266,11 +276,11 @@ func sendPlain(
 ) ([]byte, error) {
 
 	// Establish TCP/UDP connection
-	conn, errCon := net.DialTimeout(protocol, fmt.Sprintf("%s:%d", address, port), dialTimeout)
+	conn, errConn := net.DialTimeout(protocol, net.JoinHostPort(address, strconv.Itoa(port)), dialTimeout)
 
 	// Return error if TCP/UDP connection failed
-	if errCon != nil {
-		return []byte{}, errCon
+	if errConn != nil {
+		return []byte{}, errConn
 	}
 
 	// Make sure connection gets closed on exit
@@ -291,7 +301,7 @@ func sendPlain(
 	// Receive response
 	responseBuffer := make([]byte, receiveSize)
 	_, errRead := conn.Read(responseBuffer)
-	if errRead != nil && errRead.Error() != "EOF" {
+	if errRead != nil && !errors.Is(errRead, io.EOF) {
 		return []byte{}, errRead
 	}
 
@@ -305,17 +315,18 @@ func sendPlain(
 	return responseBuffer, nil
 }
 
+// sendSsl opens a TLS connection with certificate verification disabled, writes trigger, and returns the first response bytes.
 func sendSsl(address string, port int, trigger string, dialTimeout, receiveTimeout time.Duration) ([]byte, error) {
 
 	// Connect to address
-	conn, errDial := tls.DialWithDialer(
+	conn, errConn := tls.DialWithDialer(
 		&net.Dialer{Timeout: dialTimeout},
 		"tcp",
-		fmt.Sprintf("%s:%d", address, port),
+		net.JoinHostPort(address, strconv.Itoa(port)),
 		utils.InsecureTlsConfigFactory(),
 	)
-	if errDial != nil {
-		return []byte{}, errDial
+	if errConn != nil {
+		return []byte{}, errConn
 	}
 
 	// Make sure connection gets closed on exit
@@ -336,7 +347,7 @@ func sendSsl(address string, port int, trigger string, dialTimeout, receiveTimeo
 	// Receive response
 	responseBuffer := make([]byte, receiveSize)
 	_, errRead := conn.Read(responseBuffer)
-	if errRead != nil && errRead.Error() != "EOF" {
+	if errRead != nil && !errors.Is(errRead, io.EOF) {
 		return []byte{}, errRead
 	}
 
@@ -350,12 +361,13 @@ func sendSsl(address string, port int, trigger string, dialTimeout, receiveTimeo
 	return responseBuffer, nil
 }
 
+// sendTelnet opens a Telnet connection, writes a newline trigger, and returns the first response bytes.
 func sendTelnet(address string, port int, isWindows bool, dialTimeout, receiveTimeout time.Duration) ([]byte, error) {
 
 	// Connect to address
-	conn, errDial := telnet.DialTimeout("tcp", fmt.Sprintf("%s:%d", address, port), dialTimeout)
-	if errDial != nil {
-		return []byte{}, errDial
+	conn, errConn := telnet.DialTimeout("tcp", net.JoinHostPort(address, strconv.Itoa(port)), dialTimeout)
+	if errConn != nil {
+		return []byte{}, errConn
 	}
 
 	// Make sure connection gets closed on exit
@@ -381,7 +393,7 @@ func sendTelnet(address string, port int, isWindows bool, dialTimeout, receiveTi
 	// Receive response
 	responseBuffer := make([]byte, receiveSize)
 	_, errRead := conn.Read(responseBuffer)
-	if errRead != nil && errRead.Error() != "EOF" {
+	if errRead != nil && !errors.Is(errRead, io.EOF) {
 		return []byte{}, errRead
 	}
 
@@ -395,12 +407,13 @@ func sendTelnet(address string, port int, isWindows bool, dialTimeout, receiveTi
 	return responseBuffer, nil
 }
 
-// Digging deep to find out which kind of socket error happened. Because Golang is too stupid to give you an error code
+// socketErrorType Digging deep to find out which kind of socket error happened. Because Golang is too stupid to give you an error code
 // or a certain error type. Just an error string, which might be different on different OS/languages.
 // Returns empty string if error is not a socket issue
 func socketErrorType(err error) string {
-	switch t := err.(type) {
-	case *net.OpError:
+	var t *net.OpError
+	switch {
+	case errors.As(err, &t):
 		return t.Op // Might be "dial", "read", "write",...
 	}
 	return "" // Empty if not a socket error

@@ -36,8 +36,8 @@ func TestIsValidFolder(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := IsValidFolder(tt.path); (err != nil) != tt.wantErr {
-				t.Errorf("IsValidFolder() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			if errIsValidFolder := IsValidFolder(tt.path); (errIsValidFolder != nil) != tt.wantErr {
+				t.Errorf("IsValidFolder() error = '%v', wantErr = '%v'", errIsValidFolder, tt.wantErr)
 			}
 		})
 	}
@@ -75,8 +75,8 @@ func TestIsValidFile(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := IsValidFile(tt.path); (err != nil) != tt.wantErr {
-				t.Errorf("IsValidFile() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			if errIsValidFile := IsValidFile(tt.path); (errIsValidFile != nil) != tt.wantErr {
+				t.Errorf("IsValidFile() error = '%v', wantErr = '%v'", errIsValidFile, tt.wantErr)
 			}
 		})
 	}
@@ -125,8 +125,8 @@ func TestIsValidExecutable(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := IsValidExecutable(tt.path, tt.args...); (err != nil) != tt.wantErr {
-				t.Errorf("IsValidExecutable() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			if errIsValidExecutable := IsValidExecutable(tt.path, tt.args...); (errIsValidExecutable != nil) != tt.wantErr {
+				t.Errorf("IsValidExecutable() error = '%v', wantErr = '%v'", errIsValidExecutable, tt.wantErr)
 			}
 		})
 	}

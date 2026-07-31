@@ -12,11 +12,112 @@ package discovery
 
 import (
 	"path/filepath"
+	"runtime"
 	"testing"
 
+	"github.com/noneymous/go-redistributable-checker"
 	"github.com/siemens/GoScans/_test"
 	"golang.org/x/sys/windows/registry"
 )
+
+// TestGetNmapRedistributableVersion_V14Binary_ReturnsVersion verifies the bundled Nmap runtime.
+func TestGetNmapRedistributableVersion_V14Binary_ReturnsVersion(t *testing.T) {
+
+	// Locate and inspect the stable Nmap fixture
+	nmapPath := test_redistributablePath(t, "..", "_test", "tools", "nmap-7.92", "nmap.exe")
+	version, errVersion := getNmapRedistributableVersion(nmapPath)
+	if errVersion != nil {
+		t.Fatalf("getNmapRedistributableVersion() error = '%v', want = '<nil>'", errVersion)
+	}
+
+	// Verify its runtime family
+	if version != redistributable.VersionV14 {
+		t.Errorf(
+			"getNmapRedistributableVersion() version = '%v', want = '%v'",
+			version,
+			redistributable.VersionV14,
+		)
+	}
+}
+
+// TestGetNmapRedistributableVersion_InvalidExecutable_ReturnsError verifies invalid PE diagnostics.
+func TestGetNmapRedistributableVersion_InvalidExecutable_ReturnsError(t *testing.T) {
+
+	// Prepare and run stable invalid paths
+	tests := []struct {
+		name     string
+		nmapPath string
+	}{
+		{
+			name:     "missing-executable",
+			nmapPath: test_redistributablePath(t, "notexisting.exe"),
+		},
+		{
+			name:     "invalid-pe",
+			nmapPath: test_redistributablePath(t, "TEST-PLAN.md"),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, errVersion := getNmapRedistributableVersion(test.nmapPath)
+			if errVersion == nil {
+				t.Errorf("getNmapRedistributableVersion() error = '%v', want non-nil", errVersion)
+			}
+		})
+	}
+}
+
+// TestFindNmapRedistributableVersion_Imports_ReturnsExactVersion verifies runtime import mapping.
+func TestFindNmapRedistributableVersion_Imports_ReturnsExactVersion(t *testing.T) {
+
+	// Prepare and run supported imports
+	tests := []struct {
+		name        string
+		imports     []string
+		wantVersion redistributable.Version
+	}{
+		{
+			name:        "visual-cpp-2013",
+			imports:     []string{"malloc:MSVCR120.dll"},
+			wantVersion: redistributable.Version2013,
+		},
+		{
+			name:        "visual-cpp-v14",
+			imports:     []string{"memcpy:VCRUNTIME140.dll"},
+			wantVersion: redistributable.VersionV14,
+		},
+		{
+			name:    "static-runtime",
+			imports: []string{"CloseHandle:KERNEL32.dll"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			version := findNmapRedistributableVersion(test.imports)
+			if version != test.wantVersion {
+				t.Errorf(
+					"findNmapRedistributableVersion() version = '%v', want = '%v'",
+					version,
+					test.wantVersion,
+				)
+			}
+		})
+	}
+}
+
+// test_redistributablePath returns a stable path relative to the discovery package
+func test_redistributablePath(t *testing.T, elements ...string) string {
+	t.Helper()
+
+	// Resolve the test file location independently from the process working directory
+	_, testFile, _, okCaller := runtime.Caller(0)
+	if !okCaller {
+		t.Fatal("runtime.Caller() ok = 'false', want = 'true'")
+	}
+
+	// Return the requested path
+	return filepath.Join(append([]string{filepath.Dir(testFile)}, elements...)...)
+}
 
 // TestCheckWinpcap verifies that CheckWinpcap returns an error when WinPcap is not installed.
 func TestCheckWinpcap(t *testing.T) {
@@ -30,8 +131,8 @@ func TestCheckWinpcap(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := CheckWinpcap(); (err != nil) != tt.wantErr {
-				t.Errorf("CheckWinpcap() error = '%v', wantErr = '%v'", err, tt.wantErr) // throws error if winpcap is not installed.
+			if errCheckWinpcap := CheckWinpcap(); (errCheckWinpcap != nil) != tt.wantErr {
+				t.Errorf("CheckWinpcap() error = '%v', wantErr = '%v'", errCheckWinpcap, tt.wantErr) // throws error if winpcap is not installed.
 			}
 		})
 	}
@@ -49,8 +150,8 @@ func TestCheckNpcap(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := CheckNpcap(); (err != nil) != tt.wantErr {
-				t.Errorf("CheckNpcap() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			if errCheckNpcap := CheckNpcap(); (errCheckNpcap != nil) != tt.wantErr {
+				t.Errorf("CheckNpcap() error = '%v', wantErr = '%v'", errCheckNpcap, tt.wantErr)
 			}
 		})
 	}
@@ -88,8 +189,8 @@ func TestImportRegistryFile(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := ImportRegistryFile(tt.filePath); (err != nil) != tt.wantErr {
-				t.Errorf("ImportRegistryFile() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			if errImportRegistryFile := ImportRegistryFile(tt.filePath); (errImportRegistryFile != nil) != tt.wantErr {
+				t.Errorf("ImportRegistryFile() error = '%v', wantErr = '%v'", errImportRegistryFile, tt.wantErr)
 			}
 		})
 	}
@@ -107,8 +208,8 @@ func TestCheckNmapPerformancePatch(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := CheckNmapPerformancePatch(); (err != nil) != tt.wantErr {
-				t.Errorf("CheckNmapPerformancePatch() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			if errCheckNmapPerformancePatch := CheckNmapPerformancePatch(); (errCheckNmapPerformancePatch != nil) != tt.wantErr {
+				t.Errorf("CheckNmapPerformancePatch() error = '%v', wantErr = '%v'", errCheckNmapPerformancePatch, tt.wantErr)
 			}
 		})
 	}
@@ -152,8 +253,8 @@ func TestCheckRegistryIntValue(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := CheckRegistryIntValue(tt.args.root, tt.args.path, tt.args.key, tt.args.value); (err != nil) != tt.wantErr {
-				t.Errorf("CheckRegistryIntValue() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			if errCheckRegistryIntValue := CheckRegistryIntValue(tt.args.root, tt.args.path, tt.args.key, tt.args.value); (errCheckRegistryIntValue != nil) != tt.wantErr {
+				t.Errorf("CheckRegistryIntValue() error = '%v', wantErr = '%v'", errCheckRegistryIntValue, tt.wantErr)
 			}
 		})
 	}
@@ -195,9 +296,9 @@ func TestGetRegistryStringValue(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			str, err := GetRegistryStringValue(tt.args.root, tt.args.path, tt.args.key)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("GetRegistryStringValue() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			str, errStr := GetRegistryStringValue(tt.args.root, tt.args.path, tt.args.key)
+			if (errStr != nil) != tt.wantErr {
+				t.Errorf("GetRegistryStringValue() error = '%v', wantErr = '%v'", errStr, tt.wantErr)
 			} else if str != tt.wantVal {
 				t.Errorf("GetRegistryStringValue() = '%v', want = '%v'", str, tt.wantVal)
 			}
@@ -225,8 +326,8 @@ func TestCheckNmapFirewall(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := CheckNmapFirewall(tt.args.appPath); (err != nil) != tt.wantErr {
-				t.Errorf("CheckNmapFirewall() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			if errCheckNmapFirewall := CheckNmapFirewall(tt.args.appPath); (errCheckNmapFirewall != nil) != tt.wantErr {
+				t.Errorf("CheckNmapFirewall() error = '%v', wantErr = '%v'", errCheckNmapFirewall, tt.wantErr)
 			}
 		})
 	}
@@ -256,8 +357,8 @@ func TestSetNmapFirewall(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := SetNmapFirewall(tt.nmapPath); (err != nil) != tt.wantErr {
-				t.Errorf("SetNmapFirewall() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			if errSetNmapFirewall := SetNmapFirewall(tt.nmapPath); (errSetNmapFirewall != nil) != tt.wantErr {
+				t.Errorf("SetNmapFirewall() error = '%v', wantErr = '%v'", errSetNmapFirewall, tt.wantErr)
 			}
 		})
 	}

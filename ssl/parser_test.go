@@ -195,29 +195,29 @@ func Test_parseEphemeralKeyInfo(t *testing.T) {
 	testLogger := utils.NewTestLogger()
 
 	pubBytesStr := "BGmPpYCH6H/+MJe8LPmizckyCjXtqeGT4vc7z1GcP+Ji9hdxRZ151Y57Hj5LbdcaWKr0D6cdnyzHgThaGJMA+Do="
-	pubBytes, errDecode := base64.StdEncoding.DecodeString(pubBytesStr)
-	if errDecode != nil {
-		t.Errorf("could not decode base 64 string '%s': '%s'", pubBytes, errDecode)
+	pubBytes, errPubBytes := base64.StdEncoding.DecodeString(pubBytesStr)
+	if errPubBytes != nil {
+		t.Errorf("could not decode base 64 string '%s': '%s'", pubBytes, errPubBytes)
 	}
 	xStr := "aY+lgIfof/4wl7ws+aLNyTIKNe2p4ZPi9zvPUZw/4mI="
-	x, errDecode := base64.StdEncoding.DecodeString(xStr)
-	if errDecode != nil {
-		t.Errorf("could not decode base 64 string '%s': '%s'", xStr, errDecode)
+	x, errX := base64.StdEncoding.DecodeString(xStr)
+	if errX != nil {
+		t.Errorf("could not decode base 64 string '%s': '%s'", xStr, errX)
 	}
 	yStr := "9hdxRZ151Y57Hj5LbdcaWKr0D6cdnyzHgThaGJMA+Do="
-	y, errDecode := base64.StdEncoding.DecodeString(yStr)
-	if errDecode != nil {
-		t.Errorf("could not decode base 64 string '%s': '%s'", yStr, errDecode)
+	y, errY := base64.StdEncoding.DecodeString(yStr)
+	if errY != nil {
+		t.Errorf("could not decode base 64 string '%s': '%s'", yStr, errY)
 	}
 	genStr := "rEAy708tmuOd8wtcj/2sUGzevnuJmYyvdIZqCM/k/+OmgkpOELmm8N2SHwGnDEr6q3OddwDCn1LFfbF8YgqGUr5ekAGo1mrXwXZpEBmZAkr00CcnWsE0i7inYtBSG8mK4kcVBCLqHtQJk51U2nRgzbX2xrJQcXy+8YDrNBGOmNEZUppF1vg0Vm4wJeMWozDvu3eobwwasVsFGuPUKMj4rLcKgTcVC47rEOGD7dGZY93Z4mPkdwWJ72qiHn9fL/OBtTnM40CdE81Wavu0jWwBkYHhvP6UswJp7f5y/ptqpL17Wg8ccc//TBnEGOH27AF5gbwIfypwZbOEuJDTGR8r+g=="
-	gen, errDecode := base64.StdEncoding.DecodeString(genStr)
-	if errDecode != nil {
-		t.Errorf("could not decode base 64 string '%s': '%s'", gen, errDecode)
+	gen, errGen := base64.StdEncoding.DecodeString(genStr)
+	if errGen != nil {
+		t.Errorf("could not decode base 64 string '%s': '%s'", gen, errGen)
 	}
 	primeStr := "rRB+HpEjqdDWYPqnlVnFH6INZOVoO5/RtUsVl7YdCnXm+hQd+VpW26+aPEB7od8V6z1oijCcGA4d5rhaEnSgpm0/gVKtasISkDfJ7e/aTfjZHo/vVbc5S3rVt9C2wSIHyfmNEe002/bGugssi7wnvmoA4KC5xJcIs7+KMXCRiDaBKGEwvImF2xYC5xRBXZMwJ4Jzx94x79xzEPcSH9WgdBWYfZrcCkhtzfk6zEQyg4cxXXXhmMZBpIDNhqG55YfovmDmnMkosrnFIXLkEwQumyPxCw4W55djybU9z0uoCinj+3PBa451uX7zY+L/ox9xz53lOE5xuBwKxN/+DBDmTw=="
-	prime, errDecode := base64.StdEncoding.DecodeString(primeStr)
-	if errDecode != nil {
-		t.Errorf("could not decode base 64 string '%s': '%s'", prime, errDecode)
+	prime, errPrime := base64.StdEncoding.DecodeString(primeStr)
+	if errPrime != nil {
+		t.Errorf("could not decode base 64 string '%s': '%s'", prime, errPrime)
 	}
 
 	base := gosslyze.BaseKeyInfo{
@@ -365,9 +365,9 @@ func TestGnfsComplexity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			strength, err := gnfsComplexity(tt.keySize)
-			if err != tt.wantErr {
-				t.Errorf("gnfsComplexity(%d) error = '%v', wantErr = '%v'", tt.keySize, err, tt.wantErr)
+			strength, errStrength := gnfsComplexity(tt.keySize)
+			if errStrength != tt.wantErr {
+				t.Errorf("gnfsComplexity(%d) error = '%v', wantErr = '%v'", tt.keySize, errStrength, tt.wantErr)
 				return
 			}
 
@@ -384,33 +384,69 @@ func TestGnfsComplexity(t *testing.T) {
 // Variable that will be set in the benchmark in order for compiler to not be able to eliminate the benchmark itself.
 var strength float64
 
+// benchmarkGnfsComplexity is a shared helper that runs the gnfsComplexity benchmark for a given key size.
 func benchmarkGnfsComplexity(keySize uint64, b *testing.B) {
 	var res float64
-	var errGnfs error
+	var errRes error
 	for n := 0; n < b.N; n++ {
-		res, errGnfs = gnfsComplexity(keySize)
-		if errGnfs != nil {
-			b.Errorf("gnfsComplexity(%d) error: %s", keySize, errGnfs)
+		res, errRes = gnfsComplexity(keySize)
+		if errRes != nil {
+			b.Errorf("gnfsComplexity(%d) error: %s", keySize, errRes)
 		}
 	}
 	strength = res
 }
 
-func BenchmarkGnfsComplexity512(b *testing.B)   { benchmarkGnfsComplexity(512, b) }
-func BenchmarkGnfsComplexity1024(b *testing.B)  { benchmarkGnfsComplexity(1024, b) }
-func BenchmarkGnfsComplexity2048(b *testing.B)  { benchmarkGnfsComplexity(2048, b) }
-func BenchmarkGnfsComplexity3072(b *testing.B)  { benchmarkGnfsComplexity(3072, b) }
-func BenchmarkGnfsComplexity4096(b *testing.B)  { benchmarkGnfsComplexity(4096, b) }
-func BenchmarkGnfsComplexity7680(b *testing.B)  { benchmarkGnfsComplexity(7680, b) }
-func BenchmarkGnfsComplexity8192(b *testing.B)  { benchmarkGnfsComplexity(8192, b) }
+// BenchmarkGnfsComplexity512 benchmarks gnfsComplexity with a 512-bit key.
+func BenchmarkGnfsComplexity512(b *testing.B) { benchmarkGnfsComplexity(512, b) }
+
+// BenchmarkGnfsComplexity1024 benchmarks gnfsComplexity with a 1024-bit key.
+func BenchmarkGnfsComplexity1024(b *testing.B) { benchmarkGnfsComplexity(1024, b) }
+
+// BenchmarkGnfsComplexity2048 benchmarks gnfsComplexity with a 2048-bit key.
+func BenchmarkGnfsComplexity2048(b *testing.B) { benchmarkGnfsComplexity(2048, b) }
+
+// BenchmarkGnfsComplexity3072 benchmarks gnfsComplexity with a 3072-bit key.
+func BenchmarkGnfsComplexity3072(b *testing.B) { benchmarkGnfsComplexity(3072, b) }
+
+// BenchmarkGnfsComplexity4096 benchmarks gnfsComplexity with a 4096-bit key.
+func BenchmarkGnfsComplexity4096(b *testing.B) { benchmarkGnfsComplexity(4096, b) }
+
+// BenchmarkGnfsComplexity7680 benchmarks gnfsComplexity with a 7680-bit key.
+func BenchmarkGnfsComplexity7680(b *testing.B) { benchmarkGnfsComplexity(7680, b) }
+
+// BenchmarkGnfsComplexity8192 benchmarks gnfsComplexity with an 8192-bit key.
+func BenchmarkGnfsComplexity8192(b *testing.B) { benchmarkGnfsComplexity(8192, b) }
+
+// BenchmarkGnfsComplexity15360 benchmarks gnfsComplexity with a 15360-bit key.
 func BenchmarkGnfsComplexity15360(b *testing.B) { benchmarkGnfsComplexity(15360, b) }
+
+// BenchmarkGnfsComplexity16384 benchmarks gnfsComplexity with a 16384-bit key.
 func BenchmarkGnfsComplexity16384(b *testing.B) { benchmarkGnfsComplexity(16384, b) }
-func BenchmarkGnfsComplexity500(b *testing.B)   { benchmarkGnfsComplexity(500, b) }
-func BenchmarkGnfsComplexity1000(b *testing.B)  { benchmarkGnfsComplexity(1000, b) }
-func BenchmarkGnfsComplexity2000(b *testing.B)  { benchmarkGnfsComplexity(2000, b) }
-func BenchmarkGnfsComplexity3100(b *testing.B)  { benchmarkGnfsComplexity(3100, b) }
-func BenchmarkGnfsComplexity4100(b *testing.B)  { benchmarkGnfsComplexity(4100, b) }
-func BenchmarkGnfsComplexity7700(b *testing.B)  { benchmarkGnfsComplexity(7700, b) }
-func BenchmarkGnfsComplexity8200(b *testing.B)  { benchmarkGnfsComplexity(8200, b) }
+
+// BenchmarkGnfsComplexity500 benchmarks gnfsComplexity with a 500-bit key.
+func BenchmarkGnfsComplexity500(b *testing.B) { benchmarkGnfsComplexity(500, b) }
+
+// BenchmarkGnfsComplexity1000 benchmarks gnfsComplexity with a 1000-bit key.
+func BenchmarkGnfsComplexity1000(b *testing.B) { benchmarkGnfsComplexity(1000, b) }
+
+// BenchmarkGnfsComplexity2000 benchmarks gnfsComplexity with a 2000-bit key.
+func BenchmarkGnfsComplexity2000(b *testing.B) { benchmarkGnfsComplexity(2000, b) }
+
+// BenchmarkGnfsComplexity3100 benchmarks gnfsComplexity with a 3100-bit key.
+func BenchmarkGnfsComplexity3100(b *testing.B) { benchmarkGnfsComplexity(3100, b) }
+
+// BenchmarkGnfsComplexity4100 benchmarks gnfsComplexity with a 4100-bit key.
+func BenchmarkGnfsComplexity4100(b *testing.B) { benchmarkGnfsComplexity(4100, b) }
+
+// BenchmarkGnfsComplexity7700 benchmarks gnfsComplexity with a 7700-bit key.
+func BenchmarkGnfsComplexity7700(b *testing.B) { benchmarkGnfsComplexity(7700, b) }
+
+// BenchmarkGnfsComplexity8200 benchmarks gnfsComplexity with an 8200-bit key.
+func BenchmarkGnfsComplexity8200(b *testing.B) { benchmarkGnfsComplexity(8200, b) }
+
+// BenchmarkGnfsComplexity15400 benchmarks gnfsComplexity with a 15400-bit key.
 func BenchmarkGnfsComplexity15400(b *testing.B) { benchmarkGnfsComplexity(15400, b) }
+
+// BenchmarkGnfsComplexity16400 benchmarks gnfsComplexity with a 16400-bit key.
 func BenchmarkGnfsComplexity16400(b *testing.B) { benchmarkGnfsComplexity(16400, b) }

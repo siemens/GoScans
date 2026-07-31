@@ -1,7 +1,7 @@
 /*
 * GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -80,9 +80,9 @@ func LdapQuery(
 	)
 
 	// Execute search
-	computerResult, errComputerSearch := conn.Search(computerSearch)
-	if errComputerSearch != nil {
-		logger.Debugf("LDAP search for computer '%s' in '%s' failed: %s", searchCn, ldapAddress, errComputerSearch)
+	computerResult, errComputerResult := conn.Search(computerSearch)
+	if errComputerResult != nil {
+		logger.Debugf("LDAP search for computer '%s' in '%s' failed: %s", searchCn, ldapAddress, errComputerResult)
 		return &Ad{}
 	}
 
@@ -105,14 +105,13 @@ func LdapQuery(
 	entry := computerResult.Entries[0]
 
 	// Parse special values
-	var err error
 	val := entry.GetAttributeValue("lastLogon")
 	if len(val) > 0 {
 
 		// Parse int64 from string and convert to time.time
-		lastLogonInt8, errLastLogon := strconv.ParseInt(val, 10, 64)
-		if errLastLogon != nil {
-			logger.Errorf("Could not parse Integer8 '%s': %s", val, errLastLogon)
+		lastLogonInt8, errLastLogonInt8 := strconv.ParseInt(val, 10, 64)
+		if errLastLogonInt8 != nil {
+			logger.Errorf("Could not parse Integer8 '%s': %s", val, errLastLogonInt8)
 		} else {
 			lastLogon = Integer8ToTime(lastLogonInt8)
 		}
@@ -121,27 +120,27 @@ func LdapQuery(
 	if len(val) > 0 {
 
 		// Parse int64 from string and convert to time.time
-		pwdLastSetInt8, errPwdLastSet := strconv.ParseInt(val, 10, 64)
-		if errPwdLastSet != nil {
-			logger.Errorf("Could not parse Integer8 '%s': %s", val, errPwdLastSet)
+		pwdLastSetInt8, errPwdLastSetInt8 := strconv.ParseInt(val, 10, 64)
+		if errPwdLastSetInt8 != nil {
+			logger.Errorf("Could not parse Integer8 '%s': %s", val, errPwdLastSetInt8)
 		} else {
 			lastPassword = Integer8ToTime(pwdLastSetInt8)
 		}
 	}
 	val = entry.GetAttributeValue("whenCreated")
 	if len(val) > 0 {
-		created, err = GeneralizedTimeToTime(val)
-		if err != nil {
-			logger.Errorf(
-				"Could not parse GeneralizedTime '%s': %s", val, err)
+		var errCreated error
+		created, errCreated = GeneralizedTimeToTime(val)
+		if errCreated != nil {
+			logger.Errorf("Could not parse GeneralizedTime '%s': %s", val, errCreated)
 		}
 	}
 	val = entry.GetAttributeValue("isCriticalSystemObject")
 	if len(val) > 0 {
-		criticalObject, err = strconv.ParseBool(val)
-		if err != nil {
-			logger.Errorf(
-				"Could not parse boolean '%s': %s", val, err)
+		var errCriticalObject error
+		criticalObject, errCriticalObject = strconv.ParseBool(val)
+		if errCriticalObject != nil {
+			logger.Errorf("Could not parse boolean '%s': %s", val, errCriticalObject)
 		}
 	}
 
@@ -235,10 +234,10 @@ func ldapExpand(
 	)
 
 	// Execute search
-	userResult, errUserSearch := conn.Search(userSearch)
-	if errUserSearch != nil {
+	userResult, errUserResult := conn.Search(userSearch)
+	if errUserResult != nil {
 		logger.Warningf(
-			"LDAP search for user '%s' in '%s' failed: %s", newSearchCn, newLdapAddress, errUserSearch)
+			"LDAP search for user '%s' in '%s' failed: %s", newSearchCn, newLdapAddress, errUserResult)
 		return
 
 	}
@@ -280,15 +279,15 @@ func ldapConnect(
 	}
 
 	// First of try to establish an LDAPS connection right away.
-	conn, errDialS := ldap.DialURL(fmt.Sprintf("ldaps://%s:%d", baseUrl, ldapPort), opts...)
-	if errDialS != nil {
-		logger.Debugf("LDAPS connection failed: %s", errDialS)
+	conn, errConn := ldap.DialURL(fmt.Sprintf("ldaps://%s:%d", baseUrl, ldapPort), opts...)
+	if errConn != nil {
+		logger.Debugf("LDAPS connection failed: %s", errConn)
 
 		// Try to establish a normal LDAP connection
-		var errDial error
-		conn, errDial = ldap.DialURL(fmt.Sprintf("ldap://%s:%d", baseUrl, ldapPort), opts...)
-		if errDial != nil {
-			logger.Debugf("LDAP connection failed: %s", errDial)
+		var errConn error
+		conn, errConn = ldap.DialURL(fmt.Sprintf("ldap://%s:%d", baseUrl, ldapPort), opts...)
+		if errConn != nil {
+			logger.Debugf("LDAP connection failed: %s", errConn)
 			return nil, fmt.Errorf("neither LDAPS nor LDAP connection accepted")
 		}
 

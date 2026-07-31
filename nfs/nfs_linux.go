@@ -26,22 +26,20 @@ import (
 	"github.com/siemens/GoScans/utils"
 )
 
-const (
-	nfsLibrary  = "nfs-common"
-	sudoersDir  = "/etc/sudoers.d"
-	sudoersFile = "nfs-sudoers"
-	mountBase   = "./nfs"
+const nfsLibrary = "nfs-common"     // Required Linux NFS client package
+const sudoersDir = "/etc/sudoers.d" // Directory containing sudoers fragments
+const sudoersFile = "nfs-sudoers"   // Scanner sudoers fragment
+const mountBase = "./nfs"           // Base directory for temporary NFS mounts
 
-	// Create the sudoers config file and use visudo to safely make an entry for the needed commands.
-	// Only used with constant inputs during setup, not with scan-time user data.
-	createSudoersConfig = "echo \"[USERNAME] ALL=NOPASSWD: /usr/bin/mount, /usr/bin/umount, /usr/sbin/showmount \" | " +
-		"EDITOR=\"tee\" visudo -f /etc/sudoers.d/" + sudoersFile
+// Create the sudoers config file and use visudo to safely make an entry for the needed commands.
+// Only used with constant inputs during setup, not with scan-time user data.
+const createSudoersConfig = "echo \"[USERNAME] ALL=NOPASSWD: /usr/bin/mount, /usr/bin/umount, /usr/sbin/showmount \" | " +
+	"EDITOR=\"tee\" visudo -f /etc/sudoers.d/" + sudoersFile
 
-	shellToUse  = "sh"   // Choose the system's shell. Only used by setup and interactive helpers.
-	shellArg    = "-c"   // Read commands from the command_string operand instead of the standard input
-	adminRights = "sudo" // Prepended to scan commands via execCmd (without shell interpretation)
-	unmountArgs = "-f -l"
-)
+const shellToUse = "sh"     // Choose the system's shell. Only used by setup and interactive helpers.
+const shellArg = "-c"       // Read commands from the command_string operand instead of the standard input
+const adminRights = "sudo"  // Prepended to scan commands via execCmd (without shell interpretation)
+const unmountArgs = "-f -l" // Force a lazy unmount
 
 // setupOs configures the environment accordingly, if the scan module has some special requirements. A successful setup
 // is required before a scan can be started.
@@ -50,9 +48,9 @@ func setupOs(logger utils.Logger) error {
 	// Install/upgrade the needed nfs client for the scanner
 	logger.Infof("Installing Linux package '%s'.", nfsLibrary)
 	cmdStr := fmt.Sprintf("apt-get install %s", nfsLibrary)
-	_, err := execWithUserInput(cmdStr, []string{"y"})
-	if err != nil {
-		return fmt.Errorf("could not install '%s': %s", nfsLibrary, err)
+	_, errInstall := execWithUserInput(cmdStr, []string{"y"})
+	if errInstall != nil {
+		return fmt.Errorf("could not install '%s': %s", nfsLibrary, errInstall)
 	}
 
 	// Get username from command line arguments if available. If the flag packages wasn't used or initialized by main,
@@ -72,9 +70,9 @@ func setupOs(logger utils.Logger) error {
 	}
 
 	// Create the needed configuration for the sudo command
-	err = createSudoersConf(logger, nfsUser)
-	if err != nil {
-		return err
+	errSudoers := createSudoersConf(logger, nfsUser)
+	if errSudoers != nil {
+		return errSudoers
 	}
 
 	// Return nil as everything went fine
@@ -121,13 +119,13 @@ func (s *Scanner) getExportsV4() (map[string][]string, error) {
 
 	// Try to mount the root of the exported file system (if NFSv4 is used). Should work without the option, but with
 	// it, it is more robust
-	mountPoint, errMount := s.mountExport("/", "-t nfs4")
-	if errMount != nil {
-		if strings.Contains(errMount.Error(), "No such file or directory") || // If there is simply no export "/"
-			strings.Contains(errMount.Error(), "access denied by server") { // If there is no access
+	mountPoint, errMountPoint := s.mountExport("/", "-t nfs4")
+	if errMountPoint != nil {
+		if strings.Contains(errMountPoint.Error(), "No such file or directory") || // If there is simply no export "/"
+			strings.Contains(errMountPoint.Error(), "access denied by server") { // If there is no access
 			return exports, nil
 		} else {
-			return exports, errMount
+			return exports, errMountPoint
 		}
 	}
 
@@ -149,9 +147,9 @@ func (s *Scanner) getExportsV4() (map[string][]string, error) {
 	}()
 
 	// Try to read all sub folders aka the exports (of an NFSv4)
-	dirs, errRead := os.ReadDir(mountPoint)
-	if errRead != nil {
-		return exports, errRead
+	dirs, errDirs := os.ReadDir(mountPoint)
+	if errDirs != nil {
+		return exports, errDirs
 	}
 	for _, dir := range dirs {
 		exports["/"+dir.Name()] = []string{}
@@ -161,8 +159,8 @@ func (s *Scanner) getExportsV4() (map[string][]string, error) {
 	return exports, nil
 }
 
-// mountExport mounts an export and returns its mount point, option ist not necessary but can be used to specify e.g. a
-// filesystem type like "t- nfs4"
+// mountExport mounts an export and returns its mount point. The option parameter is not required but can be used to
+// specify a filesystem type, e.g. "-t nfs4".
 func (s *Scanner) mountExport(export string, option string) (string, error) {
 
 	// Prepare a valid and distinguishable mount point folder name
@@ -192,8 +190,8 @@ func (s *Scanner) mountExport(export string, option string) (string, error) {
 	)
 
 	// Execute mount without shell interpretation
-	out, errMnt := execCmd("mount", mountArgs...).CombinedOutput()
-	if errMnt != nil {
+	out, errOut := execCmd("mount", mountArgs...).CombinedOutput()
+	if errOut != nil {
 
 		// Delete the created mount point, if it couldn't be used for mounting
 		errDel := deleteMountPoint(mountPoint)
@@ -202,7 +200,7 @@ func (s *Scanner) mountExport(export string, option string) (string, error) {
 		}
 
 		// Sanitize command output
-		outStr := strings.Replace(string(out), "\n", " ", -1)
+		outStr := strings.ReplaceAll(string(out), "\n", " ")
 
 		// Return error
 		return "", fmt.Errorf("%s", outStr)
@@ -216,14 +214,14 @@ func (s *Scanner) mountExport(export string, option string) (string, error) {
 func prepareMountBase() error {
 
 	// Ensure directory exists
-	info, err := os.Stat(mountBase)
-	if err != nil {
-		if os.IsNotExist(err) {
+	info, errInfo := os.Stat(mountBase)
+	if errInfo != nil {
+		if os.IsNotExist(errInfo) {
 			if errMkdir := os.MkdirAll(mountBase, 0700); errMkdir != nil {
 				return fmt.Errorf("could not prepare mount base '%s': %w", mountBase, errMkdir)
 			}
 		} else {
-			return fmt.Errorf("could not prepare mount base '%s': %w", mountBase, err)
+			return fmt.Errorf("could not prepare mount base '%s': %w", mountBase, errInfo)
 		}
 	} else {
 		if !info.IsDir() { // Exists but is not a directory
@@ -273,25 +271,25 @@ func createSudoersConf(logger utils.Logger, username string) error {
 	}
 
 	// Validate username
-	_, errorLookup := user.Lookup(username)
-	if errorLookup != nil {
+	_, errLookup := user.Lookup(username)
+	if errLookup != nil {
 		return fmt.Errorf("unknown user '%s' for sudoers file", username)
 	}
 
 	// Create folder for the configuration file with recommended permissions (does nothing if folder already exists)
 	errMkDir := os.Mkdir(sudoersDir, 0755) // Standard permissions in Debian for this folder
-	if errMkDir != nil && !strings.Contains(errMkDir.Error(), "file exists") {
-		return fmt.Errorf("could not prepare sudoers config file: %s", errMkDir)
+	if errMkDir != nil && !os.IsExist(errMkDir) {
+		return fmt.Errorf("could not prepare sudoers config file: %w", errMkDir)
 	}
 
 	// Create the sudoers config file and use visudo to safely make an entry for the needed commands
 	cmdStr := strings.Replace(createSudoersConfig, "[USERNAME]", username, 1)
-	out, errSuConf := exec.Command(shellToUse, shellArg, cmdStr).CombinedOutput()
-	if errSuConf != nil {
+	out, errOut := exec.Command(shellToUse, shellArg, cmdStr).CombinedOutput()
+	if errOut != nil {
 		return fmt.Errorf("could not create sudoers config file: %s", string(out))
 	}
 
-	// return nil as everything went fine
+	// Return nil as everything went fine
 	return nil
 }
 
@@ -302,10 +300,10 @@ func getUsername(logger utils.Logger) string {
 
 	// Get username of current user
 	username := ""
-	out, errCmd := exec.Command(shellToUse, shellArg, "who").CombinedOutput()
+	out, errOut := exec.Command(shellToUse, shellArg, "who").CombinedOutput()
 
 	// Check if username is not empty or root
-	if errCmd == nil {
+	if errOut == nil {
 		lineSplit := strings.Fields(string(out))
 		if len(lineSplit) > 0 && lineSplit[0] != "root" {
 			username = lineSplit[0]
@@ -357,9 +355,9 @@ func execWithUserInput(cmdStr string, userInput []string) (string, error) {
 	cmd.Env = append(cmd.Env, "LC_ALL=C")
 
 	// Create a pipe to stdin
-	stdin, errPipe := cmd.StdinPipe()
-	if errPipe != nil {
-		return "", fmt.Errorf("could not create stdin-pipe for command: %s", errPipe)
+	stdin, errStdin := cmd.StdinPipe()
+	if errStdin != nil {
+		return "", fmt.Errorf("could not create stdin-pipe for command: %s", errStdin)
 	}
 
 	// Create Buffer for saving the output of the shell
@@ -376,21 +374,25 @@ func execWithUserInput(cmdStr string, userInput []string) (string, error) {
 	for _, input := range userInput {
 		_, errWr := stdin.Write([]byte(input + "\n")) // Add \n to submit
 		if errWr != nil {
+			_ = stdin.Close()
+			_ = cmd.Wait()
 			return "", fmt.Errorf("could not write to stdin-pipe of command: %s", errWr)
 		}
 	}
 
+	// Close stdin so the child process receives EOF
+	_ = stdin.Close()
+
 	// Execute Command and wait for the shell to ask for input, return output when an error occurred
 	errCmd := cmd.Wait()
 	if errCmd != nil {
-		return "", fmt.Errorf("error while executing command %s: %s: %s", cmdStr, bufOut.String(), errCmd)
+		return "", fmt.Errorf("could not execute command '%s': %s: %w", cmdStr, bufOut.String(), errCmd)
 	}
 
 	// Command succeeded, return output
 	return bufOut.String(), nil
 }
 
-// getUnixFlagsWindows extracts unix file permissions of a file. On Linux systems, this can already be done directly
-// by the file crawler. On Windows this needs to be done additionally.
+// getUnixFlagsWindows is a no-op on Linux because the file crawler already extracts Unix flags directly.
 func (s *Scanner) getUnixFlagsWindows(exportName string, exportResults *filecrawler.Result) {
 }

@@ -15,20 +15,22 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/siemens/GoScans/utils"
 )
 
-const Label = "Webenum"
-const fingerprintBodySimilarity = 200
+const Label = "Webenum"               // Scan-module label
+const fingerprintBodySimilarity = 200 // Response-body prefix length used for fingerprinting
 
-// Test URIs to test for to find out whether the server is reacting to anything and additional pattern matching is required
+// testUris holds non-existent paths sent to the target to detect whether the server always responds with 200 OK.
 var testUris = []string{"notexistingdummyuri.html", "notexistingdummyuri/"}
 
 // Setup configures the environment accordingly, if the scan module has some special requirements. A successful setup
@@ -42,12 +44,14 @@ func CheckSetup() error {
 	return nil
 }
 
+// Probe defines a single enumeration entry: the display name, the URL path to probe, and optional string matches.
 type Probe struct {
 	Name    string
 	Path    string
 	Matches []string
 }
 
+// EnumItem holds the collected result data for a single successfully probed URL.
 type EnumItem struct {
 	Name                string
 	Vhost               string
@@ -66,6 +70,7 @@ type EnumItem struct {
 	HtmlContent         []byte
 }
 
+// Result wraps the collected enumeration results for all vhosts with a scan status and an exception flag.
 type Result struct {
 	Data      []*EnumItem
 	Status    string // Final scan status (success or graceful error). Should be stored along with the scan results.
@@ -74,6 +79,7 @@ type Result struct {
 	// this flag! This flag may additionally come along with a message put into the status attribute.
 }
 
+// Scanner holds all configuration for a web enumeration scan session across one or more vhosts.
 type Scanner struct {
 	Label          string
 	Started        time.Time
@@ -98,6 +104,7 @@ type Scanner struct {
 	contextInnerCancel context.CancelFunc // Context cancel function of inner context, not impacting optional outer one.
 }
 
+// NewScanner validates input and returns an initialised Scanner ready to run.
 func NewScanner(
 	logger utils.Logger, // Can be any logger implementing our minimalistic interface. Wrap your logger to satisfy the interface, if necessary (like utils.LoggerTest).
 	target string,
@@ -128,16 +135,16 @@ func NewScanner(
 	}
 
 	// Prepare proxy, *url.URL with appropriate scheme required
-	proxyUrl, errProxy := utils.ProxyStringToUrl(proxy) // Returns nil proxy on empty input
-	if errProxy != nil {
-		return nil, errProxy
+	proxyUrl, errProxyUrl := utils.ProxyStringToUrl(proxy) // Returns nil proxy on empty input
+	if errProxyUrl != nil {
+		return nil, errProxyUrl
 	}
 
 	// Prepare path to probes
-	var errAbs error
-	probesFile, errAbs = filepath.Abs(probesFile)
-	if errAbs != nil {
-		return nil, errAbs
+	var errProbesFile error
+	probesFile, errProbesFile = filepath.Abs(probesFile)
+	if errProbesFile != nil {
+		return nil, errProbesFile
 	}
 
 	// Check if path to probes is valid
@@ -146,9 +153,9 @@ func NewScanner(
 	}
 
 	// Load probes
-	probes, errLoad := loadProbes(probesFile)
-	if errLoad != nil {
-		return nil, fmt.Errorf("could not load probes: %s", errLoad)
+	probes, errProbes := loadProbes(probesFile)
+	if errProbes != nil {
+		return nil, fmt.Errorf("could not load probes: %w", errProbes)
 	}
 
 	// Sanitize list of input vhosts
@@ -205,7 +212,7 @@ func (s *Scanner) Run(timeout time.Duration) (res *Result) {
 		if r := recover(); r != nil {
 
 			// Log exception with stacktrace
-			s.logger.Errorf(fmt.Sprintf("Unexpected error: %s", r))
+			s.logger.Errorf("Unexpected error: %s", r)
 
 			// Build error status from error message and formatted stacktrace
 			errMsg := fmt.Sprintf("%s%s", r, utils.StacktraceIndented("\t"))
@@ -253,6 +260,7 @@ func (s *Scanner) Run(timeout time.Duration) (res *Result) {
 	return res
 }
 
+// execute runs the enumeration loop across all configured vhosts and returns the aggregated result.
 func (s *Scanner) execute() *Result {
 
 	// Cleanup inner context if set
@@ -266,7 +274,7 @@ func (s *Scanner) execute() *Result {
 	// Create URL representation of target. This will be comfortable to print current URLs and does hold all necessary
 	// information in one struct
 	currentRequestUrl := &url.URL{}
-	currentRequestUrl.Host = fmt.Sprintf("%s:%d", s.target, s.port)
+	currentRequestUrl.Host = net.JoinHostPort(s.target, strconv.Itoa(s.port))
 	if s.https {
 		currentRequestUrl.Scheme = "https"
 	} else {
@@ -340,14 +348,13 @@ func (s *Scanner) execute() *Result {
 			// Close body reader. Needs to happen now, cannot be done with defer statement!
 			_ = testResp.Body.Close()
 
-			// Check for wrong HTTP protocol, sometimes SSL endpoints accept HTTP requests but return an error indicator
-			if utils.HttpsIndicated(testResp, testHtmlBytes) {
+			// Check for wrong HTTP protocol. Some SSL endpoints accept HTTP requests but return an indicator that
+			// HTTPS should be used. Only switch once: if already on HTTPS the indicator is a false positive.
+			if utils.HttpsIndicated(testResp, testHtmlBytes) && currentRequestUrl.Scheme != "https" {
 
-				// Switch to HTTPS
+				// Switch to HTTPS and retry
 				s.logger.Debugf("Switching from HTTP to HTTPS due to response indicator.")
 				currentRequestUrl.Scheme = "https"
-
-				// Send test request again
 				goto Start
 			}
 
@@ -377,13 +384,13 @@ func (s *Scanner) execute() *Result {
 
 		// Discover additional probes reading robots.txt
 		var probesRobots []Probe
-		var errRobots error
+		var errProbesRobots error
 		if s.probeRobots {
 			s.logger.Debugf("Requesting robots.txt.")
 			currentRequestUrl.Path = "robots.txt"
-			probesRobots, errRobots = loadProbesRobots(vhostReq, currentRequestUrl.String(), currentVhost)
-			if errRobots != nil {
-				s.logger.Debugf("Could not request robots.txt: %s", errRobots)
+			probesRobots, errProbesRobots = loadProbesRobots(vhostReq, currentRequestUrl.String(), currentVhost)
+			if errProbesRobots != nil {
+				s.logger.Debugf("Could not request robots.txt: %s", errProbesRobots)
 			} else {
 				s.logger.Debugf("Discovered %d probes via robots.txt.", len(probesRobots))
 			}
@@ -437,7 +444,7 @@ func (s *Scanner) execute() *Result {
 
 			// Skip probe evaluation on proxy error
 			if s.proxy != nil && resp.StatusCode == 502 {
-				s.logger.Infof("Proxy error.", currentRequestUrl.String(), currentVhost)
+				s.logger.Infof("Proxy error on '%s' (vhost '%s').", currentRequestUrl.String(), currentVhost)
 				continue
 			}
 
@@ -512,6 +519,7 @@ func (s *Scanner) execute() *Result {
 							ResponseMessage:     resp.Status,
 							ResponseContentType: responseType,
 							ResponseHeaders:     utils.FormattedHeader(resp.Header),
+							ResponseEncoding:    htmlEncoding,
 							HtmlTitle:           utils.ExtractHtmlTitle(htmlBytes),
 							HtmlContent:         htmlBytes,
 						})
@@ -563,13 +571,14 @@ func (s *Scanner) vhostResponseKnown(vhost string, resp *http.Response, respBody
 	return ""
 }
 
+// loadProbes reads and parses the pipe-delimited probes file at path and returns the resulting probe list.
 func loadProbes(path string) ([]Probe, error) {
 	var probes []Probe
 
 	// Open file
-	file, errOpen := os.Open(path)
-	if errOpen != nil {
-		return nil, errOpen
+	file, errFile := os.Open(path)
+	if errFile != nil {
+		return nil, errFile
 	}
 
 	// Make sure probes file is closed again
@@ -604,9 +613,9 @@ func loadProbes(path string) ([]Probe, error) {
 		// Extract string matches if available
 		var matches []string
 		if len(data) > 2 {
-			for i := 2; i < len(data); i++ {
-				if len(data[i]) > 0 {
-					matches = append(matches, data[i])
+			for j := 2; j < len(data); j++ {
+				if len(data[j]) > 0 {
+					matches = append(matches, data[j])
 				}
 			}
 		}
@@ -623,9 +632,10 @@ func loadProbes(path string) ([]Probe, error) {
 	return probes, nil
 }
 
+// loadProbesRobots fetches the robots.txt at robotsUrl using requester and returns any Disallow and Sitemap
+// paths found as probes.
 func loadProbesRobots(requester *utils.Requester, robotsUrl string, vName string) ([]Probe, error) {
 	var probes []Probe
-	var matches []string
 
 	// Send robots request
 	resp, _, _, errSend := requester.Get(robotsUrl, vName)
@@ -681,7 +691,7 @@ func loadProbesRobots(requester *utils.Requester, robotsUrl string, vName string
 					probes = append(probes, Probe{
 						category,
 						relPath,
-						matches,
+						nil,
 					})
 				}
 			}
@@ -692,6 +702,7 @@ func loadProbesRobots(requester *utils.Requester, robotsUrl string, vName string
 	return probes, nil
 }
 
+// pathsFromRobotsLine extracts and trims the comma-separated path values from a single robots.txt directive line.
 func pathsFromRobotsLine(line string) []string {
 	withoutKey := strings.Split(line, ":")[1:] // Split by colon and remove first element
 	value := strings.Join(withoutKey, ":")     // Re-join remaining elements (might have been more)
@@ -701,5 +712,5 @@ func pathsFromRobotsLine(line string) []string {
 		paths[i] = strings.TrimSpace(paths[i])
 	}
 	paths = utils.Filter(paths, func(path string) bool { return path != "" }) // Remove empty values
-	return paths                                                              // Separate multiple paths into slice
+	return paths
 }

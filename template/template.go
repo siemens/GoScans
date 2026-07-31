@@ -20,6 +20,7 @@ import (
 	"github.com/siemens/GoScans/utils"
 )
 
+// label identifies the template scanner
 const label = "Template"
 
 // Setup configures the environment accordingly, if the scan module has some special requirements. A successful setup
@@ -196,7 +197,7 @@ func (s *Scanner) execute() *Result {
 	}
 
 	// Return pointer to result struct
-	s.logger.Debugf("Returning scan result")
+	s.logger.Debugf("Returning scan result.")
 	return &Result{
 		results,
 		utils.StatusCompleted,

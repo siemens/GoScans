@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/noneymous/GoSslyze"
+	gosslyze "github.com/noneymous/GoSslyze"
 	"github.com/siemens/GoScans/utils"
 )
 
@@ -38,10 +38,10 @@ func parseCiphers(
 	if cr.SslV2 != nil && cr.SslV2.Result != nil {
 
 		for _, acceptedCipher := range cr.SslV2.Result.AcceptedCiphers {
-			cipher, errGet := getCipher(logger, &acceptedCipher, Sslv2)
-			if errGet != nil {
+			cipher, errCipher := getCipher(logger, &acceptedCipher, Sslv2)
+			if errCipher != nil {
 				logger.Warningf("Could not parse and will therefore skip cipher suite '%s': %s",
-					acceptedCipher.Cipher.OpensslName, errGet)
+					acceptedCipher.Cipher.OpensslName, errCipher)
 				continue
 			}
 			ciphers[Sslv2.String()+"|"+cipher.Id] = cipher
@@ -57,10 +57,10 @@ func parseCiphers(
 	if cr.SslV3 != nil && cr.SslV3.Result != nil {
 
 		for _, acceptedCipher := range cr.SslV3.Result.AcceptedCiphers {
-			cipher, errGet := getCipher(logger, &acceptedCipher, Sslv3)
-			if errGet != nil {
+			cipher, errCipher := getCipher(logger, &acceptedCipher, Sslv3)
+			if errCipher != nil {
 				logger.Warningf("Could not parse and will therefore skip cipher suite '%s': %s",
-					acceptedCipher.Cipher.OpensslName, errGet)
+					acceptedCipher.Cipher.OpensslName, errCipher)
 				continue
 			}
 			ciphers[Sslv3.String()+"|"+cipher.Id] = cipher
@@ -76,10 +76,10 @@ func parseCiphers(
 	if cr.TlsV1_0 != nil && cr.TlsV1_0.Result != nil {
 
 		for _, acceptedCipher := range cr.TlsV1_0.Result.AcceptedCiphers {
-			cipher, errGet := getCipher(logger, &acceptedCipher, Tlsv1_0)
-			if errGet != nil {
+			cipher, errCipher := getCipher(logger, &acceptedCipher, Tlsv1_0)
+			if errCipher != nil {
 				logger.Warningf("Could not parse and will therefore skip cipher suite '%s': %s",
-					acceptedCipher.Cipher.OpensslName, errGet)
+					acceptedCipher.Cipher.OpensslName, errCipher)
 				continue
 			}
 			ciphers[Tlsv1_0.String()+"|"+cipher.Id] = cipher
@@ -95,10 +95,10 @@ func parseCiphers(
 	if cr.TlsV1_1 != nil && cr.TlsV1_1.Result != nil {
 
 		for _, acceptedCipher := range cr.TlsV1_1.Result.AcceptedCiphers {
-			cipher, errGet := getCipher(logger, &acceptedCipher, Tlsv1_1)
-			if errGet != nil {
+			cipher, errCipher := getCipher(logger, &acceptedCipher, Tlsv1_1)
+			if errCipher != nil {
 				logger.Warningf("Could not parse and will therefore skip cipher suite '%s': %s",
-					acceptedCipher.Cipher.OpensslName, errGet)
+					acceptedCipher.Cipher.OpensslName, errCipher)
 				continue
 			}
 			ciphers[Tlsv1_1.String()+"|"+cipher.Id] = cipher
@@ -114,10 +114,10 @@ func parseCiphers(
 	if cr.TlsV1_2 != nil && cr.TlsV1_2.Result != nil {
 
 		for _, acceptedCipher := range cr.TlsV1_2.Result.AcceptedCiphers {
-			cipher, errGet := getCipher(logger, &acceptedCipher, Tlsv1_2)
-			if errGet != nil {
+			cipher, errCipher := getCipher(logger, &acceptedCipher, Tlsv1_2)
+			if errCipher != nil {
 				logger.Warningf("Could not parse and will therefore skip cipher suite '%s': %s",
-					acceptedCipher.Cipher.OpensslName, errGet)
+					acceptedCipher.Cipher.OpensslName, errCipher)
 				continue
 			}
 			ciphers[Tlsv1_2.String()+"|"+cipher.Id] = cipher
@@ -133,10 +133,10 @@ func parseCiphers(
 	if cr.TlsV1_3 != nil && cr.TlsV1_3.Result != nil {
 
 		for _, acceptedCipher := range cr.TlsV1_3.Result.AcceptedCiphers {
-			cipher, errGet := getCipher(logger, &acceptedCipher, Tlsv1_3)
-			if errGet != nil {
+			cipher, errCipher := getCipher(logger, &acceptedCipher, Tlsv1_3)
+			if errCipher != nil {
 				logger.Warningf("Could not parse and will therefore skip cipher suite '%s': %s",
-					acceptedCipher.Cipher.OpensslName, errGet)
+					acceptedCipher.Cipher.OpensslName, errCipher)
 				continue
 			}
 			ciphers[Tlsv1_3.String()+"|"+cipher.Id] = cipher
@@ -259,10 +259,10 @@ func parseEphemeralKeyInfo(logger utils.Logger, info gosslyze.EphemeralKeyInfo) 
 	}
 
 	// Compute the key strength
-	str, errStrength := kex.getStrength(uint64(size))
-	if errStrength != nil {
+	str, errStr := kex.getStrength(uint64(size))
+	if errStr != nil {
 		logger.Warningf("Could not compute key exchange strength: '%s'",
-			errStrength)
+			errStr)
 	}
 	strength = int(str)
 

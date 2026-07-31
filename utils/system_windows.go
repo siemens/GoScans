@@ -18,19 +18,19 @@ import (
 func IsElevated() bool {
 
 	// Open current process token
-	hToken, err := syscall.OpenCurrentProcessToken()
-	if err != nil {
+	hToken, errHToken := syscall.OpenCurrentProcessToken()
+	if errHToken != nil {
 		return false
 	}
-	defer hToken.Close()
+	defer func() { _ = hToken.Close() }()
 
 	// Prepare some result variables
 	n := uint32(4)
 	b := make([]byte, n)
 
 	// Get token information
-	e := syscall.GetTokenInformation(hToken, syscall.TokenElevation, &b[0], uint32(len(b)), &n)
-	if e != nil {
+	errInfo := syscall.GetTokenInformation(hToken, syscall.TokenElevation, &b[0], uint32(len(b)), &n)
+	if errInfo != nil {
 		return false
 	}
 

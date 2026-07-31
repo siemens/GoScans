@@ -76,8 +76,8 @@ func TestExecute(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := Execute(tt.args.cmd, tt.args.args); (err != nil) != tt.wantErr {
-				t.Errorf("Execute() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			if errExecute := Execute(tt.args.cmd, tt.args.args); (errExecute != nil) != tt.wantErr {
+				t.Errorf("Execute() error = '%v', wantErr = '%v'", errExecute, tt.wantErr)
 			}
 		})
 	}
@@ -142,9 +142,9 @@ func TestSanitizeFilename(t *testing.T) {
 				t.Errorf("SanitizeFilename() WriteFile error = '%v'", errWrite)
 				return
 			}
-			content, errRead := os.ReadFile(p)
-			if errRead != nil {
-				t.Errorf("SanitizeFilename() ReadFile error = '%v'", errRead)
+			content, errContent := os.ReadFile(p)
+			if errContent != nil {
+				t.Errorf("SanitizeFilename() ReadFile error = '%v'", errContent)
 				return
 			}
 			if string(content) != string(testContent) {

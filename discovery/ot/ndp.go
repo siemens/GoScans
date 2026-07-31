@@ -21,21 +21,22 @@ import (
 	"golang.org/x/net/ipv6"
 )
 
+// ndpListenTimeout limits how long NDP discovery waits for responses
 const ndpListenTimeout = 5 * time.Second
 
 // ScanNdp sends an ICMPv6 Neighbor Solicitation to ff02::1 and collects Neighbor Advertisements.
 func ScanNdp(logger utils.Logger, iface string) ([]Host, error) {
 
 	// Look up the interface by name
-	ifi, errIf := net.InterfaceByName(iface)
-	if errIf != nil {
-		return nil, fmt.Errorf("could not find interface '%s': %w", iface, errIf)
+	ifi, errIfi := net.InterfaceByName(iface)
+	if errIfi != nil {
+		return nil, fmt.Errorf("could not find interface '%s': %w", iface, errIfi)
 	}
 
 	// Open an ICMPv6 raw socket
-	conn, errListen := icmp.ListenPacket("ip6:ipv6-icmp", "::")
-	if errListen != nil {
-		return nil, fmt.Errorf("could not open ICMPv6 socket: %w", errListen)
+	conn, errConn := icmp.ListenPacket("ip6:ipv6-icmp", "::")
+	if errConn != nil {
+		return nil, fmt.Errorf("could not open ICMPv6 socket: %w", errConn)
 	}
 	defer func() { _ = conn.Close() }()
 
@@ -53,9 +54,9 @@ func ScanNdp(logger utils.Logger, iface string) ([]Host, error) {
 		Code: 0,
 		Body: &icmp.RawBody{Data: make([]byte, 20)},
 	}
-	msgBytes, errMarshal := msg.Marshal(nil)
-	if errMarshal != nil {
-		return nil, fmt.Errorf("could not marshal NDP solicitation: %w", errMarshal)
+	msgBytes, errMsgBytes := msg.Marshal(nil)
+	if errMsgBytes != nil {
+		return nil, fmt.Errorf("could not marshal NDP solicitation: %w", errMsgBytes)
 	}
 
 	// Address the solicitation to the all-nodes multicast group, scoped to the interface
@@ -85,8 +86,8 @@ func ScanNdp(logger utils.Logger, iface string) ([]Host, error) {
 		}
 
 		// Parse the ICMPv6 message and filter to Neighbor Advertisements only
-		parsed, errParse := icmp.ParseMessage(58, buf[:n])
-		if errParse != nil {
+		parsed, errParsed := icmp.ParseMessage(58, buf[:n])
+		if errParsed != nil {
 			continue
 		}
 		if parsed.Type != ipv6.ICMPTypeNeighborAdvertisement {
@@ -105,10 +106,10 @@ func ScanNdp(logger utils.Logger, iface string) ([]Host, error) {
 
 		// Prepare and append host struct
 		host := Host{
-			Ip:         ip,
+			Ips:        []string{ip},
 			MacAddress: mac,
 		}
-		logger.Debugf("NDP response from '%s' (MAC: '%s').", ip, mac)
+		logger.Debugf("NDP response from '%s': MAC '%s'.", ip, mac)
 		hosts = append(hosts, host)
 	}
 

@@ -24,8 +24,8 @@ func HashSha1(data []byte, separator string) string {
 
 	// Convert representation
 	hexified := make([][]byte, len(hash))
-	for i, data := range hash {
-		hexified[i] = []byte(fmt.Sprintf("%02X", data))
+	for i, byteVal := range hash {
+		hexified[i] = []byte(fmt.Sprintf("%02X", byteVal))
 	}
 
 	// Return separator-formatted hash

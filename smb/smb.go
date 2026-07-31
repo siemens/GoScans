@@ -21,6 +21,7 @@ import (
 	"github.com/siemens/GoScans/utils"
 )
 
+// Label identifies the scan module in logs and results
 const Label = "Smb"
 
 // Setup configures the environment accordingly, if the scan module has some special requirements. A successful setup
@@ -34,10 +35,12 @@ func CheckSetup() error {
 	return nil
 }
 
+// Result wraps filecrawler.Result so the broker can distinguish SMB results from NFS results by type.
 type Result struct {
-	filecrawler.Result // smb result wrapped filecrawler result to allow broker distinguishing smb/nfs results by type
+	filecrawler.Result
 }
 
+// Scanner holds the configuration and state for a single SMB scan.
 type Scanner struct {
 	Label                     string
 	Started                   time.Time
@@ -61,6 +64,7 @@ type Scanner struct {
 	contextInnerCancel context.CancelFunc // Context cancel function of inner context, not impacting optional outer one.
 }
 
+// NewScanner creates a new Scanner instance and validates all input arguments.
 func NewScanner(
 	logger utils.Logger, // Can be any logger implementing our minimalistic interface. Wrap your logger to satisfy the interface, if necessary (like utils.LoggerTest).
 	target string,
@@ -95,8 +99,8 @@ func NewScanner(
 	// will also get rid of duplicates.
 	toMap := func(slice []string) map[string]struct{} {
 		lookup := make(map[string]struct{}, len(slice))
-		for _, e := range slice {
-			lookup[e] = struct{}{}
+		for _, entry := range slice {
+			lookup[entry] = struct{}{}
 		}
 		return lookup
 	}
@@ -146,7 +150,7 @@ func (s *Scanner) Run(timeout time.Duration) (res *Result) {
 		if r := recover(); r != nil {
 
 			// Log exception with stacktrace
-			s.logger.Errorf(fmt.Sprintf("Unexpected error: %s", r))
+			s.logger.Errorf("Unexpected error: %s%s", r, utils.StacktraceIndented("\t"))
 
 			// Build error status from error message and formatted stacktrace
 			errMsg := fmt.Sprintf("%s%s", r, utils.StacktraceIndented("\t"))
@@ -199,6 +203,7 @@ func (s *Scanner) Run(timeout time.Duration) (res *Result) {
 	return res
 }
 
+// execute runs the SMB crawl and wraps the result into a package Result.
 func (s *Scanner) execute() *Result {
 
 	// Cleanup inner context if set
@@ -225,7 +230,7 @@ func (s *Scanner) execute() *Result {
 		s.logger.Debugf("Scan ran into timeout.")
 		return &Result{
 			filecrawler.Result{
-				FoldersReadable: result.FilesReadable,
+				FoldersReadable: result.FoldersReadable,
 				FilesReadable:   result.FilesReadable,
 				FilesWritable:   result.FilesWritable,
 				Data:            result.Data,
@@ -239,7 +244,7 @@ func (s *Scanner) execute() *Result {
 	s.logger.Debugf("Returning scan result.")
 	return &Result{
 		filecrawler.Result{
-			FoldersReadable: result.FilesReadable,
+			FoldersReadable: result.FoldersReadable,
 			FilesReadable:   result.FilesReadable,
 			FilesWritable:   result.FilesWritable,
 			Data:            result.Data,

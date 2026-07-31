@@ -19,12 +19,11 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-var (
-	modShell32                            = windows.NewLazySystemDLL("shell32.dll")
-	procSHGetPropertyStoreFromParsingName = modShell32.NewProc("SHGetPropertyStoreFromParsingName")
-)
+var modShell32 = windows.NewLazySystemDLL("shell32.dll")                                            // Lazy-loaded handle to the Windows shell32 DLL
+var procSHGetPropertyStoreFromParsingName = modShell32.NewProc("SHGetPropertyStoreFromParsingName") // Procedure for retrieving a property store for a file-system path
 
-func SHGetPropertyStoreFromParsingName(pszPath *uint16, pbc *IBindCtx, flags uint32, riid *ole.GUID, obj interface{}) (err error) {
+// SHGetPropertyStoreFromParsingName retrieves a property store for the file-system item identified by pszPath.
+func SHGetPropertyStoreFromParsingName(pszPath *uint16, pbc *IBindCtx, flags uint32, riid *ole.GUID, obj interface{}) (errErrno error) {
 	objValue := reflect.ValueOf(obj).Elem()
 	r0, _, _ := syscall.SyscallN(
 		procSHGetPropertyStoreFromParsingName.Addr(),
@@ -35,51 +34,56 @@ func SHGetPropertyStoreFromParsingName(pszPath *uint16, pbc *IBindCtx, flags uin
 		objValue.Addr().Pointer())
 
 	if r0 != 0 {
-		err = syscall.Errno(r0)
+		errErrno = syscall.Errno(r0)
 	}
 
 	return
 }
 
-func psGetCount(ps *IPropertyStore, count *uint32) (err error) {
+// psGetCount retrieves the number of properties in the property store.
+func psGetCount(ps *IPropertyStore, count *uint32) (errNewError error) {
 	hr, _, _ := syscall.SyscallN(
 		ps.VTable().GetCount,
 		uintptr(unsafe.Pointer(ps)),
 		uintptr(unsafe.Pointer(count)))
 	if hr != 0 {
-		err = ole.NewError(hr)
+		errNewError = ole.NewError(hr)
 	}
 	return
 }
 
-func psGetAt(ps *IPropertyStore, iProp uint32, pkey *PROPERTYKEY) (err error) {
+// psGetAt retrieves the property key at the given index in the property store.
+func psGetAt(ps *IPropertyStore, iProp uint32, pkey *PROPERTYKEY) (errNewError error) {
 	hr, _, _ := syscall.SyscallN(
 		ps.VTable().GetAt,
 		uintptr(unsafe.Pointer(ps)),
 		uintptr(iProp),
 		uintptr(unsafe.Pointer(pkey)))
 	if hr != 0 {
-		err = ole.NewError(hr)
+		errNewError = ole.NewError(hr)
 	}
 	return
 }
 
-func psGetValue(ps *IPropertyStore, key *PROPERTYKEY, pv *PROPVARIANT) (err error) {
+// psGetValue retrieves the value associated with the given property key.
+func psGetValue(ps *IPropertyStore, key *PROPERTYKEY, pv *PROPVARIANT) (errNewError error) {
 	hr, _, _ := syscall.SyscallN(
 		ps.VTable().GetValue,
 		uintptr(unsafe.Pointer(ps)),
 		uintptr(unsafe.Pointer(key)),
 		uintptr(unsafe.Pointer(pv)))
 	if hr != 0 {
-		err = ole.NewError(hr)
+		errNewError = ole.NewError(hr)
 	}
 	return
 }
 
+// psSetValue is not implemented and always returns E_NOTIMPL.
 func psSetValue() (err error) {
 	return ole.NewError(ole.E_NOTIMPL)
 }
 
+// psCommit is not implemented and always returns E_NOTIMPL.
 func psCommit() (err error) {
 	return ole.NewError(ole.E_NOTIMPL)
 }

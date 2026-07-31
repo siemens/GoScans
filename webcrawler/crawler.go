@@ -15,14 +15,10 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,12 +30,11 @@ import (
 	"github.com/siemens/GoScans/utils"
 )
 
-const (
-	// Constants used for the retry mechanism (currently only used for responses containing a 429 status code)
-	maxRetries     = 5                               // We don't want to test a failed url indefinitely 5 times has to be enough
-	httpDateLayout = "Mon, 02 Jan 2006 15:04:05 MST" // Golang's reference date: Mon Jan 2 15:04:05 -0700 MST 2006
-)
+// Constants used for the retry mechanism (currently only used for responses containing a 429 status code)
+const maxRetries = 5                                   // We don't want to test a failed url indefinitely 5 times has to be enough
+const httpDateLayout = "Mon, 02 Jan 2006 15:04:05 MST" // Golang's reference date: Mon Jan 2 15:04:05 -0700 MST 2006
 
+// DefaultFollowContentTypes is the default list of response content types the crawler will follow and parse.
 var DefaultFollowContentTypes = []string{
 	"text/html", "text/plain", "text/javascript", "application/javascript", "application/json", "application/atom+xml",
 	"application/rss+xml", "application/xhtml+xml", "application/x-latex", "application/xml", "application/xml-dtd",
@@ -57,6 +52,8 @@ var DefaultFollowContentTypes = []string{
 	"text/vnd.trolltech.linguist", "text/vnd.wap.si", "text/vnd.wap.sl", "text/vnd.wap.wmlscript", "text/vnd.wap-wml",
 	"text/vnd-a", "text/vnd-curl", "text/xml", "text/xml-external-parsed-entity",
 }
+
+// DefaultDownloadContentTypes is the default list of response content types the crawler will treat as downloads.
 var DefaultDownloadContentTypes = []string{
 	"application/pdf", "application/msword", "application/vnd.ms-excel", "vnd.ms-excel.addin.macroEnabled.12",
 	"vnd.ms-excel.sheet.binary.macroEnabled.12", "vnd.ms-excel.sheet.macroEnabled.12",
@@ -64,10 +61,11 @@ var DefaultDownloadContentTypes = []string{
 	"vnd.ms-word.template.macroEnabled.12", "application/vnd.ms-word.template.macroEnabled.12",
 }
 
+// Page holds the result of crawling a single URL, including response metadata and discovered child links.
 type Page struct {
 	Depth               int
 	Url                 *url.URL
-	RedirectUrl         string // Final URL the request got redirected to. Might be inside or outside of original endpoint.
+	RedirectUrl         string // Final URL the request got redirected to. Might be inside or outside original endpoint.
 	RedirectCount       int    // Number of redirects that happened until the final URL was reached
 	AuthMethod          string
 	AuthSuccess         bool
@@ -81,6 +79,7 @@ type Page struct {
 	RawLinks            []string // URLs found on that page
 }
 
+// CrawlResult aggregates all pages, statistics, and discoveries from a single vhost crawl.
 type CrawlResult struct {
 	Vhost               string // The vhost this content was discovered with
 	Status              string
@@ -96,15 +95,16 @@ type CrawlResult struct {
 	Pages               []*Page
 }
 
+// task is a unit of crawling work, pairing a unique ID with a page to be fetched.
 type task struct {
 	id   int32
 	page *Page
 }
 
+// taskResult is the temporary data struct returned by the crawler's page processor. Depending on what values are
+// set, the queue crawler will update the crawling result accordingly. Empty values will be ignored. The result
+// must be set if crawling the page should be retried.
 type taskResult struct {
-	// Temporary data struct returned by the crawler's page processor. Depending on what values are set, the queue
-	// crawler will update the crawling result accordingly. Empty values will be ignored. Therefor the result has to be
-	// set if crawling the page should be retried!
 	taskId             int32    // The task id corresponding to this result
 	result             *Page    // Page result to be stored, filled with all data after being processed
 	children           []*Page  // Discovered sub-pages. Holds URL and depth first, might be crawled and filled later.
@@ -117,6 +117,7 @@ type taskResult struct {
 	retryAfter         uint64   // (optional) Number of seconds to wait if the retry flag is set. If this is smaller or equal to 0, minWaitSec will be used.
 }
 
+// Crawler holds all state for a single web crawl run against one vhost.
 type Crawler struct {
 	logger         utils.Logger
 	baseUrl        *url.URL // Pass by value for better isolation and to avoid conflicts with other goroutines
@@ -125,7 +126,7 @@ type Crawler struct {
 	maxDepth       int      // Max depth of crawling. 0 = index page only, 1 = index page + direct children,...
 	followQS       bool     // Whether to consider URls with different query strings as different locations
 	storeRoot      bool     // Whether to _always_ store first page, independent of response code
-	download       bool     // Whether to download files. Either way the files' URLs will returned in DiscoveredDownloads
+	download       bool     // Whether to download files. Either way the files' URLs will be returned in DiscoveredDownloads
 	downloadPath   string   // Path to save download files at, respectively download URLs
 	ntlmDomain     string   // (Optional) credentials for NTLM authentication
 	ntlmUser       string   // ...
@@ -135,14 +136,15 @@ type Crawler struct {
 	requestTimeout time.Duration // Maximum seconds to wait for a request response
 	followTypes    []string
 	downloadTypes  []string
-	targetIp       string           // Used by the crawler to match whether an URL points to the same endpoint
-	targetPort     int              // Used by the crawler to match whether an URL points to the same endpoint
+	targetIp       string           // Used by the crawler to match whether a URL points to the same endpoint
+	targetPort     int              // Used by the crawler to match whether a URL points to the same endpoint
 	maxThreads     int              // Amount of threads sending requests in parallel
 	known          map[string]uint8 // A hit-map indicated pages that have already been crawled (and how often)
 	nextTaskId     func() int32     // Helper function that returns the next task id
 	context        context.Context  // Context for the crawling, controllable from outside
 }
 
+// NewCrawler validates the base URL, resolves the target IP, and returns an initialised Crawler ready to call Crawl.
 func NewCrawler(
 	logger utils.Logger, // Can be any logger implementing our minimalistic interface. Wrap your logger to satisfy the interface, if necessary (like utils.LoggerTest).
 	baseUrl url.URL,
@@ -188,9 +190,9 @@ func NewCrawler(
 
 	// Resolve IP and port of target URL for later use
 	host, port := utils.ExtractHostPort(&baseUrl)
-	ips, errLookup := net.LookupIP(host)
-	if errLookup != nil {
-		return nil, errLookup
+	ips, errIps := net.LookupIP(host)
+	if errIps != nil {
+		return nil, errIps
 	}
 	ip := ips[0].String()
 
@@ -222,6 +224,8 @@ func NewCrawler(
 	}, nil
 }
 
+// Crawl starts the crawling process and blocks until all reachable pages up to the configured depth have been visited
+// or the context deadline is reached. It returns the aggregated CrawlResult.
 func (c *Crawler) Crawl() *CrawlResult {
 
 	// Initialize result data
@@ -380,7 +384,7 @@ func (c *Crawler) Crawl() *CrawlResult {
 			timeWait := time.Duration(0)
 			if timePassed < timeDelay {
 				timeWait = timeDelay - timePassed
-				timeWait += time.Millisecond / 100 // Add some courtasy delay
+				timeWait += time.Millisecond / 100 // Add some courtesy delay
 				c.logger.Debugf("Delaying request, waiting %.0dms.", timeWait.Milliseconds())
 				time.Sleep(timeWait)
 			}
@@ -390,7 +394,7 @@ func (c *Crawler) Crawl() *CrawlResult {
 			go c.processTask(requester, t, chTaskResult)
 		}
 
-		// Prepare function to execite task result processing
+		// Prepare function to execute task result processing
 		processTaskResult := func(r *taskResult) {
 
 			// Decrease process count
@@ -431,6 +435,9 @@ func (c *Crawler) Crawl() *CrawlResult {
 				// Return as result processing is done
 				return
 			}
+
+			// Reset delay after a successful (non-429) result
+			delayMilliseconds = 0
 
 			// Process result and add it to the overall results
 			c.processResult(r, result, chQueueSend)
@@ -479,7 +486,7 @@ func (c *Crawler) Crawl() *CrawlResult {
 		}
 	}()
 
-	// Wait for gorotuines to be terimnated, to make sure it's not reading the channel anymore
+	// Wait for goroutines to be terminated, to make sure it's not reading the channel anymore
 	wgProcessing.Wait()
 	wgQueue.Wait()
 	wgDeadline.Wait()
@@ -509,7 +516,7 @@ func (c *Crawler) processTask(requester *utils.Requester, t *task, chTaskResult 
 	// Log potential panics before letting them move on
 	defer func() {
 		if r := recover(); r != nil {
-			c.logger.Errorf(fmt.Sprintf("Panic: %s%s", r, utils.StacktraceIndented("\t")))
+			c.logger.Errorf("Panic: %s%s", r, utils.StacktraceIndented("\t"))
 			panic(r)
 		}
 	}()
@@ -598,7 +605,7 @@ func (c *Crawler) processTask(requester *utils.Requester, t *task, chTaskResult 
 			var partial, complete = 1, 0
 			if c.download {
 				fileName := utils.SanitizeFilename(requestUrl, "_")
-				errDl := streamToFile(taskLogger, resp.Body, c.downloadPath, fileName)
+				errDl := utils.StreamToFile(taskLogger, resp.Body, c.downloadPath, fileName)
 				if errDl != nil {
 					taskLogger.Debugf("Download failed: %s", errDl)
 				} else {
@@ -637,9 +644,9 @@ func (c *Crawler) processTask(requester *utils.Requester, t *task, chTaskResult 
 			taskLogger.Debugf("Need to retry (Response code: %d, Response type: %s).", resp.StatusCode, responseType)
 
 			// Try to get the content of the retry-after header field
-			after, errParse := parseRetryAfter(&resp.Header)
-			if errParse != nil {
-				c.logger.Debugf("%s", errParse)
+			after, errAfter := parseRetryAfter(&resp.Header)
+			if errAfter != nil {
+				c.logger.Debugf("%s", errAfter)
 				after = 0
 			}
 
@@ -676,12 +683,12 @@ func (c *Crawler) processTask(requester *utils.Requester, t *task, chTaskResult 
 
 		// Parse HTML
 		taskLogger.Debugf("Parsing response body.")
-		doc, errParse := goquery.NewDocumentFromReader(bytes.NewReader(htmlBytes))
+		doc, errDoc := goquery.NewDocumentFromReader(bytes.NewReader(htmlBytes))
 
 		// Process HTML of parsing succeeded
 		var children []*Page
-		if errParse != nil {
-			taskLogger.Warningf("Could not parse response from '%s' (vhost '%s'): %s", requestUrl, c.vhost, errParse)
+		if errDoc != nil {
+			taskLogger.Warningf("Could not parse response from '%s' (vhost '%s'): %s", requestUrl, c.vhost, errDoc)
 		} else {
 
 			// Extract URLs from HTML links (hrefs, src,...)
@@ -771,7 +778,7 @@ func (c *Crawler) processTask(requester *utils.Requester, t *task, chTaskResult 
 	chTaskResult <- result
 }
 
-// handleResult checks the taskResult, extracts the relevant values and adds them to the overall CrawlResult.
+// processResult checks the taskResult, extracts the relevant values and adds them to the overall CrawlResult.
 // This function is not thread safe!
 func (c *Crawler) processResult(r *taskResult, result *CrawlResult, chQueueSend chan<- *task) {
 
@@ -840,8 +847,8 @@ func (c *Crawler) requeue(page *Page, taskId int32, chQueueSend chan<- *task) {
 	chQueueSend <- &task{taskId, &Page{Depth: page.Depth, Url: page.Url}}
 }
 
-// queue validates and appends sub-pages to the task queue. It will skip pages that were already queued previously.
-// To append a previously processed page, use 'requeue'.
+// queue validates and appends sub-pages to the task queue, skipping URLs that were already seen.
+// To re-add a previously processed page use requeue.
 func (c *Crawler) queue(newPages []*Page, chQueueSend chan<- *task) {
 
 	// Process new pages and create queued tasks if
@@ -908,6 +915,8 @@ func sortQueue(queue []*task) {
 	})
 }
 
+// extractLinks collects all href and src values from anchor, area, iframe, and frame elements in doc,
+// deduplicates them, and removes fragment-only and mailto links.
 func extractLinks(doc *goquery.Document) []string {
 	var links []string
 
@@ -951,6 +960,8 @@ func extractLinks(doc *goquery.Document) []string {
 	return links
 }
 
+// extractRedirects collects redirect URLs from HTML meta refresh tags in doc,
+// deduplicates them, and removes fragment-only and mailto links.
 func extractRedirects(doc *goquery.Document) []string {
 	var links []string
 
@@ -992,8 +1003,8 @@ func linksToAbsoluteUrls(links []string, responseUrl *url.URL) []*url.URL {
 	for _, link := range links {
 
 		// Parse link in context of response URL. Drop links that cannot be parsed.
-		u, errParse := responseUrl.Parse(link)
-		if errParse == nil {
+		u, errU := responseUrl.Parse(link)
+		if errU == nil {
 			urls = append(urls, u)
 		}
 	}
@@ -1005,8 +1016,8 @@ func linksToAbsoluteUrls(links []string, responseUrl *url.URL) []*url.URL {
 func requestImageHash(requester *utils.Requester, requestUrl string, vhost string) string {
 
 	// Request favicon
-	resp, _, _, err := requester.Get(requestUrl, vhost)
-	if err != nil {
+	resp, _, _, errGet := requester.Get(requestUrl, vhost)
+	if errGet != nil {
 		return ""
 	}
 
@@ -1030,36 +1041,6 @@ func requestImageHash(requester *utils.Requester, requestUrl string, vhost strin
 	return ""
 }
 
-// streamToFile downloads the content at the given URL and writes it to the given location
-func streamToFile(logger utils.Logger, source io.Reader, outputFolder string, outputName string) error {
-
-	// Create tmp folder if it does not exist
-	if _, err := os.Stat(outputFolder); errors.Is(err, os.ErrNotExist) {
-		errMk := os.Mkdir(outputFolder, 0700)
-		if errMk != nil {
-			logger.Warningf("Could not create download folder: %s", errMk)
-		}
-	}
-
-	// Prepare output file path
-	file := filepath.Join(outputFolder, outputName)
-
-	// Create output file
-	out, errCreate := os.Create(file)
-	if errCreate != nil {
-		return errCreate
-	}
-
-	// Make sure file gets closed on exit
-	defer func() { _ = out.Close() }()
-
-	// Write the body to file
-	_, errWrite := io.Copy(out, source)
-
-	// Return error or nil
-	return errWrite
-}
-
 // parseRetryAfter tries to get the content of the retry-after header field. This can either be a simple number
 // (of seconds) or a date.
 func parseRetryAfter(header *http.Header) (uint64, error) {
@@ -1074,12 +1055,12 @@ func parseRetryAfter(header *http.Header) (uint64, error) {
 	}
 
 	// Try to parse the number of seconds
-	after, errParse := strconv.ParseUint(field, 10, 64)
-	if errParse != nil {
+	after, errAfter := strconv.ParseUint(field, 10, 64)
+	if errAfter != nil {
 
 		// Try to parse the date and calculate the difference to now
-		t, errParseTime := time.Parse(httpDateLayout, field)
-		if errParseTime != nil {
+		t, errT := time.Parse(httpDateLayout, field)
+		if errT != nil {
 			return 0, fmt.Errorf("could not parse 'Retry-After' value from '%s'", field)
 		} else {
 			// Check if the time has already passed

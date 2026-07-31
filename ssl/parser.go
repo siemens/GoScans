@@ -1,7 +1,7 @@
 /*
 * GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
 *
-* Copyright (c) Siemens AG, 2016-2025.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -11,10 +11,11 @@
 package ssl
 
 import (
-	"github.com/noneymous/GoSslyze"
+	gosslyze "github.com/noneymous/GoSslyze"
 	"github.com/siemens/GoScans/utils"
 )
 
+// parseSslyzeResult converts a raw SSLyze host result into the internal Data structure.
 func parseSslyzeResult(logger utils.Logger, targetName string, hostResult *gosslyze.HostResult) *Data {
 
 	// Check for nil pointer exceptions.

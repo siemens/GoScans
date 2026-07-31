@@ -10,7 +10,7 @@
 *
  */
 
-package ot
+package rawsocket
 
 import (
 	"net"
@@ -40,23 +40,23 @@ func TestTimeoutError_Accessors(t *testing.T) {
 	var _ net.Error = e
 }
 
-// TestRawConnClose_InvalidFd_ReturnsError verifies that Close propagates the syscall error.
-func TestRawConnClose_InvalidFd_ReturnsError(t *testing.T) {
+// TestClose_InvalidFd_ReturnsError verifies that Close propagates the syscall error.
+func TestClose_InvalidFd_ReturnsError(t *testing.T) {
 
 	// Closing an invalid fd should return an error
-	conn := &rawConn{fd: -1, ifIdx: 0}
+	conn := &conn{fd: -1, ifIdx: 0}
 	if errClose := conn.Close(); errClose == nil {
-		t.Error("rawConn.Close() expected error for invalid fd, got nil")
+		t.Error("conn.Close() expected error for invalid fd, got nil")
 	}
 }
 
-// TestRawConnRead_SuccessPath verifies that rawConn.Read returns data without error when a datagram is available.
-func TestRawConnRead_SuccessPath(t *testing.T) {
+// TestRead_SuccessPath verifies that conn.Read returns data without error when a datagram is available.
+func TestRead_SuccessPath(t *testing.T) {
 
 	// Create a pair of UDP sockets on loopback — no root required
-	fdRecv, errRecv := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, 0)
-	if errRecv != nil {
-		t.Skipf("could not create recv socket: %v", errRecv)
+	fdRecv, errFdRecv := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, 0)
+	if errFdRecv != nil {
+		t.Skipf("could not create recv socket: %v", errFdRecv)
 		return
 	}
 	defer func() { _ = syscall.Close(fdRecv) }()
@@ -69,17 +69,17 @@ func TestRawConnRead_SuccessPath(t *testing.T) {
 	}
 
 	// Resolve the bound port
-	sa, errName := syscall.Getsockname(fdRecv)
-	if errName != nil {
-		t.Skipf("could not get socket name: %v", errName)
+	sa, errSa := syscall.Getsockname(fdRecv)
+	if errSa != nil {
+		t.Skipf("could not get socket name: %v", errSa)
 		return
 	}
 	port := sa.(*syscall.SockaddrInet4).Port
 
 	// Send a datagram from a second socket
-	fdSend, errSend := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, 0)
-	if errSend != nil {
-		t.Skipf("could not create send socket: %v", errSend)
+	fdSend, errFdSend := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, 0)
+	if errFdSend != nil {
+		t.Skipf("could not create send socket: %v", errFdSend)
 		return
 	}
 	defer func() { _ = syscall.Close(fdSend) }()
@@ -91,15 +91,15 @@ func TestRawConnRead_SuccessPath(t *testing.T) {
 		return
 	}
 
-	// Read via rawConn and confirm success
-	conn := &rawConn{fd: fdRecv, ifIdx: 0}
+	// Read via Conn and confirm success
+	conn := &conn{fd: fdRecv, ifIdx: 0}
 	buf := make([]byte, 64)
-	n, errRead := conn.Read(buf)
-	if errRead != nil {
-		t.Fatalf("rawConn.Read() error = '%v', want nil", errRead)
+	n, errN := conn.Read(buf)
+	if errN != nil {
+		t.Fatalf("conn.Read() error = '%v', want nil", errN)
 	}
 	if n != len(payload) {
-		t.Errorf("rawConn.Read() n = '%d', want '%d'", n, len(payload))
+		t.Errorf("conn.Read() n = '%d', want '%d'", n, len(payload))
 	}
 }
 
@@ -143,34 +143,34 @@ func TestHtons(t *testing.T) {
 	}
 }
 
-// TestRawConnWrite_ReturnsZeroOnError verifies that rawConn.Write returns (0, err) and not (len(b), err) on failure.
-func TestRawConnWrite_ReturnsZeroOnError(t *testing.T) {
+// TestWrite_ReturnsZeroOnError verifies that conn.Write returns (0, err) and not (len(b), err) on failure.
+func TestWrite_ReturnsZeroOnError(t *testing.T) {
 
 	// Use an invalid fd to trigger a guaranteed Sendto failure
-	conn := &rawConn{fd: -1, ifIdx: 0}
+	conn := &conn{fd: -1, ifIdx: 0}
 
 	// Attempt write and verify error behavior
-	n, errWrite := conn.Write([]byte{0x01, 0x02, 0x03})
-	if errWrite == nil {
-		t.Fatal("rawConn.Write() expected error with invalid fd, got nil")
+	n, errN := conn.Write([]byte{0x01, 0x02, 0x03})
+	if errN == nil {
+		t.Fatal("conn.Write() expected error with invalid fd, got nil")
 	}
 	if n != 0 {
-		t.Errorf("rawConn.Write() n = '%v', want '0' on error", n)
+		t.Errorf("conn.Write() n = '%v', want '0' on error", n)
 	}
 }
 
-// TestRawConnRead_Timeout_ReturnsNetError verifies that a deadline-elapsed read returns a net.Error with Timeout() == true.
-func TestRawConnRead_Timeout_ReturnsNetError(t *testing.T) {
+// TestRead_Timeout_ReturnsNetError verifies that a deadline-elapsed read returns a net.Error with Timeout() == true.
+func TestRead_Timeout_ReturnsNetError(t *testing.T) {
 
 	// Create a UDP socket — requires no special privileges and supports SO_RCVTIMEO
-	fd, errSock := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, 0)
-	if errSock != nil {
-		t.Skipf("could not create socket for timeout test: %v", errSock)
+	fd, errFd := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, 0)
+	if errFd != nil {
+		t.Skipf("could not create socket for timeout test: %v", errFd)
 		return
 	}
 	defer func() { _ = syscall.Close(fd) }()
 
-	conn := &rawConn{fd: fd, ifIdx: 0}
+	conn := &conn{fd: fd, ifIdx: 0}
 
 	// Set a very short read deadline so the socket expires immediately
 	errDeadline := conn.SetReadDeadline(time.Now().Add(time.Millisecond))
@@ -186,15 +186,15 @@ func TestRawConnRead_Timeout_ReturnsNetError(t *testing.T) {
 	buf := make([]byte, 16)
 	_, errRead := conn.Read(buf)
 	if errRead == nil {
-		t.Fatal("rawConn.Read() expected timeout error, got nil")
+		t.Fatal("conn.Read() expected timeout error, got nil")
 	}
 
 	// Verify the error is a net.Error with Timeout() == true
 	netErr, ok := errRead.(net.Error)
 	if !ok {
-		t.Fatalf("rawConn.Read() error type = '%T', want net.Error", errRead)
+		t.Fatalf("conn.Read() error type = '%T', want net.Error", errRead)
 	}
 	if !netErr.Timeout() {
-		t.Errorf("rawConn.Read() Timeout() = '%v', want 'true'", netErr.Timeout())
+		t.Errorf("conn.Read() Timeout() = '%v', want 'true'", netErr.Timeout())
 	}
 }

@@ -37,9 +37,9 @@ func TestMain(m *testing.M) {
 	_test.GetSettings()
 
 	// Prepare test directory
-	tmpDir, errTmp := os.MkdirTemp(".", "goscans-ssh-test-*")
-	if errTmp != nil {
-		panic(errTmp)
+	tmpDir, errTmpDir := os.MkdirTemp(".", "goscans-ssh-test-*")
+	if errTmpDir != nil {
+		panic(errTmpDir)
 	}
 	if errChdir := os.Chdir(tmpDir); errChdir != nil {
 		panic(errChdir)
@@ -64,9 +64,9 @@ func test_startSshServer(t *testing.T, allowPassword, allowPublicKey, allowKeybo
 	t.Helper()
 
 	// Generate a fresh RSA host key for each test server
-	hostKey, errRsa := rsa.GenerateKey(rand.Reader, 2048)
-	if errRsa != nil {
-		t.Fatalf("test_startSshServer() rsa.GenerateKey error = '%v'", errRsa)
+	hostKey, errHostKey := rsa.GenerateKey(rand.Reader, 2048)
+	if errHostKey != nil {
+		t.Fatalf("test_startSshServer() rsa.GenerateKey error = '%v'", errHostKey)
 	}
 	signer, errSigner := gossh.NewSignerFromKey(hostKey)
 	if errSigner != nil {
@@ -95,16 +95,16 @@ func test_startSshServer(t *testing.T, allowPassword, allowPublicKey, allowKeybo
 	}
 
 	// Bind to a random port on loopback
-	listener, errListen := net.Listen("tcp", "127.0.0.1:0")
-	if errListen != nil {
-		t.Fatalf("test_startSshServer() net.Listen error = '%v'", errListen)
+	listener, errListener := net.Listen("tcp", "127.0.0.1:0")
+	if errListener != nil {
+		t.Fatalf("test_startSshServer() net.Listen error = '%v'", errListener)
 	}
 
 	// Accept connections and run the SSH handshake; auth will always be rejected
 	go func() {
 		for {
-			conn, errAccept := listener.Accept()
-			if errAccept != nil {
+			conn, errConn := listener.Accept()
+			if errConn != nil {
 				return
 			}
 			go func(c net.Conn) {
@@ -214,12 +214,12 @@ func TestNewScanner(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			scanner, errNew := NewScanner(testLogger, tt.target, 22, 5*time.Second)
-			if (errNew != nil) != tt.wantErr {
-				t.Errorf("NewScanner() error = '%v', wantErr = '%v'", errNew, tt.wantErr)
+			scanner, errScanner := NewScanner(testLogger, tt.target, 22, 5*time.Second)
+			if (errScanner != nil) != tt.wantErr {
+				t.Errorf("NewScanner() error = '%v', wantErr = '%v'", errScanner, tt.wantErr)
 				return
 			}
-			if errNew == nil && scanner == nil {
+			if errScanner == nil && scanner == nil {
 				t.Errorf("NewScanner() = 'nil', want = 'non-nil scanner'")
 			}
 		})
@@ -231,9 +231,9 @@ func TestSetContext(t *testing.T) {
 
 	// Prepare unit test data
 	testLogger := utils.NewTestLogger()
-	scanner, errNew := NewScanner(testLogger, "192.0.2.1", 22, 5*time.Second)
-	if errNew != nil {
-		t.Fatalf("NewScanner() error = '%v'", errNew)
+	scanner, errScanner := NewScanner(testLogger, "192.0.2.1", 22, 5*time.Second)
+	if errScanner != nil {
+		t.Fatalf("NewScanner() error = '%v'", errScanner)
 	}
 
 	// Verify context is nil before any SetContext call
@@ -290,9 +290,9 @@ func TestKeyboardInteractiveChallenge(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cr := keyboardInteractive(map[string]string{})
-			got, errChallenge := cr.challenge("user", "instruction", tt.questions, nil)
-			if errChallenge != nil {
-				t.Errorf("challenge() error = '%v', want = 'nil'", errChallenge)
+			got, errGot := cr.challenge("user", "instruction", tt.questions, nil)
+			if errGot != nil {
+				t.Errorf("challenge() error = '%v', want = 'nil'", errGot)
 				return
 			}
 
@@ -404,20 +404,20 @@ func TestInfoFromErr(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := infoFromErr(tt.args.errMsg)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("infoFromErr() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			got, errGot := infoFromErr(tt.args.errMsg)
+			if (errGot != nil) != tt.wantErr {
+				t.Errorf("infoFromErr() error = '%v', wantErr = '%v'", errGot, tt.wantErr)
 				return
 			}
 
 			// Verify security parameters on success
-			if err == nil && !utils.Equals(got, tt.want) {
+			if errGot == nil && !utils.Equals(got, tt.want) {
 				t.Errorf("infoFromErr() = '%v', want = '%v'", got, tt.want)
 			}
 
 			// Verify error message on failure
-			if err != nil && err.Error() != tt.wantErrMsg {
-				t.Errorf("infoFromErr() error message = '%v', want = '%v'", err.Error(), tt.wantErrMsg)
+			if errGot != nil && errGot.Error() != tt.wantErrMsg {
+				t.Errorf("infoFromErr() error message = '%v', want = '%v'", errGot.Error(), tt.wantErrMsg)
 			}
 		})
 	}
@@ -466,9 +466,9 @@ func TestReadVersion(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, errRead := readVersion(bytes.NewReader(tt.input))
-			if (errRead != nil) != tt.wantErr {
-				t.Errorf("readVersion() error = '%v', wantErr = '%v'", errRead, tt.wantErr)
+			got, errGot := readVersion(bytes.NewReader(tt.input))
+			if (errGot != nil) != tt.wantErr {
+				t.Errorf("readVersion() error = '%v', wantErr = '%v'", errGot, tt.wantErr)
 				return
 			}
 			if !bytes.Equal(got, tt.want) {
@@ -522,9 +522,9 @@ func TestExchangeVersions(t *testing.T) {
 				buf.Write(tt.remoteData)
 				rw = buf
 			}
-			got, errExchange := exchangeVersions(rw, tt.versionLine)
-			if (errExchange != nil) != tt.wantErr {
-				t.Errorf("exchangeVersions() error = '%v', wantErr = '%v'", errExchange, tt.wantErr)
+			got, errGot := exchangeVersions(rw, tt.versionLine)
+			if (errGot != nil) != tt.wantErr {
+				t.Errorf("exchangeVersions() error = '%v', wantErr = '%v'", errGot, tt.wantErr)
 				return
 			}
 			if !bytes.Equal(got, tt.want) {
@@ -637,12 +637,12 @@ func TestReadPacket(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			input := tt.input()
-			got, errPacket := scanner.readPacket(bytes.NewReader(input))
-			if (errPacket != nil) != tt.wantErr {
-				t.Errorf("readPacket() error = '%v', wantErr = '%v'", errPacket, tt.wantErr)
+			got, errGot := scanner.readPacket(bytes.NewReader(input))
+			if (errGot != nil) != tt.wantErr {
+				t.Errorf("readPacket() error = '%v', wantErr = '%v'", errGot, tt.wantErr)
 				return
 			}
-			if errPacket == nil && got == nil {
+			if errGot == nil && got == nil {
 				t.Errorf("readPacket() = 'nil', want = 'non-nil kexInitMsg'")
 			}
 		})
@@ -679,13 +679,13 @@ func TestGetSecurityParameter(t *testing.T) {
 				t.Helper()
 
 				// Start a plain TCP server returning non-SSH data
-				listener, errListen := net.Listen("tcp", "127.0.0.1:0")
-				if errListen != nil {
-					t.Fatalf("net.Listen error = '%v'", errListen)
+				listener, errListener := net.Listen("tcp", "127.0.0.1:0")
+				if errListener != nil {
+					t.Fatalf("net.Listen error = '%v'", errListener)
 				}
 				go func() {
-					conn, errAccept := listener.Accept()
-					if errAccept != nil {
+					conn, errConn := listener.Accept()
+					if errConn != nil {
 						return
 					}
 					_, _ = conn.Write([]byte("not-an-ssh-server\r\n"))
@@ -764,13 +764,13 @@ func TestGetAuthenticationMethods(t *testing.T) {
 				dialTimeout: 5 * time.Second,
 				target:      "127.0.0.1",
 			}
-			got, errMethods := scanner.getAuthenticationMethods(tt.address(t))
-			if tt.wantErr && errMethods == nil {
+			got, errGot := scanner.getAuthenticationMethods(tt.address(t))
+			if tt.wantErr && errGot == nil {
 				t.Errorf("getAuthenticationMethods() error = nil, wantErr = true")
 				return
 			}
-			if !tt.wantErr && !tt.acceptErr && errMethods != nil {
-				t.Errorf("getAuthenticationMethods() error = '%v', wantErr = '%v'", errMethods, tt.wantErr)
+			if !tt.wantErr && !tt.acceptErr && errGot != nil {
+				t.Errorf("getAuthenticationMethods() error = '%v', wantErr = '%v'", errGot, tt.wantErr)
 				return
 			}
 			if tt.wantMethod != "" && !slices.Contains(got, tt.wantMethod) {
@@ -798,9 +798,9 @@ func TestScanner_Run_ValidServer(t *testing.T) {
 	}
 
 	// Run the full scanner against the in-process server
-	scanner, errNew := NewScanner(testLogger, host, port, 5*time.Second)
-	if errNew != nil {
-		t.Fatalf("NewScanner() error = '%v'", errNew)
+	scanner, errScanner := NewScanner(testLogger, host, port, 5*time.Second)
+	if errScanner != nil {
+		t.Fatalf("NewScanner() error = '%v'", errScanner)
 	}
 	result := scanner.Run(10 * time.Second)
 
@@ -825,9 +825,9 @@ func TestScanner_Run_NotReachable(t *testing.T) {
 	testLogger := utils.NewTestLogger()
 
 	// Run the scanner against a non-resolvable hostname
-	scanner, errNew := NewScanner(testLogger, "invalid.invalid", 22, 5*time.Second)
-	if errNew != nil {
-		t.Fatalf("NewScanner() error = '%v'", errNew)
+	scanner, errScanner := NewScanner(testLogger, "invalid.invalid", 22, 5*time.Second)
+	if errScanner != nil {
+		t.Fatalf("NewScanner() error = '%v'", errScanner)
 	}
 	result := scanner.Run(10 * time.Second)
 
@@ -852,9 +852,9 @@ func TestScanner_Run_ContextCancelled(t *testing.T) {
 	testLogger := utils.NewTestLogger()
 
 	// Use port 1 so the dial fails quickly with connection-refused rather than DNS failure
-	scanner, errNew := NewScanner(testLogger, "127.0.0.1", 1, 2*time.Second)
-	if errNew != nil {
-		t.Fatalf("NewScanner() error = '%v'", errNew)
+	scanner, errScanner := NewScanner(testLogger, "127.0.0.1", 1, 2*time.Second)
+	if errScanner != nil {
+		t.Fatalf("NewScanner() error = '%v'", errScanner)
 	}
 
 	// Pre-cancel the context before Run so ContextExpired fires after getAuthenticationMethods returns

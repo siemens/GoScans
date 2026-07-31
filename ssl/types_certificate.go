@@ -20,14 +20,9 @@ import (
 // Before changing this command read the comment in types.go
 //go:generate stringer -linecomment -output=types_certificate_string.go -type=PublicKey,SignatureAlgorithm,SignatureHash ./
 
-// Certificate types
-const (
-	certificateTypeRoot         = "root"
-	certificateTypeIntermediate = "intermediate"
-	certificateTypeLeaf         = "leaf"
-)
-
-type PublicKey uint8
+const certificateTypeRoot = "root"                 // Root certificate
+const certificateTypeIntermediate = "intermediate" // Intermediate certificate
+const certificateTypeLeaf = "leaf"                 // Leaf certificate
 
 const (
 	PUB_K_Unknown     PublicKey = iota //
@@ -40,6 +35,10 @@ const (
 	PUB_K_GOSTR341094                  // GOSTR341094
 )
 
+// PublicKey identifies a certificate public-key algorithm
+type PublicKey uint8
+
+// makePublicKeyFromX509 converts a Go x509 public key algorithm to the internal PublicKey type.
 func makePublicKeyFromX509(logger utils.Logger, alg x509.PublicKeyAlgorithm) PublicKey {
 
 	switch alg {
@@ -61,6 +60,7 @@ func makePublicKeyFromX509(logger utils.Logger, alg x509.PublicKeyAlgorithm) Pub
 	}
 }
 
+// makePublicKey converts an SSLyze public key algorithm string to the internal PublicKey type.
 func makePublicKey(logger utils.Logger, alg string) PublicKey {
 
 	switch alg {
@@ -84,8 +84,6 @@ func makePublicKey(logger utils.Logger, alg string) PublicKey {
 	}
 }
 
-type SignatureAlgorithm uint8
-
 const (
 	SIG_A_Unknown SignatureAlgorithm = iota //
 	SIG_A_RSA                               // RSA
@@ -94,10 +92,15 @@ const (
 	SIG_A_RSAPSS                            // RSAPSS
 )
 
+// SignatureAlgorithm represents an algorithm used to sign a certificate
+type SignatureAlgorithm uint8
+
+// IsValidSignatureAlgo reports whether the SignatureAlgorithm has a known, non-unknown value.
 func (a SignatureAlgorithm) IsValidSignatureAlgo() bool {
 	return a > 0 && a <= SIG_A_RSAPSS
 }
 
+// makeSignatureAlgorithmFromX509 converts a Go x509 signature algorithm to the internal SignatureAlgorithm type.
 func makeSignatureAlgorithmFromX509(logger utils.Logger, alg x509.SignatureAlgorithm) SignatureAlgorithm {
 
 	switch alg {
@@ -118,9 +121,6 @@ func makeSignatureAlgorithmFromX509(logger utils.Logger, alg x509.SignatureAlgor
 	}
 }
 
-// SignatureHash represents a signature hash algorithm.
-type SignatureHash uint8
-
 // BLAKE2*: has a variable digest size, 512 is the maximum.
 // SIG_H_None happen if the signature does not use a separate hash (ED25519, ED448).
 const (
@@ -139,10 +139,15 @@ const (
 	SIG_H_BLAKE2S                        // BLAKE2s
 )
 
+// SignatureHash represents a signature hash algorithm.
+type SignatureHash uint8
+
+// IsValidSignatureHash reports whether the SignatureHash has a known, non-unknown value.
 func (h SignatureHash) IsValidSignatureHash() bool {
 	return h > 0 && h <= SIG_H_BLAKE2S
 }
 
+// makeSignatureHash converts an SSLyze signature hash algorithm string to the internal SignatureHash type.
 func makeSignatureHash(logger utils.Logger, alg string) SignatureHash {
 
 	switch alg {
@@ -166,6 +171,7 @@ func makeSignatureHash(logger utils.Logger, alg string) SignatureHash {
 	}
 }
 
+// makeSignatureHashFromX509 converts a Go x509 signature algorithm to the internal SignatureHash type.
 func makeSignatureHashFromX509(logger utils.Logger, alg x509.SignatureAlgorithm) SignatureHash {
 
 	switch alg {
@@ -187,7 +193,7 @@ func makeSignatureHashFromX509(logger utils.Logger, alg x509.SignatureAlgorithm)
 	}
 }
 
-// GetDigestSize returns the digest size. In the case of Blake2* the digest size is variable and the maximum of 512 is
+// getDigestSize returns the digest size. In the case of Blake2* the digest size is variable and the maximum of 512 is
 // returned. The digest size is also used as the hmac strength.
 //
 //lint:ignore U1000 retained for symmetry with cipher strength methods; not yet wired into report output
@@ -211,12 +217,42 @@ func (h SignatureHash) getDigestSize() int {
 	}
 }
 
-// GetStrength returns the strength of the hash.
+// getStrength returns the strength of the hash.
 //
 //lint:ignore U1000 retained for symmetry with cipher strength methods; not yet wired into report output
 func (h SignatureHash) getStrength() int {
 	return h.getDigestSize() / 2
 }
+
+const SECT163K1 Curve = "sect163k1"
+const SECT163R1 Curve = "sect163r1"
+const SECT163R2 Curve = "sect163r2"
+const SECT193R1 Curve = "sect193r1"
+const SECT193R2 Curve = "sect193r2"
+const SECT233K1 Curve = "sect233k1"
+const SECT233R1 Curve = "sect233r1"
+const SECT239K1 Curve = "sect239k1"
+const SECT283K1 Curve = "sect283k1"
+const SECT283R1 Curve = "sect283r1"
+const SECT409K1 Curve = "sect409k1"
+const SECT409R1 Curve = "sect409r1"
+const SECT571K1 Curve = "sect571k1"
+const SECT571R1 Curve = "sect571r1"
+const SECP160K1 Curve = "secp160k1"
+const SECP160R1 Curve = "secp160r1"
+const SECP160R2 Curve = "secp160r2"
+const SECP192K1 Curve = "secp192k1"
+const SECP192R1 Curve = "secp192r1"
+const SECP224K1 Curve = "secp224k1"
+const SECP224R1 Curve = "secp224r1"
+const SECP256K1 Curve = "secp256k1"
+const SECP256R1 Curve = "secp256r1"
+const SECP384R1 Curve = "secp384r1"
+const SECP521R1 Curve = "secp521r1"
+const BRAINPOOLP256R1 Curve = "brainpoolP256r1"
+const BRAINPOOLP384R1 Curve = "brainpoolP384r1"
+const BRAINPOOLP512R1 Curve = "brainpoolP512r1"
+const ECDH_X25519 Curve = "ecdh_x25519"
 
 // Curve represents an elliptic curve used in TLS for key exchange and authentication (ECDHE, ECDSA).
 // see http://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-8
@@ -225,38 +261,7 @@ func (h SignatureHash) getStrength() int {
 // representation.
 type Curve string
 
-const (
-	SECT163K1       Curve = "sect163k1"
-	SECT163R1       Curve = "sect163r1"
-	SECT163R2       Curve = "sect163r2"
-	SECT193R1       Curve = "sect193r1"
-	SECT193R2       Curve = "sect193r2"
-	SECT233K1       Curve = "sect233k1"
-	SECT233R1       Curve = "sect233r1"
-	SECT239K1       Curve = "sect239k1"
-	SECT283K1       Curve = "sect283k1"
-	SECT283R1       Curve = "sect283r1"
-	SECT409K1       Curve = "sect409k1"
-	SECT409R1       Curve = "sect409r1"
-	SECT571K1       Curve = "sect571k1"
-	SECT571R1       Curve = "sect571r1"
-	SECP160K1       Curve = "secp160k1"
-	SECP160R1       Curve = "secp160r1"
-	SECP160R2       Curve = "secp160r2"
-	SECP192K1       Curve = "secp192k1"
-	SECP192R1       Curve = "secp192r1"
-	SECP224K1       Curve = "secp224k1"
-	SECP224R1       Curve = "secp224r1"
-	SECP256K1       Curve = "secp256k1"
-	SECP256R1       Curve = "secp256r1"
-	SECP384R1       Curve = "secp384r1"
-	SECP521R1       Curve = "secp521r1"
-	BRAINPOOLP256R1 Curve = "brainpoolP256r1"
-	BRAINPOOLP384R1 Curve = "brainpoolP384r1"
-	BRAINPOOLP512R1 Curve = "brainpoolP512r1"
-	ECDH_X25519     Curve = "ecdh_x25519"
-)
-
+// IsValidCurve reports whether the Curve is a known, supported elliptic curve.
 func (c Curve) IsValidCurve() bool {
 
 	switch c {
@@ -309,7 +314,7 @@ func (c Curve) String() string {
 	}
 }
 
-// GetPrimeFieldSize returns prime field size of the given curve.
+// getPrimeFieldSize returns the prime field size of the given curve.
 //
 //lint:ignore U1000 retained for symmetry with cipher strength methods; not yet wired into report output
 func (c Curve) getPrimeFieldSize() int {
@@ -348,7 +353,7 @@ func (c Curve) getPrimeFieldSize() int {
 	}
 }
 
-// GetStrength returns the computed strength. The second return value signalizes whether the fieldSize is 0.
+// getStrength returns the computed strength. The second return value signalizes whether the fieldSize is 0.
 //
 //lint:ignore U1000 retained for symmetry with cipher strength methods; not yet wired into report output
 func (c Curve) getStrength() float64 {
@@ -367,6 +372,7 @@ var keyUsageMap = map[x509.KeyUsage]string{
 	x509.KeyUsageDecipherOnly:      "Decipher Only",
 }
 
+// makeKeyUsageSlice converts a bitmask of x509 key usages into a slice of human-readable strings.
 func makeKeyUsageSlice(logger utils.Logger, in x509.KeyUsage) []string {
 
 	// Check that the values are in the correct range. (Hint 2^9 = 512)
@@ -420,6 +426,7 @@ var extKeyUsageMap = map[x509.ExtKeyUsage]string{
 	x509.ExtKeyUsageMicrosoftKernelCodeSigning:     "Microsoft Kernel Code Signing",
 }
 
+// makeExtKeyUsageSlice converts a slice of x509 extended key usages into a slice of human-readable strings.
 func makeExtKeyUsageSlice(logger utils.Logger, in []x509.ExtKeyUsage) []string {
 
 	// Go through the extended key usages and add the corresponding string for every one of them to the result slice.

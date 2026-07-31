@@ -22,6 +22,7 @@ import (
 	"github.com/siemens/GoScans/utils"
 )
 
+// Label identifies the scan module in logs and results
 const Label = "Nfs"
 
 // Setup configures the environment accordingly, if the scan module has some special requirements. A successful setup
@@ -51,10 +52,12 @@ func CheckSetup() error {
 	return nil
 }
 
+// Result wraps filecrawler.Result so the broker can distinguish NFS results from SMB results by type.
 type Result struct {
-	filecrawler.Result // nfs result wrapped filecrawler result to allow broker distinguishing smb/nfs results by type
+	filecrawler.Result
 }
 
+// Scanner holds the configuration and state for a single NFS scan.
 type Scanner struct {
 	Label                     string
 	Started                   time.Time
@@ -75,11 +78,13 @@ type Scanner struct {
 	contextInnerCancel context.CancelFunc // Context cancel function of inner context, not impacting optional outer one.
 }
 
+// nfsExport holds the name and NFS access restrictions of a single discovered export.
 type nfsExport struct {
 	name            string
 	nfsRestrictions []string
 }
 
+// NewScanner creates a new Scanner instance and validates all input arguments.
 func NewScanner(
 	logger utils.Logger, // Can be any logger implementing our minimalistic interface. Wrap your logger to satisfy the interface, if necessary (like utils.LoggerTest).
 	target string,
@@ -112,8 +117,8 @@ func NewScanner(
 	// will also get rid of duplicates.
 	toMap := func(slice []string) map[string]struct{} {
 		lookup := make(map[string]struct{}, len(slice))
-		for _, e := range slice {
-			lookup[e] = struct{}{}
+		for _, entry := range slice {
+			lookup[entry] = struct{}{}
 		}
 		return lookup
 	}
@@ -167,7 +172,7 @@ func (s *Scanner) Run(timeout time.Duration) (res *Result) {
 		if r := recover(); r != nil {
 
 			// Log exception with stacktrace
-			s.logger.Errorf(fmt.Sprintf("Unexpected error: %s", r))
+			s.logger.Errorf("Unexpected error: %s%s", r, utils.StacktraceIndented("\t"))
 
 			// Build error status from error message and formatted stacktrace
 			errMsg := fmt.Sprintf("%s%s", r, utils.StacktraceIndented("\t"))
@@ -220,6 +225,7 @@ func (s *Scanner) Run(timeout time.Duration) (res *Result) {
 	return res
 }
 
+// execute runs the NFS crawl and wraps the result into a package Result.
 func (s *Scanner) execute() *Result {
 
 	// Cleanup inner context if set
@@ -246,7 +252,7 @@ func (s *Scanner) execute() *Result {
 		s.logger.Debugf("Scan ran into timeout.")
 		return &Result{
 			filecrawler.Result{
-				FoldersReadable: result.FilesReadable,
+				FoldersReadable: result.FoldersReadable,
 				FilesReadable:   result.FilesReadable,
 				FilesWritable:   result.FilesWritable,
 				Data:            result.Data,
@@ -260,7 +266,7 @@ func (s *Scanner) execute() *Result {
 	s.logger.Debugf("Returning scan result.")
 	return &Result{
 		filecrawler.Result{
-			FoldersReadable: result.FilesReadable,
+			FoldersReadable: result.FoldersReadable,
 			FilesReadable:   result.FilesReadable,
 			FilesWritable:   result.FilesWritable,
 			Data:            result.Data,
@@ -312,9 +318,9 @@ func (s *Scanner) crawl() *filecrawler.Result {
 		}
 
 		// Crawl export
-		shareResult, err := s.crawlExport(crawler, export)
-		if err != nil {
-			s.logger.Debugf(utils.TitleFirstLetter(err.Error()))
+		shareResult, errShareResult := s.crawlExport(crawler, export)
+		if errShareResult != nil {
+			s.logger.Debugf(utils.TitleFirstLetter(errShareResult.Error()))
 			continue
 		}
 
@@ -340,9 +346,9 @@ func (s *Scanner) crawlExport(crawler *filecrawler.Crawler, export nfsExport) (*
 	shareResult := &filecrawler.Result{}
 
 	// Try mounting the export to be crawled and create mount point
-	mountPoint, err := s.mountExport(export.name, "")
-	if err != nil {
-		return nil, fmt.Errorf("could not mount export '%s': %s", export.name, err)
+	mountPoint, errMountPoint := s.mountExport(export.name, "")
+	if errMountPoint != nil {
+		return nil, fmt.Errorf("could not mount export '%s': %w", export.name, errMountPoint)
 	}
 
 	// Clean up mounted exports
@@ -401,21 +407,21 @@ func (s *Scanner) crawlExport(crawler *filecrawler.Crawler, export nfsExport) (*
 func (s *Scanner) getExports() []nfsExport {
 
 	// Get all exports that some client mounted, this may discover NFSv3 and NFSv4 exports
-	exportsMounted, errMounted := s.getExportsMounted()
-	if errMounted != nil {
-		s.logger.Debugf("Could not get mounted exports: %s", errMounted)
+	exportsMounted, errExportsMounted := s.getExportsMounted()
+	if errExportsMounted != nil {
+		s.logger.Debugf("Could not get mounted exports: %s", errExportsMounted)
 	}
 
 	// Get all exports exported as NFSv3
-	exportsV3, errV3 := s.getExportsV3()
-	if errV3 != nil {
-		s.logger.Debugf("Could not get NFSv3 exports: %s", errV3)
+	exportsV3, errExportsV3 := s.getExportsV3()
+	if errExportsV3 != nil {
+		s.logger.Debugf("Could not get NFSv3 exports: %s", errExportsV3)
 	}
 
 	// Get all NFSv4 exports (from the NFSv4 export tree)
-	exportsV4, errV4 := s.getExportsV4()
-	if errV4 != nil {
-		s.logger.Debugf("Could not get NFSv4 exports: %s", errV4)
+	exportsV4, errExportsV4 := s.getExportsV4()
+	if errExportsV4 != nil {
+		s.logger.Debugf("Could not get NFSv4 exports: %s", errExportsV4)
 	}
 
 	// Merge NFSv4 exports, without causing duplicates
@@ -449,8 +455,8 @@ func (s *Scanner) getExports() []nfsExport {
 func (s *Scanner) unmountExport(mountPoint string) error {
 
 	// Unmount export using argument array to avoid shell interpretation of the mount point path
-	out, err := execCmd("umount", append(strings.Fields(unmountArgs), mountPoint)...).CombinedOutput()
-	if err != nil {
+	out, errOut := execCmd("umount", append(strings.Fields(unmountArgs), mountPoint)...).CombinedOutput()
+	if errOut != nil {
 		return fmt.Errorf("%s", out)
 	}
 
@@ -466,8 +472,8 @@ func (s *Scanner) getExportsMounted() (map[string][]string, error) {
 	exports := make(map[string][]string)
 
 	// Run command for mounted export enumeration
-	out, err := execCmd("showmount", "-a", s.target).CombinedOutput()
-	if err != nil {
+	out, errOut := execCmd("showmount", "-a", s.target).CombinedOutput()
+	if errOut != nil {
 		return exports, fmt.Errorf("%s", out)
 	}
 
@@ -510,8 +516,8 @@ func (s *Scanner) getExportsV3() (map[string][]string, error) {
 	exports := make(map[string][]string)
 
 	// Run command for export enumeration
-	out, err := execCmd("showmount", "-e", s.target).CombinedOutput()
-	if err != nil {
+	out, errOut := execCmd("showmount", "-e", s.target).CombinedOutput()
+	if errOut != nil {
 		return exports, fmt.Errorf("%s", out)
 	}
 
@@ -530,8 +536,8 @@ func (s *Scanner) getExportsV3() (map[string][]string, error) {
 	return exports, nil
 }
 
-// The "showmount -e" command sometimes returns multiline results for certain exports. This function merges the split
-// lines together for easier processing.
+// sanitizeShowmountOutput merges continuation lines in "showmount -e" output for easier processing.
+// The "showmount -e" command sometimes returns multiline results for certain exports.
 // E.g. for multiline output:
 // /vol1/export 		192.xxx.xxx.xxx, 192.xxx.xxx.xxx,
 //

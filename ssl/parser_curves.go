@@ -1,7 +1,7 @@
 /*
 * GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
 *
-* Copyright (c) Siemens AG, 2016-2025.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -12,6 +12,7 @@ package ssl
 
 import (
 	"fmt"
+
 	gosslyze "github.com/noneymous/GoSslyze"
 )
 
@@ -45,6 +46,7 @@ func parseEllipticInfo(cr *gosslyze.CommandResults) (*Curves, error) {
 	return ellipticInfo, nil
 }
 
+// parseEllipticCurves converts a slice of GoSslyze Curve structs into the internal EllipticCurve representation.
 func parseEllipticCurves(ec []gosslyze.Curve) []EllipticCurve {
 
 	// Parse elliptic curves from GoSslyze

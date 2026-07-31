@@ -33,9 +33,10 @@ import (
 	"github.com/siemens/GoScans/utils"
 )
 
-const Label = "Discovery"
+const Label = "Discovery"           // Scan-module label
 const firewallRuleName = "Nmap-LSD" //lint:ignore U1000 used in discovery_windows.go, invisible on Linux builds
 
+// defaultScriptsOnce ensures the default script list is initialized once
 var defaultScriptsOnce sync.Once
 var defaultScripts = []string{ // List of default scripts to be executed
 	"smb-os-discovery",    // Might leak DNS name information
@@ -49,7 +50,9 @@ var defaultScripts = []string{ // List of default scripts to be executed
 	"ms-sql-ntlm-info",    // Might leak DNS name information
 	"rdp-enum-encryption", // RDP is a common service and this script will enumerate its security settings
 }
-var defaultScriptsMissing []string // List of default scripts missing, to warn about
+
+// defaultScriptsMissing contains unavailable default scripts that require a warning
+var defaultScriptsMissing []string
 
 // Global throttles that need to hold across all parallel scan tasks
 var chThrottleGlobalDns = make(chan struct{}, 100) // Max number of parallel DNS queries
@@ -88,6 +91,7 @@ func CheckSetup(nmapDir, nmapPath string) error {
 	return nil
 }
 
+// Script holds the result of a single Nmap script execution associated with a host or port.
 type Script struct {
 	Type     string
 	Port     int
@@ -96,6 +100,7 @@ type Script struct {
 	Result   string
 }
 
+// Service holds information about a single network service detected on a scanned host.
 type Service struct {
 	Port       int
 	Protocol   string
@@ -111,6 +116,7 @@ type Service struct {
 	Ttl        int    // TTL to Service. If host has ports with different TTL there might be port forwarding active
 }
 
+// Host holds all discovered information about a single scanned network host.
 type Host struct {
 	MacAddress      string
 	Ip              string
@@ -136,6 +142,7 @@ type Host struct {
 	Ad *ad.Ad
 }
 
+// Result holds the complete output of a discovery scan, including all found hosts and a final status.
 type Result struct {
 	Data      []*Host
 	Status    string // Final scan status (success or graceful error). Should be stored along with the scan results.
@@ -144,6 +151,7 @@ type Result struct {
 	// this flag! This flag may Additionally come along with a message put into the status attribute.
 }
 
+// ldapConf groups all LDAP/Active Directory connection parameters passed to a scanner instance.
 type ldapConf struct {
 	ldapServer    string // (Optional) Active Directory server to query host details
 	ldapDomain    string // (Optional) Active Directory access credentials (Domain only required and used as realm for GSSAPI authentication (Kerberos))
@@ -152,6 +160,7 @@ type ldapConf struct {
 	disableGssapi bool   // Flag to disable GssApi
 }
 
+// Scanner wraps an Nmap process and coordinates all host discovery sub-tasks for a single scan run.
 type Scanner struct {
 	Label             string
 	Started           time.Time
@@ -208,7 +217,7 @@ func NewScanner(
 
 		// Resolve hostname's IP addresses and remember associations
 		if utils.IsValidHostname(target) {
-			if ips, err := net.LookupIP(target); err == nil {
+			if ips, errIps := net.LookupIP(target); errIps == nil {
 				for _, ip := range ips {
 					targetsOriginal[ip.String()] = target
 				}
@@ -273,10 +282,10 @@ func NewScanner(
 	ctx, ctxCancel := context.WithCancel(context.Background())
 
 	// Prepare Nmap scan to receive direct feedback in case of errors
-	proc, errNew := nmap.NewScanner(ctx, options...)
-	if errNew != nil {
+	proc, errProc := nmap.NewScanner(ctx, options...)
+	if errProc != nil {
 		ctxCancel()
-		return nil, errNew
+		return nil, errProc
 	}
 
 	// Initiate scanner with sanitized input values
@@ -386,8 +395,8 @@ func (s *Scanner) Run(timeout time.Duration) (res *Result) {
 	return res
 }
 
-// initDefaultScripts checks
-func initDefaultScripts(nmapPath string) (err error) {
+// initDefaultScripts checks which default Nmap scripts are available and removes unsupported ones from the list.
+func initDefaultScripts(nmapPath string) (errScripts error) {
 
 	// Iterate default scripts and remove missing ones
 	defaultScriptsOnce.Do(func() {
@@ -398,19 +407,19 @@ func initDefaultScripts(nmapPath string) (err error) {
 		for _, script := range defaultScripts {
 
 			// Prepare check for script support
-			checkScript, errCheck := nmap.NewScanner(
+			checkScript, errCheckScript := nmap.NewScanner(
 				context.Background(),
 				nmap.WithBinaryPath(nmapPath),
 				nmap.WithScripts(script),
 			)
-			if errCheck != nil {
-				err = fmt.Errorf("could not check script support: %s", errCheck)
+			if errCheckScript != nil {
+				errScripts = fmt.Errorf("could not check script support: %s", errCheckScript)
 				return
 			}
 
 			// Check script support
-			_, _, err = checkScript.Run()
-			if strings.Contains(fmt.Sprintf("%s", err), "did not match a category, filename, or directory") {
+			_, _, errScripts = checkScript.Run()
+			if strings.Contains(fmt.Sprintf("%s", errScripts), "did not match a category, filename, or directory") {
 				scriptsMissing = append(scriptsMissing, script)
 			} else {
 				scriptsAvailable = append(scriptsAvailable, script)
@@ -423,9 +432,10 @@ func initDefaultScripts(nmapPath string) (err error) {
 	})
 
 	// Return nil or error
-	return err
+	return errScripts
 }
 
+// execute runs the Nmap scan and all post-processing steps, returning a Result with all discovered hosts.
 func (s *Scanner) execute() *Result {
 
 	// Declare result variable to be returned
@@ -512,6 +522,9 @@ func (s *Scanner) execute() *Result {
 				exceptionMsg = fmt.Sprintf("Nmap scan failed with unexpected error: %s", errRun)
 			}
 
+			// Log the nmap command for debugging (e.g. exit code 1 gives no other context)
+			s.logger.Debugf("Nmap command: %s %s", s.nmapPath, strings.Join(s.proc.Args(), " "))
+
 			// Log error message
 			s.logger.Errorf(exceptionMsg)
 
@@ -539,7 +552,7 @@ func (s *Scanner) execute() *Result {
 		if len(hostsOt) > 0 && !resultsNmap {
 
 			// Append OT discovery results
-			results = appendMissingOtHosts(s.logger, hostsOt, nil, results)
+			results = appendMissingOtHosts(s.logger, hostsOt, nil, nil, results, s.domainOrder, s.excludeDomains)
 
 			// Return pointer to result struct
 			s.logger.Debugf("Returning OT scan result.")
@@ -603,8 +616,9 @@ func (s *Scanner) execute() *Result {
 	// Prepare wait group for post-processing goroutines
 	var wgHosts sync.WaitGroup
 
-	// Prepare memory of MAC addresses found during port scan
+	// Prepare memory of MAC addresses and IPs found during port scan
 	seenMacs := make(map[string]struct{}, 0)
+	seenIps := make(map[string]struct{}, 0)
 
 	// Read scan result and fill results structure
 	for _, h := range result.Hosts {
@@ -660,24 +674,30 @@ func (s *Scanner) execute() *Result {
 		// Extract host-related data from OT discovery to enrich Nmap scan results.
 		// Devices found during OT discovery but not by Nmap will be injected later.
 		var hostnamesOt []string
+		var otherIpsOt []string
 		if len(hostsOt) > 0 {
 			s.logger.Debugf("Extracting OT data of '%s'.", ip)
 			for _, hostOt := range hostsOt {
-				if (ip != "" && ip == hostOt.Ip) || (macAddress != "" && macAddress == hostOt.MacAddress) {
+				if (ip != "" && utils.StrContained(ip, hostOt.Ips)) || (macAddress != "" && macAddress == hostOt.MacAddress) {
 
-					// Extract hostname from OT results
-					if hostOt.DnsName != "" {
-						hostnamesOt = append(hostnamesOt, hostOt.DnsName)
-					}
+					// Extract hostnames from OT results
+					hostnamesOt = append(hostnamesOt, hostOt.DnsNames...)
 
 					// Extract MAC from OT results, if missing
 					if macAddress == "" {
 						macAddress = hostOt.MacAddress
 					}
 
-					// Extract OS guess from OT results, if missing
+					// Extract OS guesses from OT results, if missing
 					if len(osGuesses) == 0 {
-						osGuesses = []string{hostOt.OsGuess}
+						osGuesses = hostOt.OsGuesses
+					}
+
+					// Extract additional IPs from OT results
+					for _, otIp := range hostOt.Ips {
+						if otIp != ip {
+							otherIpsOt = append(otherIpsOt, otIp)
+						}
 					}
 				}
 			}
@@ -704,7 +724,7 @@ func (s *Scanner) execute() *Result {
 			Ip:              ip,
 			DnsName:         "",         // To be decided later after extracting SANs
 			OtherNames:      hostnames,  // To be updated later after deciding DNS name from it
-			OtherIps:        []string{}, // To be added asynchronously later by OXID Resolver script
+			OtherIps:        otherIpsOt, // Seeded from OT discovery, extended later by OXID Resolver script
 			Hops:            hops,
 			OsGuesses:       osGuesses,
 			OsSmb:           osSmb,
@@ -725,9 +745,12 @@ func (s *Scanner) execute() *Result {
 		// post-processing launched goroutines.
 		results = append(results, &hData)
 
-		// Remember MAC addresses that are now part of the result data
+		// Remember MAC addresses and IPs that are now part of the result data
 		if macAddress != "" {
 			seenMacs[macAddress] = struct{}{}
+		}
+		if ip != "" {
+			seenIps[ip] = struct{}{}
 		}
 
 		// Initiate asynchronous post-processing to collect additional host data.
@@ -756,7 +779,7 @@ func (s *Scanner) execute() *Result {
 
 	// Injecting missing OT discovery hosts
 	if len(hostsOt) > 0 {
-		results = appendMissingOtHosts(s.logger, hostsOt, seenMacs, results)
+		results = appendMissingOtHosts(s.logger, hostsOt, seenMacs, seenIps, results, s.domainOrder, s.excludeDomains)
 	}
 
 	// Return pointer to result struct
@@ -768,49 +791,89 @@ func (s *Scanner) execute() *Result {
 	}
 }
 
-// appendMissingOtHosts iterates available OT scan results and appends them if the same MAC was not seen before.
-func appendMissingOtHosts(logger utils.Logger, hostsOt []ot.Host, seenMacs map[string]struct{}, results []*Host) []*Host {
+// appendMissingOtHosts iterates available OT scan results and appends hosts whose MAC was not seen before.
+// It prefers an IP not already present in the nmap results as the primary IP and runs decideDnsName to
+// sanitize and order the OT-discovered hostnames.
+func appendMissingOtHosts(
+	logger utils.Logger,
+	hostsOt []ot.Host,
+	seenMacs map[string]struct{},
+	seenIps map[string]struct{},
+	results []*Host,
+	domainOrder []string,
+	excludeDomains []string,
+) []*Host {
 
 	// Iterating OT data to inject into results
-	logger.Debugf("Injecting OT data.")
+	logger.Debugf("Appending missing OT data.")
 	for _, hostOt := range hostsOt {
-
-		// Prepare identifier for host
-		identifier := hostOt.DnsName
-		if identifier == "" {
-			identifier = hostOt.Ip
-		}
-		if identifier == "" {
-			identifier = hostOt.MacAddress
-		}
 
 		// Skip injecting hosts with already existing MAC addresses
 		if hostOt.MacAddress != "" {
 			if _, seen := seenMacs[hostOt.MacAddress]; seen {
-				logger.Debugf("Injecting OT data of '%s' skipped. MAC already contained.", hostOt.MacAddress)
+				logger.Debugf("Appending OT data of '%s' skipped. MAC already contained.", hostOt.MacAddress)
 				continue
 			}
 		}
 
+		// Pick a primary IP, preferring one not already in the nmap results to avoid
+		// confusing duplicate rows. Falls back to Ips[0] if all IPs are already seen.
+		primaryIp := ""
+		for _, ip := range hostOt.Ips {
+			if _, seen := seenIps[ip]; !seen { // nil map lookup is always false
+				primaryIp = ip
+				break
+			}
+		}
+		if primaryIp == "" && len(hostOt.Ips) > 0 {
+			primaryIp = hostOt.Ips[0]
+		}
+
+		// Collect remaining IPs
+		var otherIps []string
+		for _, ip := range hostOt.Ips {
+			if ip != primaryIp {
+				otherIps = append(otherIps, ip)
+			}
+		}
+
+		// Prepare identifier for host
+		var identifier string
+		if len(hostOt.MacAddress) > 0 {
+			identifier = hostOt.MacAddress
+		} else if len(hostOt.Ips) > 0 {
+			identifier = hostOt.Ips[0]
+		} else if len(hostOt.DnsNames) > 0 {
+			identifier = hostOt.DnsNames[0]
+		}
+
 		// Inject devices exclusively found via OT discovery
-		logger.Debugf("Injecting OT data of '%s'.", identifier)
-		results = append(results, &Host{
+		logger.Debugf("Appending OT data of '%s'.", identifier)
+		hData := &Host{
 			MacAddress: hostOt.MacAddress,
-			Ip:         hostOt.Ip,
-			DnsName:    hostOt.DnsName,
-			OtherNames: []string{},
-			OtherIps:   []string{},
+			Ip:         primaryIp,
+			OtherNames: hostOt.DnsNames,
+			OtherIps:   otherIps,
 			Hops:       []string{},
-			OsGuesses:  []string{hostOt.OsGuess},
+			OsGuesses:  hostOt.OsGuesses,
 			Services:   []Service{},
 			Scripts:    []Script{},
-		})
+			Ad:         &ad.Ad{},
+		}
+
+		// Decide best DNS name from domain ordering
+		logger.Debugf("Deciding DNS name for '%s'.", identifier)
+		decideDnsName(hData, domainOrder, excludeDomains) // OT names won't resolve, but this sanitizes and sorts OtherNames
+
+		// Append host to results
+		results = append(results, hData)
 	}
 
-	// Return the updated results map
+	// Return the updated results
 	return results
 }
 
+// extractHostData parses Nmap host-level attributes into discovery-ready values including hostnames, hops, OS guesses, and timing data.
 func extractHostData(h nmap.Host) ([]string, []string, []string, time.Time, time.Duration) {
 
 	var hostnames []string
@@ -851,6 +914,7 @@ func extractHostData(h nmap.Host) ([]string, []string, []string, time.Time, time
 	return hostnames, hops, osGuesses, lastBoot, uptime
 }
 
+// extractPortData converts Nmap port entries into Service structs and collects any hostnames embedded in service data.
 func extractPortData(ports []nmap.Port) ([]Service, []string) {
 	services := make([]Service, 0, len(ports))
 	hostnames := make([]string, 0, len(ports))
@@ -895,6 +959,7 @@ func extractPortData(ports []nmap.Port) ([]Service, []string) {
 	return services, hostnames
 }
 
+// extractHostScriptData parses host-level Nmap script results, extracting Script entries, embedded hostnames, and the SMB OS string.
 func extractHostScriptData(hostScripts []nmap.Script) ([]Script, []string, string) {
 	var hostnames []string
 	var osSmb = ""
@@ -936,6 +1001,7 @@ func extractHostScriptData(hostScripts []nmap.Script) ([]Script, []string, strin
 	return scripts, hostnames, osSmb
 }
 
+// extractPortScriptData parses port-level Nmap script results, returning Script entries, embedded hostnames, and the list of SSL-enabled port numbers.
 func extractPortScriptData(ports []nmap.Port) ([]Script, []string, []int) {
 	var hostnames []string
 	var sslPorts []int
@@ -1005,6 +1071,7 @@ func extractPortScriptData(ports []nmap.Port) ([]Script, []string, []int) {
 	return scripts, hostnames, sslPorts
 }
 
+// postprocess enriches a discovered host with DNS name selection, AD data, and admin user lookups in a background goroutine.
 func postprocess(
 	logger utils.Logger,
 	wgHosts *sync.WaitGroup,
@@ -1175,9 +1242,9 @@ func hostExtractUsers(
 	}
 
 	var sidRdp = "S-1-5-32-555"
-	rdpUsers, errRdp := netapi.GetGroupInfo(logger, hData.Ip, sidRdp)
-	if errRdp != nil {
-		logger.Debugf("Could not extract RDP users: %s", errRdp)
+	rdpUsers, errRdpUsers := netapi.GetGroupInfo(logger, hData.Ip, sidRdp)
+	if errRdpUsers != nil {
+		logger.Debugf("Could not extract RDP users: %s", errRdpUsers)
 	}
 
 	// Admin users are always allowed to connect via RDP
@@ -1264,23 +1331,23 @@ func hostExtractSans(
 	for _, port := range ports {
 
 		// Extract SANS from SSL endpoint
-		sans, err := utils.GetSubjectAlternativeNames(ip, port, dialTimeout)
-		if err != nil {
+		sans, errSans := utils.GetSubjectAlternativeNames(ip, port, dialTimeout)
+		if errSans != nil {
 			// Don't warn on connection issues, but warn on unexpected errors during SANs extraction
 			var errNet net.Error
 			var errRecord tls.RecordHeaderError
-			if errors.As(err, &errNet) { // Check if error is connection related (timeout errors count as connection related as well)
+			if errors.As(errSans, &errNet) { // Check if error is connection related (timeout errors count as connection related as well)
 				logger.Debugf(
-					"Post-processing '%s': Could not connect on port %d for subject alternative names extraction: %s", ip, port, err)
-			} else if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) { // Connection closed by other side
+					"Post-processing '%s': Could not connect on port %d for subject alternative names extraction: %s", ip, port, errSans)
+			} else if errors.Is(errSans, io.ErrUnexpectedEOF) || errors.Is(errSans, io.EOF) { // Connection closed by other side
 				logger.Debugf(
-					"Post-processing '%s': Could not establish SSL connection on port %d for subject alternative names extraction: %s", ip, port, err)
-			} else if errors.As(err, &errRecord) {
+					"Post-processing '%s': Could not establish SSL connection on port %d for subject alternative names extraction: %s", ip, port, errSans)
+			} else if errors.As(errSans, &errRecord) {
 				logger.Debugf(
-					"Post-processing '%s': Could not execute SSL handshake on port %d for subject alternative names extraction: %s", ip, port, err)
+					"Post-processing '%s': Could not execute SSL handshake on port %d for subject alternative names extraction: %s", ip, port, errSans)
 			} else { // Otherwise log warning message with details
 				logger.Warningf(
-					"Post-processing '%s': Could not extract subject alternative names on port %d: %s", ip, port, err)
+					"Post-processing '%s': Could not extract subject alternative names on port %d: %s", ip, port, errSans)
 			}
 		}
 
@@ -1519,6 +1586,7 @@ func hostLookupInventory(
 	}
 }
 
+// decideDnsName resolves and assigns the most plausible DNS name for a host based on domain order preferences and exclusions.
 func decideDnsName(hData *Host, domainOrder []string, excludeDomains []string) {
 
 	// Acquire slot to throttle goroutines active in parallel
@@ -1544,6 +1612,7 @@ func decideDnsName(hData *Host, domainOrder []string, excludeDomains []string) {
 	hData.OtherNames = otherNames
 }
 
+// sanitizeDnsNames normalizes, deduplicates, and filters a slice of DNS names according to exclusion rules.
 func sanitizeDnsNames(dnsNames []string, excludeDomains []string) []string {
 
 	// Sanitize input list
@@ -1621,7 +1690,7 @@ func orderDnsNames(dnsNames []string, domainOrder []string) []string {
 		// Sort by toplevel domain. Domain depth of both domains must be equal, after passing above test
 		hostSplitsI := strings.Split(hostI, ".")
 		hostSplitsJ := strings.Split(hostJ, ".")
-		for index := len(hostSplitsI) - 1; i >= 0; i-- {
+		for index := len(hostSplitsI) - 1; index >= 0; index-- {
 			if hostSplitsI[index] < hostSplitsJ[index] {
 				return true
 			} else if hostSplitsI[index] > hostSplitsJ[index] {

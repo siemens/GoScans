@@ -11,6 +11,7 @@
 package smb
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -27,23 +28,23 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// windows constants
-const (
-	StypeDisktree      = 0x00
-	StypeDevice        = 0x02
-	ResourcetypeDisk   = 1
-	MaxPreferredLength = 0xFFFFFFFF
-)
+// Constants for windows
+
+const StypeDisktree = 0x00            // Disk-tree share type
+const StypeDevice = 0x02              // Device share type
+const ResourcetypeDisk = 1            // Disk resource type
+const MaxPreferredLength = 0xFFFFFFFF // Maximum Windows API response length
 
 // enum for file object determination
 const (
-	physicalFile = iota
-	accessibleDir
-	inaccessibleDir
-	excludedDir
-	nilObj
+	physicalFile    = iota // Physical file
+	accessibleDir          // Accessible directory
+	inaccessibleDir        // Inaccessible directory
+	excludedDir            // Excluded directory
+	nilObj                 // Missing object
 )
 
+// shareInfo holds the name, target, UNC path, and DFS flag for a discovered SMB share.
 type shareInfo struct {
 	Name   string
 	Target string
@@ -51,6 +52,7 @@ type shareInfo struct {
 	IsDfs  bool
 }
 
+// dfsIdentifier holds the resolved hostnames and IP addresses of a DFS endpoint for link comparison.
 type dfsIdentifier struct {
 	hostnames []string
 	ips       []string
@@ -79,7 +81,7 @@ func (s *Scanner) crawl() *filecrawler.Result {
 
 	// Enumerate all Shares from the target and abort if any errors occur
 	shares, errShares := s.getShares()
-	if errShares == windows.ERROR_BAD_NETPATH {
+	if errors.Is(errShares, windows.ERROR_BAD_NETPATH) {
 		result.Status = utils.StatusNotReachable
 		s.logger.Debugf("Target '%s' is not reachable: %s", s.target, errShares)
 		return result
@@ -136,9 +138,9 @@ func (s *Scanner) crawl() *filecrawler.Result {
 		}
 
 		// Crawl share
-		shareResult, discoveredShares, err := s.crawlShare(crawler, share, knownShares)
-		if err != nil {
-			s.logger.Debugf(utils.TitleFirstLetter(err.Error()))
+		shareResult, discoveredShares, errCrawlShare := s.crawlShare(crawler, share, knownShares)
+		if errCrawlShare != nil {
+			s.logger.Debugf(utils.TitleFirstLetter(errCrawlShare.Error()))
 			continue
 		}
 
@@ -189,17 +191,16 @@ func (s *Scanner) crawlShare(
 	var dfsIdent dfsIdentifier
 
 	// Connect to share
-	err := s.mountShare(share)
-	if err != nil {
-		err = fmt.Errorf("mounting share '%s' failed: %s", share.Name, err)
-		return nil, nil, err
+	errMount := s.mountShare(share)
+	if errMount != nil {
+		return nil, nil, fmt.Errorf("could not mount share '%s': %w", share.Name, errMount)
 	}
 
 	// Clean up mounted shares
 	defer func() {
-		err = s.unmountShare(share)
-		if err != nil {
-			s.logger.Debugf("Could not unmount share '%s': %s", share.Path, err)
+		errUnmount := s.unmountShare(share)
+		if errUnmount != nil {
+			s.logger.Debugf("Could not unmount share '%s': %s", share.Path, errUnmount)
 			return
 		}
 	}()
@@ -258,9 +259,9 @@ func (s *Scanner) getShares() ([]shareInfo, error) {
 	var buf *byte
 	var entriesRead, totalEntries uint32
 	var shares []shareInfo
-	var targetPtr, err = syscall.UTF16PtrFromString(s.target)
-	if err != nil {
-		return nil, fmt.Errorf("could not convert string to utf16Ptr: %s", err)
+	targetPtr, errTargetPtr := syscall.UTF16PtrFromString(s.target)
+	if errTargetPtr != nil {
+		return nil, fmt.Errorf("could not convert string to utf16Ptr: %w", errTargetPtr)
 	}
 
 	// Get all shares via WinApi call
@@ -270,10 +271,10 @@ func (s *Scanner) getShares() ([]shareInfo, error) {
 	defer func() {
 		// We have to free the buffer only on success or fail with ERROR_MORE_DATA (If this error happens we cannot
 		// extend the memory, since we already used MaxPreferredLength)
-		if errEnum == nil || errEnum == syscall.ERROR_MORE_DATA {
-			err = syscall.NetApiBufferFree(buf)
-			if err != nil {
-				s.logger.Warningf("Freeing allocated net buffer failed: %s", err)
+		if errEnum == nil || errors.Is(errEnum, syscall.ERROR_MORE_DATA) {
+			errFree := syscall.NetApiBufferFree(buf)
+			if errFree != nil {
+				s.logger.Warningf("Could not free allocated net buffer: %s", errFree)
 			}
 		}
 	}()
@@ -286,17 +287,17 @@ func (s *Scanner) getShares() ([]shareInfo, error) {
 	// Max length of array is the max value of the default int of the system, so we go for 32 Bit to be able to run on
 	// 32-Bit architecture windows
 	if entriesRead > math.MaxInt32 {
-		return nil, fmt.Errorf("to many shares on target, found: %d, max: %d", entriesRead, math.MaxInt32)
+		return nil, fmt.Errorf("too many shares on target, found: %d, max: %d", entriesRead, math.MaxInt32)
 	}
 
-	// Do not proceed if we did not found any entries ("buf" will be nil and there will be a panic if we try to
+	// Do not proceed if we did not find any entries ("buf" will be nil and there will be a panic if we try to
 	// convert it)
 	if entriesRead <= 0 {
 		return nil, nil
 	}
 
 	// As seen in the listGroupsForUsernameAndDomain function in os\user\lookup_windows.go. We convert the returned
-	// pointer to a unsafe.Pointer and cast it to an array of SHARE_INFO_1. Then we cut the slice of the right length
+	// pointer to an unsafe.Pointer and cast it to an array of SHARE_INFO_1. Then we cut the slice of the right length
 	entries := (*[math.MaxInt32]windows_systemcalls.SHARE_INFO_1)(unsafe.Pointer(buf))[:entriesRead:entriesRead]
 	for _, entry := range entries {
 
@@ -345,9 +346,9 @@ func (s *Scanner) getShares() ([]shareInfo, error) {
 func (s *Scanner) mountShare(share shareInfo) error {
 
 	// Encode the share path as a UTF-16 pointer
-	sharePathPtr, errPath := syscall.UTF16PtrFromString(share.Path)
-	if errPath != nil {
-		return errPath
+	sharePathPtr, errSharePathPtr := syscall.UTF16PtrFromString(share.Path)
+	if errSharePathPtr != nil {
+		return errSharePathPtr
 	}
 
 	// Prepare user and password pointers (remain nil when no credentials are supplied)
@@ -356,15 +357,15 @@ func (s *Scanner) mountShare(share shareInfo) error {
 
 	// If a user is provided, encode credentials as UTF-16 pointers
 	if s.smbUser != "" {
-		userPtrLocal, errUser := syscall.UTF16PtrFromString(fmt.Sprintf("%s\\%s", s.smbDomain, s.smbUser))
-		if errUser != nil {
-			return errUser
+		userPtrLocal, errUserPtrLocal := syscall.UTF16PtrFromString(fmt.Sprintf("%s\\%s", s.smbDomain, s.smbUser))
+		if errUserPtrLocal != nil {
+			return errUserPtrLocal
 		}
 		userPtr = userPtrLocal
 
-		passwordPtrLocal, errPass := syscall.UTF16PtrFromString(s.smbPassword)
-		if errPass != nil {
-			return errPass
+		passwordPtrLocal, errPasswordPtrLocal := syscall.UTF16PtrFromString(s.smbPassword)
+		if errPasswordPtrLocal != nil {
+			return errPasswordPtrLocal
 		}
 		passwordPtr = passwordPtrLocal
 	}
@@ -388,9 +389,9 @@ func (s *Scanner) mountShare(share shareInfo) error {
 func (s *Scanner) unmountShare(share shareInfo) error {
 
 	// Encode the share path as a UTF-16 pointer
-	sharePathPtr, errPath := syscall.UTF16PtrFromString(share.Path)
-	if errPath != nil {
-		return errPath
+	sharePathPtr, errSharePathPtr := syscall.UTF16PtrFromString(share.Path)
+	if errSharePathPtr != nil {
+		return errSharePathPtr
 	}
 
 	// Disconnect the share
@@ -428,9 +429,10 @@ func (s *Scanner) checkShare(
 	// If share is a DFS than check for all physical content in it. Check also if the location of its target links
 	// (where the data is physically stored) is a share on this target. If we did not have enumerated these shares
 	// earlier, (eg. on samba servers, when it has the "noBrowseable" attribute) we add it to additional shares.
-	entryPoints, sharesDiscovered, foldersCrawled, err := s.crawlDfs(&share, knownShares, dfsIdent)
-	if err != nil {
-		if pErr, ok := err.(*os.PathError); ok && pErr.Err != syscall.ERROR_ACCESS_DENIED {
+	entryPoints, sharesDiscovered, foldersCrawled, errCrawlDfs := s.crawlDfs(&share, knownShares, dfsIdent)
+	if errCrawlDfs != nil {
+		var pErr *os.PathError
+		if errors.As(errCrawlDfs, &pErr) && !errors.Is(pErr.Err, syscall.ERROR_ACCESS_DENIED) {
 			s.logger.Debugf("Could not fully walk DFS share '%s': %s", pErr.Path, pErr.Err)
 		}
 	}
@@ -458,7 +460,7 @@ func (s *Scanner) crawlDfs(
 
 	// Check for every fsObj if it is physically on that location or if it is a DFS link
 	// If it is a DFS link, check on which share it really exists and if we enumerated this share already
-	err := filepath.Walk(share.Path, func(path string, info os.FileInfo, errWalk error) error {
+	errWalkResult := filepath.Walk(share.Path, func(path string, info os.FileInfo, errWalk error) error {
 
 		// Abort if deadline is reached
 		if utils.ContextExpired(s.contextInner) {
@@ -480,21 +482,21 @@ func (s *Scanner) crawlDfs(
 		// Prepare variables
 		var dfsShareInfoPtr *byte
 		var nilPtr1, nilPtr2 *uint16
-		dfsEntryPathPtr, err := syscall.UTF16PtrFromString(path)
-		if err != nil {
-			s.logger.Warningf("Skipping DFS path '%s' because of unknown error: %s", path, err)
+		dfsEntryPathPtr, errDfsEntryPathPtr := syscall.UTF16PtrFromString(path)
+		if errDfsEntryPathPtr != nil {
+			s.logger.Warningf("Skipping DFS path '%s' because of unknown error: %s", path, errDfsEntryPathPtr)
 			return nil
 		}
 
 		// Win Api call returns only no error if the investigated object is a DFS link
-		err = windows_systemcalls.NetDfsGetInfo(dfsEntryPathPtr, nilPtr1, nilPtr2, 3, &dfsShareInfoPtr)
+		errDfsInfo := windows_systemcalls.NetDfsGetInfo(dfsEntryPathPtr, nilPtr1, nilPtr2, 3, &dfsShareInfoPtr)
 
 		// Object is a DFS link, so we check if it does point to shares on the target which we did not have enumerated
-		if err == nil {
+		if errDfsInfo == nil {
 			defer func() {
-				err = syscall.NetApiBufferFree(dfsShareInfoPtr)
-				if err != nil {
-					s.logger.Warningf("Could not free buffer: %s", err)
+				errFree := syscall.NetApiBufferFree(dfsShareInfoPtr)
+				if errFree != nil {
+					s.logger.Warningf("Could not free buffer: %s", errFree)
 				}
 			}()
 
@@ -517,8 +519,8 @@ func (s *Scanner) crawlDfs(
 
 		// The Object is physical if we get the error "E_NOT_SET"
 		// If this is not the case then skip the object and log the unexpected error.
-		if err != windows.E_NOT_SET {
-			s.logger.Debugf("Skipping DFS path '%s' because it might not be physical: %s", path, err)
+		if !errors.Is(errDfsInfo, windows.E_NOT_SET) {
+			s.logger.Debugf("Skipping DFS path '%s' because it might not be physical: %s", path, errDfsInfo)
 			return nil
 		}
 
@@ -547,8 +549,8 @@ func (s *Scanner) crawlDfs(
 	})
 
 	// If an error happens, still return the results we gathered so far
-	if err != nil {
-		return physicalFiles, sharesDiscovered, foldersCrawled, err
+	if errWalkResult != nil {
+		return physicalFiles, sharesDiscovered, foldersCrawled, errWalkResult
 	}
 
 	// Return DFS results
@@ -602,9 +604,9 @@ func (s *Scanner) discoverSharesViaDfs(
 		}
 
 		// Check if share is a DFS share
-		isDfs, err := s.isDfs(serverName, shareName)
-		if err != nil {
-			s.logger.Debugf("Could not determine if '%s' is a DFS share: %s", shareName, err)
+		isDfs, errIsDfs := s.isDfs(serverName, shareName)
+		if errIsDfs != nil {
+			s.logger.Debugf("Could not determine if '%s' is a DFS share: %s", shareName, errIsDfs)
 			continue
 		}
 
@@ -630,9 +632,10 @@ func (s *Scanner) checkFileObj(info os.FileInfo, path string, errWalk error) int
 
 	// Check for a nil info or a non-nil info whose underlying value is a nil value and return accordingly
 	if info == nil || (reflect.ValueOf(info).Kind() == reflect.Ptr && reflect.ValueOf(info).IsNil()) {
-		if pErr, ok := errWalk.(*os.PathError); ok && pErr.Err != syscall.ERROR_ACCESS_DENIED {
+		var pErr *os.PathError
+		if errors.As(errWalk, &pErr) && !errors.Is(pErr.Err, syscall.ERROR_ACCESS_DENIED) {
 			s.logger.Debugf("Could not get file info of '%s': %s", pErr.Path, pErr.Err)
-		} else if !ok {
+		} else if !errors.As(errWalk, &pErr) {
 			s.logger.Debugf("Could not get file info of '%s': %s", path, errWalk)
 		}
 		return nilObj
@@ -650,9 +653,10 @@ func (s *Scanner) checkFileObj(info os.FileInfo, path string, errWalk error) int
 	}
 
 	// Check if it is accessible and return result
+	var pErr *os.PathError
 	if errWalk == nil {
 		return accessibleDir
-	} else if pErr, ok := errWalk.(*os.PathError); ok && pErr.Err != syscall.ERROR_ACCESS_DENIED {
+	} else if errors.As(errWalk, &pErr) && !errors.Is(pErr.Err, syscall.ERROR_ACCESS_DENIED) {
 		return accessibleDir
 	} else {
 		return inaccessibleDir
@@ -663,21 +667,22 @@ func (s *Scanner) checkFileObj(info os.FileInfo, path string, errWalk error) int
 func (s *Scanner) isDfs(target string, shareName string) (bool, error) {
 
 	// Prepare memory
-	targetPtr, err := syscall.UTF16PtrFromString(target)
-	if err != nil {
-		return false, err
+	targetPtr, errTargetPtr := syscall.UTF16PtrFromString(target)
+	if errTargetPtr != nil {
+		return false, errTargetPtr
 	}
-	shareNamePtr, err := syscall.UTF16PtrFromString(shareName)
-	if err != nil {
-		return false, err
+	shareNamePtr, errShareNamePtr := syscall.UTF16PtrFromString(shareName)
+	if errShareNamePtr != nil {
+		return false, errShareNamePtr
 	}
 
 	// Use Win Api function to get info about the share
 	var shareInfoPtr *byte
-	err = windows_systemcalls.NetShareGetInfo(targetPtr, shareNamePtr, 1005, &shareInfoPtr)
-	if err != nil {
-		return false, err
+	errInfo := windows_systemcalls.NetShareGetInfo(targetPtr, shareNamePtr, 1005, &shareInfoPtr)
+	if errInfo != nil {
+		return false, errInfo
 	}
+	defer func() { _ = syscall.NetApiBufferFree(shareInfoPtr) }()
 	info := (*windows_systemcalls.SHARE_INFO_1005)(unsafe.Pointer(shareInfoPtr))
 
 	// Check flags to determine if it is a DFS share
@@ -715,9 +720,9 @@ func (s *Scanner) extractDfsIdentifier() dfsIdentifier {
 	}
 
 	// If it is a hostname, then lookup corresponding IPs
-	resolvedIps, err := net.LookupIP(s.target)
-	if err != nil {
-		s.logger.Debugf("Could not lookup IP of '%s' hindering finding hidden shares: %s", s.target, err)
+	resolvedIps, errResolvedIps := net.LookupIP(s.target)
+	if errResolvedIps != nil {
+		s.logger.Debugf("Could not lookup IP of '%s' hindering finding hidden shares: %s", s.target, errResolvedIps)
 	}
 
 	// Translate resolved IPs into strings

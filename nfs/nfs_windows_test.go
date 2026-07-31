@@ -119,9 +119,9 @@ func TestScanner_GetExportsV4_ReturnsEmptyOnWindows(t *testing.T) {
 	}
 
 	// Verify getExportsV4 returns empty map with no error
-	got, err := s.getExportsV4()
-	if err != nil {
-		t.Errorf("getExportsV4() error = '%v', want = 'nil'", err)
+	got, errGot := s.getExportsV4()
+	if errGot != nil {
+		t.Errorf("getExportsV4() error = '%v', want = 'nil'", errGot)
 		return
 	}
 	if len(got) != 0 {

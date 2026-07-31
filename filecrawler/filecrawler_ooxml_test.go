@@ -32,9 +32,9 @@ func test_buildOOXMLZip(t *testing.T, xmlBody []byte) string {
 	// Build the zip in memory
 	var buf bytes.Buffer
 	zipWriter := zip.NewWriter(&buf)
-	entryWriter, errEntry := zipWriter.Create(OOXMLCustomPropertiesFile)
-	if errEntry != nil {
-		t.Fatalf("test_buildOOXMLZip() could not create zip entry: '%v'", errEntry)
+	entryWriter, errEntryWriter := zipWriter.Create(OOXMLCustomPropertiesFile)
+	if errEntryWriter != nil {
+		t.Fatalf("test_buildOOXMLZip() could not create zip entry: '%v'", errEntryWriter)
 	}
 	_, errWrite := entryWriter.Write(xmlBody)
 	if errWrite != nil {
@@ -46,9 +46,9 @@ func test_buildOOXMLZip(t *testing.T, xmlBody []byte) string {
 	}
 
 	// Write to a temp file in the current directory (already isolated by TestMain)
-	tmpFile, errTmp := os.CreateTemp(".", "ooxml-test-*.docx")
-	if errTmp != nil {
-		t.Fatalf("test_buildOOXMLZip() could not create temp file: '%v'", errTmp)
+	tmpFile, errTmpFile := os.CreateTemp(".", "ooxml-test-*.docx")
+	if errTmpFile != nil {
+		t.Fatalf("test_buildOOXMLZip() could not create temp file: '%v'", errTmpFile)
 	}
 	_, errTmpWrite := tmpFile.Write(buf.Bytes())
 	if errTmpWrite != nil {
@@ -81,7 +81,7 @@ func TestGetOOXMLProperties_OversizedCustomXml_ReturnsError(t *testing.T) {
 	runtime.ReadMemStats(&memBefore)
 
 	// Prepare and run test cases
-	got, err := getOOXMLProperties(zipPath, utils.NewTestLogger())
+	got, errGot := getOOXMLProperties(zipPath, utils.NewTestLogger())
 
 	// Capture post-call allocation for the coarse memory cap guard
 	runtime.GC()
@@ -89,13 +89,13 @@ func TestGetOOXMLProperties_OversizedCustomXml_ReturnsError(t *testing.T) {
 	runtime.ReadMemStats(&memAfter)
 
 	// Verify: a non-nil error must be returned
-	if err == nil {
+	if errGot == nil {
 		t.Errorf("getOOXMLProperties() error = nil, want non-nil for oversized custom.xml")
 	}
 
 	// Verify: error message must mention the size limit
-	if err != nil && !strings.Contains(err.Error(), "exceeds") {
-		t.Errorf("getOOXMLProperties() error = '%v', want message containing 'exceeds'", err)
+	if errGot != nil && !strings.Contains(errGot.Error(), "exceeds") {
+		t.Errorf("getOOXMLProperties() error = '%v', want message containing 'exceeds'", errGot)
 	}
 
 	// Verify: nil result on error
@@ -129,11 +129,11 @@ func TestGetOOXMLProperties_SmallCustomXml_ReturnsProperties(t *testing.T) {
 	defer func() { _ = os.Remove(zipPath) }()
 
 	// Prepare and run test cases
-	got, err := getOOXMLProperties(zipPath, utils.NewTestLogger())
+	got, errGot := getOOXMLProperties(zipPath, utils.NewTestLogger())
 
 	// Verify: no error for a well-formed small file
-	if err != nil {
-		t.Fatalf("getOOXMLProperties() error = '%v', want nil", err)
+	if errGot != nil {
+		t.Fatalf("getOOXMLProperties() error = '%v', want nil", errGot)
 	}
 
 	// Verify: one property is returned with correct name and value

@@ -20,9 +20,9 @@ import (
 func TestDeleteMountPoint_EmptyDir_RemovesDir(t *testing.T) {
 
 	// Prepare unit test data
-	dir, errMkdir := os.MkdirTemp(".", "test-mount-point-*")
-	if errMkdir != nil {
-		t.Errorf("MkdirTemp() error = '%v'", errMkdir)
+	dir, errDir := os.MkdirTemp(".", "test-mount-point-*")
+	if errDir != nil {
+		t.Errorf("MkdirTemp() error = '%v'", errDir)
 		return
 	}
 
@@ -80,9 +80,9 @@ func TestExecWithUserInput_ValidCommand_ReturnsOutput(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 
 			// Verify command executes successfully and output contains expected substring
-			out, err := execWithUserInput(tt.cmd, []string{})
-			if err != nil {
-				t.Errorf("execWithUserInput() error = '%v', want = 'nil'", err)
+			out, errOut := execWithUserInput(tt.cmd, []string{})
+			if errOut != nil {
+				t.Errorf("execWithUserInput() error = '%v', want = 'nil'", errOut)
 				return
 			}
 			if tt.wantSubstring != "" && !strings.Contains(out, tt.wantSubstring) {
@@ -113,8 +113,8 @@ func TestExecWithUserInput_InvalidCommand_ReturnsError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 
 			// Verify error is returned for a failing command
-			_, err := execWithUserInput(tt.cmd, []string{})
-			if err == nil {
+			_, errExecWithUserInput := execWithUserInput(tt.cmd, []string{})
+			if errExecWithUserInput == nil {
 				t.Errorf("execWithUserInput() error = 'nil', want = 'non-nil' for cmd '%v'", tt.cmd)
 			}
 		})

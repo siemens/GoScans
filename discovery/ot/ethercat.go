@@ -17,28 +17,28 @@ import (
 	"strings"
 	"time"
 
+	"github.com/siemens/GoScans/discovery/ot/rawsocket"
 	"github.com/siemens/GoScans/utils"
 )
 
-const (
-	ethercatEtherType     = 0x88A4
-	ethercatBrdCommand    = 0x07 // BRD — Broadcast Read
-	ethercatListenTimeout = 5 * time.Second
-)
+const ethercatEtherType = 0x88A4              // Ethernet protocol type for EtherCAT
+const ethercatBrdCommand = 0x07               // BRD — Broadcast Read
+const ethercatListenTimeout = 5 * time.Second // Time allowed for EtherCAT responses
 
+// ethercatBroadcast stores the Ethernet broadcast address used for EtherCAT discovery
 var ethercatBroadcast = net.HardwareAddr{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
 
 // ScanEthercat sends an EtherCAT broadcast read and collects responding slaves.
 func ScanEthercat(logger utils.Logger, iface string) ([]Host, error) {
 
 	// Open raw socket on the interface
-	ifi, errIf := net.InterfaceByName(iface)
-	if errIf != nil {
-		return nil, fmt.Errorf("could not find interface '%s': %w", iface, errIf)
+	ifi, errIfi := net.InterfaceByName(iface)
+	if errIfi != nil {
+		return nil, fmt.Errorf("could not find interface '%s': %w", iface, errIfi)
 	}
 
 	// Bind an Ethernet raw socket for the EtherCAT EtherType on the found interface
-	conn, errConn := openRawEthernetSocket(ifi, ethercatEtherType)
+	conn, errConn := rawsocket.OpenEthernetSocket(ifi, ethercatEtherType)
 	if errConn != nil {
 		return nil, fmt.Errorf("could not open raw socket on '%s': %w", iface, errConn)
 	}
@@ -63,9 +63,9 @@ func ScanEthercat(logger utils.Logger, iface string) ([]Host, error) {
 	// Receive loop: read raw frames until the deadline elapses
 	buf := make([]byte, 1500)
 	for time.Now().Before(deadline) {
-		n, errRead := conn.Read(buf)
-		if errRead != nil {
-			if netErr, ok := errRead.(net.Error); ok && netErr.Timeout() {
+		n, errN := conn.Read(buf)
+		if errN != nil {
+			if netErr, ok := errN.(net.Error); ok && netErr.Timeout() {
 				break
 			}
 			continue
@@ -92,9 +92,9 @@ func ScanEthercat(logger utils.Logger, iface string) ([]Host, error) {
 		// Record the EtherCAT slave with its source MAC
 		host := Host{
 			MacAddress: srcMac,
-			OsGuess:    "EtherCAT Slave",
+			OsGuesses:  []string{"EtherCAT Slave"},
 		}
-		logger.Debugf("EtherCAT response from '%s'.", srcMac)
+		logger.Debugf("EtherCAT response: MAC '%s'.", srcMac)
 		hosts = append(hosts, host)
 	}
 

@@ -32,7 +32,7 @@ func Test_NewScanner(t *testing.T) {
 	// local dev without SSLyze (wantErr=true for "valid").
 	sslyzeAvailable := false
 	if testSettings.PathPython != "" {
-		if _, err := exec.Command(testSettings.PathPython, "-m", "sslyze", "--help").CombinedOutput(); err == nil {
+		if _, errCombinedOutput := exec.Command(testSettings.PathPython, "-m", "sslyze", "--help").CombinedOutput(); errCombinedOutput == nil {
 			sslyzeAvailable = true
 		}
 	}
@@ -77,10 +77,10 @@ func Test_NewScanner(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewScanner(testLogger, tt.args.pythonPath, tt.args.customTruststore, tt.args.target,
+			_, errNewScanner := NewScanner(testLogger, tt.args.pythonPath, tt.args.customTruststore, tt.args.target,
 				tt.args.port, tt.args.vhosts)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("NewScanner() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			if (errNewScanner != nil) != tt.wantErr {
+				t.Errorf("NewScanner() error = '%v', wantErr = '%v'", errNewScanner, tt.wantErr)
 				return
 			}
 		})

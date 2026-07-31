@@ -32,13 +32,8 @@ type CipherInfo struct {
 	Export      bool           `json:"export"`       // export indicator, if the string is not empty it's an exportable cipher
 }
 
-// Cipher preferences
-const (
-	CipherPreferenceClient = "client"
-	CipherPreferenceServer = "server"
-)
-
-type Protocol uint8
+const CipherPreferenceClient = "client" // Client-selected cipher preference
+const CipherPreferenceServer = "server" // Server-selected cipher preference
 
 const (
 	PROTO_Unknown Protocol = iota //
@@ -50,12 +45,13 @@ const (
 	Tlsv1_3                       // TLSv1.3
 )
 
+// Protocol identifies a supported SSL or TLS protocol version
+type Protocol uint8
+
+// IsValidProtocol reports whether the Protocol has a known, non-unknown value.
 func IsValidProtocol(p Protocol) bool {
 	return p > 0 && p <= Tlsv1_3
 }
-
-// KeyExchange represents algorithms used for the key exchange.
-type KeyExchange uint8
 
 // KEX_ECMQV: https://tools.ietf.org/html/draft-campagna-tls-ecmqv-ecqv-01
 // KEX_GOSTR341001: elliptic curve version
@@ -76,14 +72,20 @@ const (
 	KEX_TLSv1_3                             // (EC)DHE / PSK / PSK + (EC)DHE
 )
 
+// KeyExchange represents algorithms used for the key exchange.
+type KeyExchange uint8
+
+// IsValidKeyExchange reports whether the KeyExchange has a known, non-zero value.
 func IsValidKeyExchange(k KeyExchange) bool {
 	return k > 0 && k <= KEX_TLSv1_3
 }
 
+// providesForwardSecrecy reports whether the key exchange algorithm provides forward secrecy.
 func (k KeyExchange) providesForwardSecrecy() bool {
 	return k == KEX_DHE || k == KEX_ECDHE || k == KEX_ECMQV
 }
 
+// getStrength returns the effective security strength in bits for the given key size.
 func (k KeyExchange) getStrength(size uint64) (float64, error) {
 	if size <= 0 {
 		return 0, fmt.Errorf("key size has to be greater than 0, is %d", size)
@@ -108,9 +110,6 @@ func (k KeyExchange) getStrength(size uint64) (float64, error) {
 	}
 }
 
-// Authentication represents algorithms used to authenticate the server and optionally client.
-type Authentication uint8
-
 // AUTH_GOSTR341001: elliptic curve version
 const (
 	AUTH_NONE         Authentication = iota + 1 // No authentication
@@ -127,12 +126,13 @@ const (
 	AUTH_SRP_SHA                                // SRP_SHA
 )
 
+// Authentication represents algorithms used to authenticate the server and optionally client.
+type Authentication uint8
+
+// IsValidAuthentication reports whether the Authentication has a known, non-zero value.
 func IsValidAuthentication(auth Authentication) bool {
 	return auth > 0 && auth <= AUTH_SRP_SHA
 }
-
-// Encryption algorithms
-type Encryption uint8
 
 const (
 	ENC_NONE       Encryption = iota + 1 // No encryption
@@ -152,13 +152,17 @@ const (
 	ENC_CHACHA20 // ChaCha20
 )
 
+// Encryption represents an encryption algorithm used by a cipher suite
+type Encryption uint8
+
+// IsValidEncryption reports whether the Encryption has a known, non-zero value.
 func IsValidEncryption(enc Encryption) bool {
 	return enc > 0 && enc <= ENC_CHACHA20
 }
 
-// IsBlockCipher return true if the cipher is a block cipher.
+// isBlockCipher returns true if the cipher is a block cipher.
 // CAUTION: A 'false' return value does not guarantee for the encryption to be a stream cipher. It could also be
-// 'ENC_NONE' or an unknown encryption!
+// 'ENC_NONE' or an unknown encryption.
 func (e Encryption) isBlockCipher() bool {
 	switch e {
 	case ENC_DES, ENC_RC2, ENC_TRIPLE_DES, ENC_SKIPJACK, ENC_SEED,
@@ -169,9 +173,9 @@ func (e Encryption) isBlockCipher() bool {
 	}
 }
 
-// IsStreamCipher return true if the cipher is a stream cipher.
+// isStreamCipher returns true if the cipher is a stream cipher.
 // CAUTION: A 'false' return value does not guarantee for the encryption to be a block cipher. It could also be
-// 'ENC_NONE' or an unknown encryption!
+// 'ENC_NONE' or an unknown encryption.
 func (e Encryption) isStreamCipher() bool {
 	switch e {
 	case ENC_RC4, ENC_CHACHA20:
@@ -181,7 +185,7 @@ func (e Encryption) isStreamCipher() bool {
 	}
 }
 
-// BlockSize returns the block size, 0 else
+// getBlockSize returns the block size of the encryption algorithm in bits, or 0 if not applicable.
 func (e Encryption) getBlockSize() int {
 	switch e {
 	case ENC_DES, ENC_RC2, ENC_TRIPLE_DES, ENC_SKIPJACK, ENC_IDEA, ENC_GOST28147:
@@ -193,8 +197,8 @@ func (e Encryption) getBlockSize() int {
 	}
 }
 
-// Strength returns the strength of the encryption. This is relying on the key size. We can't derive the it from the
-// encryption's name, As some encryption algorithms have a variable key size. That's why we get it from our mapping.
+// getStrength returns the effective strength of the encryption. This relies on the key size, as some encryption
+// algorithms have a variable key size and a fixed strength adjustment (e.g. 3DES).
 func (e Encryption) getStrength(keySize int) int {
 	if e == ENC_NONE {
 		return 0
@@ -207,9 +211,6 @@ func (e Encryption) getStrength(keySize int) int {
 	return keySize
 }
 
-// EncryptionMode represents modes of operation for block ciphers.
-type EncryptionMode uint8
-
 // CNT mode for GOST ciphers, see https://tools.ietf.org/html/rfc5830#page-6
 const (
 	ENC_M_NONE     EncryptionMode = iota + 1 // No encryption mode
@@ -221,12 +222,13 @@ const (
 	ENC_M_CNT                                // CNT
 )
 
+// EncryptionMode represents modes of operation for block ciphers.
+type EncryptionMode uint8
+
+// IsValidEncryptionMode reports whether the EncryptionMode has a known, non-zero value.
 func IsValidEncryptionMode(encMode EncryptionMode) bool {
 	return encMode > 0 && encMode <= ENC_M_CNT
 }
-
-// Mac represents hash algorithms used for message authentication codes.
-type Mac uint8
 
 const (
 	MAC_AEAD        Mac = iota + 1 // AEAD
@@ -245,11 +247,15 @@ const (
 	MAC_BLAKE2S                    // BLAKE2s
 )
 
+// Mac represents hash algorithms used for message authentication codes.
+type Mac uint8
+
+// IsValidMac reports whether the Mac has a known, non-zero value.
 func IsValidMac(m Mac) bool {
 	return m > 0 && m <= MAC_BLAKE2S
 }
 
-// GetDigestSize returns the digest size. In the case of Blake2* the digest size is variable and the maximum of 512 is
+// getDigestSize returns the digest size. In the case of Blake2* the digest size is variable and the maximum of 512 is
 // returned. The digest size is also used for computing the strength of the message authentication mode.
 func (m Mac) getDigestSize() int {
 	switch m {
@@ -270,13 +276,10 @@ func (m Mac) getDigestSize() int {
 	}
 }
 
-// GetStrength returns the computed hash based mac strength.
+// getHmacStrength returns the computed hash-based MAC strength in bits.
 func (m Mac) getHmacStrength() int {
 	return m.getDigestSize()
 }
-
-// Prf represents hash algorithms used as pseudo-random functions.
-type Prf uint8
 
 const (
 	PRF_NONE      Prf = iota + 1 //
@@ -293,11 +296,15 @@ const (
 	PRF_BLAKE2S                  // BLAKE2s
 )
 
+// Prf represents hash algorithms used as pseudo-random functions.
+type Prf uint8
+
+// IsValidPrf reports whether the Prf has a known, non-zero value.
 func IsValidPrf(p Prf) bool {
 	return p > 0 && p <= PRF_BLAKE2S
 }
 
-// GetDigestSize returns the digest size. In the case of Blake2* the digest size is variable and the maximum of 512 is
+// getDigestSize returns the digest size. In the case of Blake2* the digest size is variable and the maximum of 512 is
 // returned. The digest size is also used as the hmac strength.
 func (p Prf) getDigestSize() int {
 	switch p {
@@ -318,7 +325,7 @@ func (p Prf) getDigestSize() int {
 	}
 }
 
-// GetStrength returns the computed hash based mac strength.
+// getHmacStrength returns the computed hash-based PRF strength in bits.
 func (p Prf) getHmacStrength() int {
 	return p.getDigestSize()
 }

@@ -17,7 +17,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/logrusorgru/aurora"
+	"github.com/logrusorgru/aurora/v4"
 	"github.com/mohae/deepcopy"
 	nucleiconfig "github.com/projectdiscovery/nuclei/v3/pkg/catalog/config"
 	nucleidisk "github.com/projectdiscovery/nuclei/v3/pkg/catalog/disk"
@@ -33,6 +33,7 @@ import (
 	"github.com/siemens/GoScans/utils"
 )
 
+// portRegex matches port specifications in Nuclei templates
 var portRegex = regexp.MustCompile(`:(\d+)`)
 
 // walkTemplates walks the files and folders within the template path to identify, load and parse template files.
@@ -43,24 +44,6 @@ func walkTemplates(
 	pathTemplates string,
 	fnWalkCallback func(tplPath string, tpl *nucleitemplates.Template) error,
 ) error {
-
-	// Define top-level folders to ignore when walking the template path directory
-	ignoreFolders := map[string]struct{}{
-		".github":   {},
-		"cloud":     {},
-		"code":      {},
-		"dast":      {},
-		"file":      {},
-		"helpers":   {},
-		"profiles":  {},
-		"workflows": {},
-	}
-
-	// Define files to ignore when walking the template path directory
-	ignoreFiles := map[string]struct{}{
-		".pre-commit-config.yml": {},
-		"wappalyzer-mapping.yml": {},
-	}
 
 	// Build minimal options for template parsing: no output, no downloads, no updates
 	options := &nucleitypes.Options{
@@ -90,7 +73,7 @@ func walkTemplates(
 	}
 
 	// Walk templates recursively
-	err := filepath.Walk(pathTemplatesAbs, func(tplPath string, tplPathInfo os.FileInfo, err error) error {
+	errWalk := filepath.Walk(pathTemplatesAbs, func(tplPath string, tplPathInfo os.FileInfo, err error) error {
 
 		// Check if err holds an error now
 		if err != nil {
@@ -100,18 +83,13 @@ func walkTemplates(
 		// If the current path is a directory, check if it's an ignored top-level folder
 		if tplPathInfo.IsDir() {
 
-			// Compute path relative to template path
-			tplPathRel, errTplPathRel := filepath.Rel(pathTemplatesAbs, tplPath)
-			if errTplPathRel != nil {
-				return errTplPathRel
+			// Skip ignored top level folders while their subtree stays untouched
+			ignored, errIgnored := templateDirIgnored(pathTemplatesAbs, tplPath)
+			if errIgnored != nil {
+				return errIgnored
 			}
-
-			// Check if first directory is contained on list of folders to be ignored
-			parts := strings.Split(tplPathRel, string(os.PathSeparator))
-			if len(parts) > 0 {
-				if _, ok := ignoreFolders[parts[0]]; ok {
-					return filepath.SkipDir // SkipDir error will not cause walk to abort but tell it to ignore this path
-				}
+			if ignored {
+				return filepath.SkipDir // SkipDir error will not cause walk to abort but tell it to ignore this path
 			}
 
 			// Continue walking
@@ -119,8 +97,7 @@ func walkTemplates(
 		}
 
 		// Skip non-YAML or ignored files
-		_, skip := ignoreFiles[tplPathInfo.Name()]
-		if skip || (!strings.HasSuffix(tplPathInfo.Name(), ".yaml") && !strings.HasSuffix(tplPathInfo.Name(), ".yml")) {
+		if !templateFileSupported(tplPathInfo.Name()) {
 			return nil
 		}
 
@@ -136,7 +113,7 @@ func walkTemplates(
 	})
 
 	// Return result
-	return err
+	return errWalk
 }
 
 // splitTemplates iterates Nuclei templates and splits files targeting multiple ports
@@ -557,9 +534,9 @@ func splitTemplateHttp(logger utils.Logger, path string, tpl *nucleitemplates.Te
 
 // writeTemplate writes a template to disk using its MarshalYAML representation.
 func writeTemplate(tpl *nucleitemplates.Template, outPath string) error {
-	data, err := tpl.MarshalYAML()
-	if err != nil {
-		return fmt.Errorf("could not marshal template %s: %w", tpl.ID, err)
+	data, errData := tpl.MarshalYAML()
+	if errData != nil {
+		return fmt.Errorf("could not marshal template %s: %w", tpl.ID, errData)
 	}
 	return os.WriteFile(outPath, data, 0o644)
 }
@@ -567,8 +544,10 @@ func writeTemplate(tpl *nucleitemplates.Template, outPath string) error {
 // noopWriter satisfies output.Writer with no side effects. It is used only during template parsing.
 type noopWriter struct{}
 
-func (*noopWriter) Close()                                                 {}
-func (*noopWriter) Colorizer() aurora.Aurora                               { return aurora.NewAurora(false) }
+func (*noopWriter) Close() {}
+func (*noopWriter) Colorizer() *aurora.Aurora {
+	return aurora.New(aurora.WithColors(false), aurora.WithHyperlinks(false))
+}
 func (*noopWriter) Write(*nulcleioutput.ResultEvent) error                 { return nil }
 func (*noopWriter) WriteFailure(*nulcleioutput.InternalWrappedEvent) error { return nil }
 func (*noopWriter) Request(string, string, string, error)                  {}

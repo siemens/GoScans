@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	_test "github.com/siemens/GoScans/_test"
+	"github.com/siemens/GoScans/_test"
 	"github.com/siemens/GoScans/utils"
 )
 
@@ -27,9 +27,9 @@ func TestMain(m *testing.M) {
 	_test.GetSettings()
 
 	// Prepare test directory
-	tmpDir, errTmp := os.MkdirTemp(".", "goscans-nfs-test-*")
-	if errTmp != nil {
-		panic(errTmp)
+	tmpDir, errTmpDir := os.MkdirTemp(".", "goscans-nfs-test-*")
+	if errTmpDir != nil {
+		panic(errTmpDir)
 	}
 	if errChdir := os.Chdir(tmpDir); errChdir != nil {
 		panic(errChdir)
@@ -81,12 +81,12 @@ func TestNewScanner_InvalidTarget_ReturnsError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 
 			// Verify error is returned for invalid target
-			_, err := NewScanner(
+			_, errNewScanner := NewScanner(
 				testLogger, tt.args.target, 5, 1,
 				nil, nil, nil,
 				time.Time{}, 0, false, 5*time.Second,
 			)
-			if err == nil {
+			if errNewScanner == nil {
 				t.Errorf("NewScanner() error = 'nil', wantErr = 'true' for target '%v'", tt.args.target)
 			}
 		})
@@ -128,13 +128,13 @@ func TestNewScanner_ValidTarget_CreatesScanner(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 
 			// Verify scanner is created without error
-			scanner, err := NewScanner(
+			scanner, errScanner := NewScanner(
 				testLogger, tt.args.target, 5, 1,
 				nil, nil, nil,
 				time.Time{}, 0, false, 5*time.Second,
 			)
-			if err != nil {
-				t.Errorf("NewScanner() error = '%v', wantErr = 'false' for target '%v'", err, tt.args.target)
+			if errScanner != nil {
+				t.Errorf("NewScanner() error = '%v', wantErr = 'false' for target '%v'", errScanner, tt.args.target)
 				return
 			}
 			if scanner == nil {
@@ -152,13 +152,13 @@ func TestNewScanner_FieldsStoredCorrectly_MatchInputArgs(t *testing.T) {
 	excludedTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 
 	// Create scanner with non-default values to verify storage
-	scanner, err := NewScanner(
+	scanner, errScanner := NewScanner(
 		testLogger, "192.0.2.1", 7, 4,
 		nil, nil, nil,
 		excludedTime, 1024, true, 10*time.Second,
 	)
-	if err != nil {
-		t.Errorf("NewScanner() error = '%v'", err)
+	if errScanner != nil {
+		t.Errorf("NewScanner() error = '%v'", errScanner)
 		return
 	}
 
@@ -223,13 +223,13 @@ func TestNewScanner_ExcludedShareNormalization_AddsSlashPrefix(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 
 			// Create scanner to trigger share normalization
-			scanner, err := NewScanner(
+			scanner, errScanner := NewScanner(
 				testLogger, "192.0.2.1", 5, 1,
 				tt.excludedShares, nil, nil,
 				time.Time{}, 0, false, 5*time.Second,
 			)
-			if err != nil {
-				t.Errorf("NewScanner() error = '%v'", err)
+			if errScanner != nil {
+				t.Errorf("NewScanner() error = '%v'", errScanner)
 				return
 			}
 
@@ -274,13 +274,13 @@ func TestScanner_SetContext_SetsOnFirstCallOnly(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 
 			// Create scanner and set a first context
-			scanner, err := NewScanner(
+			scanner, errScanner := NewScanner(
 				testLogger, "192.0.2.1", 5, 1,
 				nil, nil, nil,
 				time.Time{}, 0, false, 5*time.Second,
 			)
-			if err != nil {
-				t.Errorf("NewScanner() error = '%v'", err)
+			if errScanner != nil {
+				t.Errorf("NewScanner() error = '%v'", errScanner)
 				return
 			}
 
@@ -485,13 +485,13 @@ func TestScanner_Label_MatchesPackageConstant(t *testing.T) {
 	testLogger := utils.NewTestLogger()
 
 	// Create scanner to verify label initialization
-	scanner, err := NewScanner(
+	scanner, errScanner := NewScanner(
 		testLogger, "192.0.2.1", 5, 1,
 		nil, nil, nil,
 		time.Time{}, 0, false, 5*time.Second,
 	)
-	if err != nil {
-		t.Errorf("NewScanner() error = '%v'", err)
+	if errScanner != nil {
+		t.Errorf("NewScanner() error = '%v'", errScanner)
 		return
 	}
 
@@ -537,13 +537,13 @@ func TestScanner_ExcludedShareLookup_IsCaseInsensitive(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 
 			// Create scanner with the supplied excluded shares
-			scanner, err := NewScanner(
+			scanner, errScanner := NewScanner(
 				testLogger, "192.0.2.1", 5, 1,
 				tt.excludedShares, nil, nil,
 				time.Time{}, 0, false, 5*time.Second,
 			)
-			if err != nil {
-				t.Errorf("NewScanner() error = '%v'", err)
+			if errScanner != nil {
+				t.Errorf("NewScanner() error = '%v'", errScanner)
 				return
 			}
 

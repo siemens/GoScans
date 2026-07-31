@@ -13,23 +13,26 @@ package webcrawler
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/siemens/GoScans/utils"
 )
 
-const Label = "Webcrawler"
-const fingerprintBodySimilarity = 200
+const Label = "Webcrawler"            // Scan-module label
+const fingerprintBodySimilarity = 200 // Response-body prefix length used for fingerprinting
 
-const dlFileName = "download_urls.csv"
-const dlFileHeader = "Date;URL;Required Host Header"
-const timestampFormat = "2006-01-02 15:04:05.123 -0700"
+const dlFileName = "download_urls.csv"                  // Download-list filename
+const dlFileHeader = "Date;URL;Required Host Header"    // Download-list CSV header
+const timestampFormat = "2006-01-02 15:04:05.123 -0700" // Download-list timestamp layout
 
 // Setup configures the environment accordingly, if the scan module has some special requirements. A successful setup
 // is required before a scan can be started.
@@ -42,6 +45,7 @@ func CheckSetup() error {
 	return nil
 }
 
+// Result wraps the collected crawl results for all vhosts with a scan status and an exception flag for the caller to inspect.
 type Result struct {
 	Data      []*CrawlResult
 	Status    string // Final scan status (success or graceful error). Should be stored along with the scan results.
@@ -50,7 +54,7 @@ type Result struct {
 	// this flag! This flag may additionally come along with a message put into the status attribute.
 }
 
-// hrefInfo is a helper struct that get's sent to the appendHrefsWorker. It contains all the information needed to
+// hrefInfo is a helper struct that gets sent to the appendHrefsWorker. It contains all the information needed to
 // append a new entry to the href file.
 type hrefInfo struct {
 	downloadUrls  []string
@@ -62,10 +66,12 @@ type hrefInfo struct {
 // severe and minor errors.
 type nilInfoErr struct{}
 
+// Error returns the error message for nilInfoErr, satisfying the error interface.
 func (e *nilInfoErr) Error() string {
 	return "received info is nil"
 }
 
+// Scanner holds all configuration for a web crawler scan session across one or more vhosts.
 type Scanner struct {
 	Label          string
 	Started        time.Time
@@ -97,6 +103,7 @@ type Scanner struct {
 	contextInnerCancel context.CancelFunc // Context cancel function of inner context, not impacting optional outer one.
 }
 
+// NewScanner validates input and returns an initialised Scanner ready to run.
 func NewScanner(
 	logger utils.Logger, // Can be any logger implementing our minimalistic interface. Wrap your logger to satisfy the interface, if necessary (like utils.LoggerTest).
 	target string,
@@ -132,10 +139,10 @@ func NewScanner(
 
 	if download {
 		// Prepare output path
-		var errAbs error
-		outputFolder, errAbs = filepath.Abs(outputFolder)
-		if errAbs != nil {
-			return nil, errAbs
+		var errOutputFolder error
+		outputFolder, errOutputFolder = filepath.Abs(outputFolder)
+		if errOutputFolder != nil {
+			return nil, errOutputFolder
 		}
 
 		// This check is also performed during unmarshal, but that only accounts for errors in the json
@@ -153,9 +160,9 @@ func NewScanner(
 	}
 
 	// Prepare proxy, *url.URL with appropriate scheme required
-	proxyUrl, errProxy := utils.ProxyStringToUrl(proxy) // Returns nil proxy on empty input
-	if errProxy != nil {
-		return nil, errProxy
+	proxyUrl, errProxyUrl := utils.ProxyStringToUrl(proxy) // Returns nil proxy on empty input
+	if errProxyUrl != nil {
+		return nil, errProxyUrl
 	}
 
 	// Sanitize list of input vhosts
@@ -242,7 +249,7 @@ func (s *Scanner) Run(timeout time.Duration) (res *Result) {
 		if r := recover(); r != nil {
 
 			// Log exception with stacktrace
-			s.logger.Errorf(fmt.Sprintf("Unexpected error: %s", r))
+			s.logger.Errorf("Unexpected error: %s", r)
 
 			// Build error status from error message and formatted stacktrace
 			errMsg := fmt.Sprintf("%s%s", r, utils.StacktraceIndented("\t"))
@@ -290,6 +297,7 @@ func (s *Scanner) Run(timeout time.Duration) (res *Result) {
 	return res
 }
 
+// execute runs the crawl loop across all configured vhosts and returns the aggregated result.
 func (s *Scanner) execute() *Result {
 
 	// Cleanup inner context if set
@@ -301,11 +309,9 @@ func (s *Scanner) execute() *Result {
 	var results []*CrawlResult
 
 	// Declare the variables needed for appending the hrefs to a file
-	var (
-		appendHrefChan     chan *hrefInfo
-		appendHrefStopChan chan struct{}
-		appendHrefErrChan  chan error
-	)
+	var appendHrefChan chan *hrefInfo
+	var appendHrefStopChan chan struct{}
+	var appendHrefErrChan chan error
 
 	// Launch download handler if required
 	if !s.download {
@@ -335,7 +341,8 @@ func (s *Scanner) execute() *Result {
 			// Check if there are any errors remaining. The channel will be closed by the sender (/worker)
 			for errAppend := range appendHrefErrChan {
 				if errAppend != nil {
-					if _, ok := errAppend.(*nilInfoErr); ok {
+					var nilInfoErr *nilInfoErr
+					if errors.As(errAppend, &nilInfoErr) {
 						s.logger.Debugf("Download link info was nil")
 					} else {
 						s.logger.Errorf("Could not write download URLs to disk: %s", errAppend)
@@ -348,7 +355,7 @@ func (s *Scanner) execute() *Result {
 	// Create URL representation of target. This will be comfortable to print current URLs and does hold all necessary
 	// information in one struct
 	currentRequestUrl := &url.URL{}
-	currentRequestUrl.Host = fmt.Sprintf("%s:%d", s.target, s.port)
+	currentRequestUrl.Host = net.JoinHostPort(s.target, strconv.Itoa(s.port))
 	if s.https {
 		currentRequestUrl.Scheme = "https"
 	} else {
@@ -412,14 +419,13 @@ func (s *Scanner) execute() *Result {
 		// Close body reader. Needs to happen now, cannot be done with defer statement!
 		_ = testResp.Body.Close()
 
-		// Check for wrong HTTP protocol, sometimes SSL endpoints accept HTTP requests but return an error indicator
-		if utils.HttpsIndicated(testResp, testHtmlBytes) {
+		// Check for wrong HTTP protocol. Some SSL endpoints accept HTTP requests but return an indicator that
+		// HTTPS should be used. Only switch once: if already on HTTPS the indicator is a false positive.
+		if utils.HttpsIndicated(testResp, testHtmlBytes) && currentRequestUrl.Scheme != "https" {
 
-			// Switch to HTTPS
+			// Switch to HTTPS and retry
 			s.logger.Debugf("Switching from HTTP to HTTPS due to response indicator.")
 			currentRequestUrl.Scheme = "https"
-
-			// Send test request again
 			goto Start
 		}
 
@@ -448,7 +454,7 @@ func (s *Scanner) execute() *Result {
 		// Initiate web crawler for vhost
 		// Crawler will just return current state when running into timeout. This loop will detect the timeout and
 		// return temporary data with according timeout status at the end of the loop.
-		crawler, errNew := NewCrawler(
+		crawler, errCrawler := NewCrawler(
 			s.logger,           // Can be any logger implementing our minimalistic interface. Wrap your logger to satisfy the interface, if necessary (like utils.LoggerTest).
 			*currentRequestUrl, // Pass by value instead of pointer for better isolation
 			currentVhost,
@@ -469,7 +475,7 @@ func (s *Scanner) execute() *Result {
 			s.maxThreads,
 			s.contextInner,
 		)
-		if errNew != nil {
+		if errCrawler != nil {
 			s.logger.Debugf("Initializing crawler failed.")
 			return &Result{
 				results,
@@ -512,7 +518,8 @@ func (s *Scanner) execute() *Result {
 			select {
 			case errAppend := <-appendHrefErrChan:
 				if errAppend != nil {
-					if _, ok := errAppend.(*nilInfoErr); ok {
+					var nilInfoErr *nilInfoErr
+					if errors.As(errAppend, &nilInfoErr) {
 						s.logger.Debugf("Download link info was nil")
 					} else {
 						s.logger.Errorf("Could not write download URLs to disk: %s", errAppend)
@@ -544,7 +551,7 @@ func (s *Scanner) execute() *Result {
 	}
 
 	// Return pointer to result struct
-	s.logger.Debugf("Returning scan result")
+	s.logger.Debugf("Returning scan result.")
 	return &Result{
 		results,
 		utils.StatusCompleted,
@@ -579,11 +586,13 @@ func (s *Scanner) vhostResponseKnown(vhost string, resp *http.Response, respBody
 	return ""
 }
 
+// prepareHrefsFile creates filePath with header as its first line if it does not yet exist. Returns an error if
+// filePath points to a directory or the file cannot be created.
 func prepareHrefsFile(filePath string, header string) error {
 
 	// Check whether path is existing and a not a directory
-	info, errStat := os.Stat(filePath)
-	existing := !os.IsNotExist(errStat)
+	info, errInfo := os.Stat(filePath)
+	existing := !os.IsNotExist(errInfo)
 
 	// Check validity or try to create file
 	if existing {
@@ -592,9 +601,9 @@ func prepareHrefsFile(filePath string, header string) error {
 		}
 	} else {
 		// Return on error
-		file, errOpen := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY, 0660)
-		if errOpen != nil {
-			return errOpen
+		file, errFile := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY, 0660)
+		if errFile != nil {
+			return errFile
 		}
 
 		// Make sure file gets closed on exit
@@ -611,6 +620,8 @@ func prepareHrefsFile(filePath string, header string) error {
 	return nil
 }
 
+// appendHrefsWorker runs as a goroutine and writes download URL entries received on infoQueue to filePath until
+// stopCh is closed. Any write error is sent on errCh.
 func appendHrefsWorker(
 	logger utils.Logger,
 	stopCh chan struct{},
@@ -623,7 +634,7 @@ func appendHrefsWorker(
 	// Log potential panics before letting them move on
 	defer func() {
 		if r := recover(); r != nil {
-			logger.Errorf(fmt.Sprintf("Panic: %s%s", r, utils.StacktraceIndented("\t")))
+			logger.Errorf("Panic: %s%s", r, utils.StacktraceIndented("\t"))
 			panic(r)
 		}
 	}()
@@ -658,9 +669,9 @@ func appendHrefsWorker(
 	}
 
 	// Open file for appending
-	file, errOpen := os.OpenFile(filePath, os.O_WRONLY|os.O_APPEND, 0660)
-	if errOpen != nil {
-		errCh <- fmt.Errorf("could not open output file: %s", errOpen)
+	file, errFile := os.OpenFile(filePath, os.O_WRONLY|os.O_APPEND, 0660)
+	if errFile != nil {
+		errCh <- fmt.Errorf("could not open output file: %s", errFile)
 		drainFunc()
 		return
 	}
@@ -694,7 +705,7 @@ func appendHrefsWorker(
 
 				// On error drain the queue for the remaining time
 				if errWrite != nil {
-					errCh <- fmt.Errorf("cloud not write to file: %s", errWrite)
+					errCh <- fmt.Errorf("could not write to file: %s", errWrite)
 					drainFunc()
 					return
 				}
@@ -720,7 +731,7 @@ func appendHrefsWorker(
 			_, errWrite := file.WriteString(
 				fmt.Sprintf("%s;%s;%s\n", info.timestamp.Format(timestampFormat), downloadUrl, info.requiredVHost))
 			if errWrite != nil {
-				errCh <- fmt.Errorf("cloud not write to file: %s", errWrite)
+				errCh <- fmt.Errorf("could not write to file: %s", errWrite)
 				drainFunc()
 				return
 			}

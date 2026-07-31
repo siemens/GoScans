@@ -106,11 +106,11 @@ func Test_NewCrawler(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			u, errParse := url.Parse(tt.args.baseUrl)
-			if errParse != nil {
-				t.Fatalf("NewCrawler() url.Parse() error = '%v', want = nil", errParse)
+			u, errU := url.Parse(tt.args.baseUrl)
+			if errU != nil {
+				t.Fatalf("NewCrawler() url.Parse() error = '%v', want = nil", errU)
 			} else {
-				_, err := NewCrawler(
+				_, errNewCrawler := NewCrawler(
 					tt.args.logger,
 					*u,
 					tt.args.vhost,
@@ -131,8 +131,8 @@ func Test_NewCrawler(t *testing.T) {
 					tt.args.maxThreads,
 					tt.args.context,
 				)
-				if (err != nil) != tt.wantErr {
-					t.Errorf("NewCrawler() error = '%v', wantErr = '%v'", err, tt.wantErr)
+				if (errNewCrawler != nil) != tt.wantErr {
+					t.Errorf("NewCrawler() error = '%v', wantErr = '%v'", errNewCrawler, tt.wantErr)
 					return
 				}
 			}
@@ -153,15 +153,15 @@ func Test_sortQueue(t *testing.T) {
 		{17, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "images"}, Depth: 1}},
 		{2, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/inde"}, Depth: 1}},
 		{0, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/logi"}, Depth: 1}},
-		{11, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/some/subb/"}, Depth: 1}},
+		{4, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/some/subb/"}, Depth: 1}},
 		{16, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/some/subb/url"}, Depth: 1}},
 		{3, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/admi/stop"}, Depth: 2}},
 		{13, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "data/"}, Depth: 2}},
 		{23, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "data/subb"}, Depth: 2}},
-		{22, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/admi/stop/asfdasfasdf"}, Depth: 2}},
-		{4, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/some/subb/"}, Depth: 2}},
+		{30, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/admi/stop/asfdasfasdf"}, Depth: 2}},
+		{11, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/some/subb/"}, Depth: 2}},
 		{29, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "user/home/"}, Depth: 2}},
-		{30, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/admi/stop/asfdasfasdf/"}, Depth: 2}},
+		{22, &Page{Url: &url.URL{Scheme: "https", Host: "domain.tld", Path: "/admi/stop/asfdasfasdf/"}, Depth: 2}},
 	}
 	tests := []struct {
 		name  string
@@ -200,19 +200,12 @@ func Test_sortQueue(t *testing.T) {
 			}
 
 			for i := 0; i < len(tt.tasks); i++ {
-				if tt.tasks[i].page.Url != want[i].page.Url {
-					gotStr := ""
-					for _, item := range tt.tasks {
-						gotStr += item.page.Url.String() + "\n"
-					}
-					wantStr := ""
-					for _, item := range want {
-						wantStr += item.page.Url.String() + "\n"
-					}
-					if gotStr != wantStr {
-						t.Errorf("sortQueue() = '%v', want = '%v'", gotStr, wantStr)
-						return
-					}
+				gotUrl := tt.tasks[i].page.Url.String()
+				wantUrl := want[i].page.Url.String()
+				gotDepth := tt.tasks[i].page.Depth
+				wantDepth := want[i].page.Depth
+				if gotUrl != wantUrl || gotDepth != wantDepth {
+					t.Errorf("sortQueue() index %d = (url='%s', depth=%d), want = (url='%s', depth=%d)", i, gotUrl, gotDepth, wantUrl, wantDepth)
 				}
 			}
 		})
@@ -243,15 +236,15 @@ func Test_extractLinks(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Prepare IO reader
-			stream, errorOpen := os.Open(tt.inputFile)
-			if errorOpen != nil {
+			stream, errStream := os.Open(tt.inputFile)
+			if errStream != nil {
 				t.Errorf("extractLinks() Could not read input file")
 				return
 			}
 
 			// Parse HTLM doc from IO reader
-			doc, errParse := goquery.NewDocumentFromReader(stream)
-			if errParse != nil {
+			doc, errDoc := goquery.NewDocumentFromReader(stream)
+			if errDoc != nil {
 				t.Errorf("extractLinks() Could not parse input file")
 				return
 			}
@@ -306,10 +299,10 @@ func Test_extractLinks_Inline(t *testing.T) {
 			// Parse doc from inline HTML, or leave nil for the nil-doc case
 			var doc *goquery.Document
 			if !tt.nilDoc {
-				var errParse error
-				doc, errParse = goquery.NewDocumentFromReader(bytes.NewBufferString(tt.html))
-				if errParse != nil {
-					t.Fatalf("Test_extractLinks_Inline() doc parse error = '%v', want = nil", errParse)
+				var errDoc error
+				doc, errDoc = goquery.NewDocumentFromReader(bytes.NewBufferString(tt.html))
+				if errDoc != nil {
+					t.Fatalf("Test_extractLinks_Inline() doc parse error = '%v', want = nil", errDoc)
 				}
 			}
 
@@ -345,15 +338,15 @@ func Test_extractRedirects(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Prepare IO reader
-			stream, errorOpen := os.Open(tt.inputFile)
-			if errorOpen != nil {
+			stream, errStream := os.Open(tt.inputFile)
+			if errStream != nil {
 				t.Errorf("extractRedirects() Could not read input file")
 				return
 			}
 
 			// Parse HTLM doc from IO reader
-			doc, errParse := goquery.NewDocumentFromReader(stream)
-			if errParse != nil {
+			doc, errDoc := goquery.NewDocumentFromReader(stream)
+			if errDoc != nil {
 				t.Errorf("extractRedirects() Could not parse input file")
 				return
 			}
@@ -403,10 +396,10 @@ func Test_extractRedirects_EdgeCases(t *testing.T) {
 			// Parse doc from inline HTML, or leave nil for the nil-doc case
 			var doc *goquery.Document
 			if !tt.nilDoc {
-				var errParse error
-				doc, errParse = goquery.NewDocumentFromReader(bytes.NewBufferString(tt.html))
-				if errParse != nil {
-					t.Fatalf("Test_extractRedirects_EdgeCases() doc parse error = '%v', want = nil", errParse)
+				var errDoc error
+				doc, errDoc = goquery.NewDocumentFromReader(bytes.NewBufferString(tt.html))
+				if errDoc != nil {
+					t.Fatalf("Test_extractRedirects_EdgeCases() doc parse error = '%v', want = nil", errDoc)
 				}
 			}
 
@@ -552,95 +545,6 @@ func Test_requestImageHash(t *testing.T) {
 	}
 }
 
-// Test_streamToFile verifies that streamToFile writes an io.Reader stream to a file in the given output folder.
-func Test_streamToFile(t *testing.T) {
-
-	// Retrieve test logger
-	testLogger := utils.NewTestLogger()
-
-	// Retrieve test settings
-	testSettings := _test.GetSettings()
-
-	// Prepare unit test data
-	testContent := "teststream"
-
-	// Prepare and run test cases
-	type args struct {
-		outputFolder string
-		outputName   string
-	}
-	tests := []struct {
-		name       string
-		args       args
-		testOutput string
-		wantErr    bool
-	}{
-		{
-			name:       "simple",
-			args:       args{testSettings.PathTmpDir, "output.txt"},
-			testOutput: testContent,
-			wantErr:    false,
-		},
-		{
-			name:       "complex",
-			args:       args{testSettings.PathTmpDir, "!\"§$%&/(()=?`*'_:;><,.-#+´ß0987654321^°|~\\}][{³²µ'`).txt"},
-			testOutput: testContent,
-			wantErr:    false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			oName := utils.SanitizeFilename(tt.args.outputName, "_")
-			p := filepath.Join(testSettings.PathTmpDir, oName)
-			source := bytes.NewReader([]byte(testContent))
-			if err := streamToFile(testLogger, source, tt.args.outputFolder, oName); (err != nil) != tt.wantErr {
-				t.Errorf("streamToFile() error = '%v', wantErr = '%v'", err, tt.wantErr)
-				return
-			}
-			content, errRead := os.ReadFile(p)
-			if errRead != nil {
-				t.Errorf("streamToFile() errRead: Could not read output file")
-				return
-			}
-			if string(content) != testContent {
-				t.Errorf("streamToFile() = '%v', want = '%v'", string(content), tt.testOutput)
-				return
-			}
-			_ = os.Remove(p)
-		})
-	}
-}
-
-// Test_streamToFile_FolderAutoCreate verifies that streamToFile automatically creates the output folder when it does not exist.
-func Test_streamToFile_FolderAutoCreate(t *testing.T) {
-
-	// Retrieve test logger
-	testLogger := utils.NewTestLogger()
-
-	// Prepare unit test data
-	parent := t.TempDir()
-	subDir := filepath.Join(parent, "sub")
-	content := "auto-create-test-content"
-
-	if _, errStat := os.Stat(subDir); !os.IsNotExist(errStat) {
-		t.Fatalf("Test_streamToFile_FolderAutoCreate() setup: folder should not exist yet")
-	}
-
-	// Prepare and run test cases
-	if err := streamToFile(testLogger, bytes.NewReader([]byte(content)), subDir, "output.txt"); err != nil {
-		t.Fatalf("streamToFile() error = '%v', want = nil", err)
-	}
-
-	// Verify output file was written with expected content
-	got, errRead := os.ReadFile(filepath.Join(subDir, "output.txt"))
-	if errRead != nil {
-		t.Fatalf("streamToFile() could not read output file: '%v'", errRead)
-	}
-	if string(got) != content {
-		t.Errorf("streamToFile() = '%v', want = '%v'", string(got), content)
-	}
-}
-
 // Test_parseRetryAfter verifies that parseRetryAfter correctly parses integer and HTTP-date Retry-After header values.
 func Test_parseRetryAfter(t *testing.T) {
 
@@ -699,9 +603,9 @@ func Test_parseRetryAfter(t *testing.T) {
 			header := make(http.Header)
 			header.Set("retry-after", tt.args.retryStr)
 
-			after, errParse := parseRetryAfter(&header)
-			if (errParse != nil) != tt.wantErr {
-				t.Errorf("parseRetryAfter() error = '%v', wantErr = '%v'", errParse, tt.wantErr)
+			after, errAfter := parseRetryAfter(&header)
+			if (errAfter != nil) != tt.wantErr {
+				t.Errorf("parseRetryAfter() error = '%v', wantErr = '%v'", errAfter, tt.wantErr)
 				return
 			}
 
@@ -717,8 +621,8 @@ func Test_parseRetryAfter(t *testing.T) {
 func Test_parseRetryAfter_NilHeader(t *testing.T) {
 
 	// Verify nil header returns an error and zero duration
-	after, errParse := parseRetryAfter(nil)
-	if errParse == nil {
+	after, errAfter := parseRetryAfter(nil)
+	if errAfter == nil {
 		t.Errorf("parseRetryAfter() error = nil, want non-nil")
 	}
 	if after != 0 {
@@ -856,16 +760,16 @@ func TestCrawler_Crawl(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	srvUrl, errParse := url.Parse(srv.URL)
-	if errParse != nil {
-		t.Fatalf("TestCrawler_Crawl() url.Parse() error = '%v', want = nil", errParse)
+	srvUrl, errSrvUrl := url.Parse(srv.URL)
+	if errSrvUrl != nil {
+		t.Fatalf("TestCrawler_Crawl() url.Parse() error = '%v', want = nil", errSrvUrl)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	// Prepare and run test cases
-	crawler, errNew := NewCrawler(
+	crawler, errCrawler := NewCrawler(
 		testLogger,
 		*srvUrl,
 		"",
@@ -884,8 +788,8 @@ func TestCrawler_Crawl(t *testing.T) {
 		1,
 		ctx,
 	)
-	if errNew != nil {
-		t.Fatalf("NewCrawler() error = '%v', want = nil", errNew)
+	if errCrawler != nil {
+		t.Fatalf("NewCrawler() error = '%v', want = nil", errCrawler)
 	}
 
 	result := crawler.Crawl()
@@ -919,9 +823,9 @@ func TestCrawler_Crawl_Timeout(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	srvUrl, errParse := url.Parse(srv.URL)
-	if errParse != nil {
-		t.Fatalf("TestCrawler_Crawl_Timeout() url.Parse() error = '%v', want = nil", errParse)
+	srvUrl, errSrvUrl := url.Parse(srv.URL)
+	if errSrvUrl != nil {
+		t.Fatalf("TestCrawler_Crawl_Timeout() url.Parse() error = '%v', want = nil", errSrvUrl)
 	}
 
 	// Context expires almost immediately
@@ -929,7 +833,7 @@ func TestCrawler_Crawl_Timeout(t *testing.T) {
 	defer cancel()
 
 	// Prepare and run test cases
-	crawler, errNew := NewCrawler(
+	crawler, errCrawler := NewCrawler(
 		testLogger,
 		*srvUrl,
 		"",
@@ -948,8 +852,8 @@ func TestCrawler_Crawl_Timeout(t *testing.T) {
 		1,
 		ctx,
 	)
-	if errNew != nil {
-		t.Fatalf("NewCrawler() error = '%v', want = nil", errNew)
+	if errCrawler != nil {
+		t.Fatalf("NewCrawler() error = '%v', want = nil", errCrawler)
 	}
 
 	result := crawler.Crawl()
@@ -998,16 +902,16 @@ func TestCrawler_Crawl_Requeue(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	srvUrl, errParse := url.Parse(srv.URL)
-	if errParse != nil {
-		t.Fatalf("TestCrawler_Crawl_Requeue() url.Parse() error = '%v', want = nil", errParse)
+	srvUrl, errSrvUrl := url.Parse(srv.URL)
+	if errSrvUrl != nil {
+		t.Fatalf("TestCrawler_Crawl_Requeue() url.Parse() error = '%v', want = nil", errSrvUrl)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	// Prepare and run test cases
-	crawler, errNew := NewCrawler(
+	crawler, errCrawler := NewCrawler(
 		testLogger,
 		*srvUrl,
 		"",
@@ -1026,8 +930,8 @@ func TestCrawler_Crawl_Requeue(t *testing.T) {
 		1,
 		ctx,
 	)
-	if errNew != nil {
-		t.Fatalf("NewCrawler() error = '%v', want = nil", errNew)
+	if errCrawler != nil {
+		t.Fatalf("NewCrawler() error = '%v', want = nil", errCrawler)
 	}
 
 	result := crawler.Crawl()
@@ -1063,16 +967,16 @@ func TestCrawler_Crawl_Download(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	srvUrl, errParse := url.Parse(srv.URL)
-	if errParse != nil {
-		t.Fatalf("TestCrawler_Crawl_Download() url.Parse() error = '%v', want = nil", errParse)
+	srvUrl, errSrvUrl := url.Parse(srv.URL)
+	if errSrvUrl != nil {
+		t.Fatalf("TestCrawler_Crawl_Download() url.Parse() error = '%v', want = nil", errSrvUrl)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	// Prepare and run test cases
-	crawler, errNew := NewCrawler(
+	crawler, errCrawler := NewCrawler(
 		testLogger,
 		*srvUrl,
 		"",
@@ -1091,8 +995,8 @@ func TestCrawler_Crawl_Download(t *testing.T) {
 		1,
 		ctx,
 	)
-	if errNew != nil {
-		t.Fatalf("NewCrawler() error = '%v', want = nil", errNew)
+	if errCrawler != nil {
+		t.Fatalf("NewCrawler() error = '%v', want = nil", errCrawler)
 	}
 
 	result := crawler.Crawl()

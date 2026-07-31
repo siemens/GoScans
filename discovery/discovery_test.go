@@ -52,9 +52,9 @@ func TestMain(m *testing.M) {
 	)
 
 	// Prepare test directory
-	tmpDir, errTmp := os.MkdirTemp(".", "goscans-discovery-test-*")
-	if errTmp != nil {
-		panic(errTmp)
+	tmpDir, errTmpDir := os.MkdirTemp(".", "goscans-discovery-test-*")
+	if errTmpDir != nil {
+		panic(errTmpDir)
 	}
 	if errChdir := os.Chdir(tmpDir); errChdir != nil {
 		panic(errChdir)
@@ -188,9 +188,9 @@ func TestNewScanner(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewScanner(tt.args.logger, []string{tt.args.target}, tt.args.nmap, tt.args.nmapParameters, tt.args.nmapVersionAll, tt.args.nmapBlacklist, tt.args.nmapBlacklistFile, []string{}, tt.args.ldapServer, tt.args.ldapDomain, tt.args.ldapUser, tt.args.ldapPassword, false, excludeDomains, dialTimeout)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("NewScanner() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			_, errNewScanner := NewScanner(tt.args.logger, []string{tt.args.target}, tt.args.nmap, tt.args.nmapParameters, tt.args.nmapVersionAll, tt.args.nmapBlacklist, tt.args.nmapBlacklistFile, []string{}, tt.args.ldapServer, tt.args.ldapDomain, tt.args.ldapUser, tt.args.ldapPassword, false, excludeDomains, dialTimeout)
+			if (errNewScanner != nil) != tt.wantErr {
+				t.Errorf("NewScanner() error = '%v', wantErr = '%v'", errNewScanner, tt.wantErr)
 				return
 			}
 		})
@@ -207,9 +207,9 @@ func TestExtractHostData(t *testing.T) {
 	nmapXml := filepath.Join(testSettings.PathDataDir, "discovery", "host123.domain.tld.xml")
 
 	// Read Nmap result form file
-	in, err := os.ReadFile(nmapXml)
-	if err != nil {
-		t.Errorf("Reading Nmap sample result failed: %s", err)
+	in, errIn := os.ReadFile(nmapXml)
+	if errIn != nil {
+		t.Errorf("Reading Nmap sample result failed: %s", errIn)
 	}
 
 	// Parse Nmap result
@@ -271,9 +271,9 @@ func TestExtractPortData(t *testing.T) {
 	nmapXml := filepath.Join(testSettings.PathDataDir, "discovery", "host123.domain.tld.xml")
 
 	// Read Nmap result form file
-	in, errRead := os.ReadFile(nmapXml)
-	if errRead != nil {
-		t.Errorf("Reading Nmap sample result failed: %s", errRead)
+	in, errIn := os.ReadFile(nmapXml)
+	if errIn != nil {
+		t.Errorf("Reading Nmap sample result failed: %s", errIn)
 	}
 
 	// Parse Nmap result
@@ -352,9 +352,9 @@ func TestExtractHostScriptData(t *testing.T) {
 	nmapXml := filepath.Join(testSettings.PathDataDir, "discovery", "host123.domain.tld.xml")
 
 	// Read Nmap result form file
-	in, errRead := os.ReadFile(nmapXml)
-	if errRead != nil {
-		t.Errorf("Reading Nmap sample result failed: %s", errRead)
+	in, errIn := os.ReadFile(nmapXml)
+	if errIn != nil {
+		t.Errorf("Reading Nmap sample result failed: %s", errIn)
 	}
 
 	// Parse Nmap result
@@ -419,9 +419,9 @@ func TestExtractPortScriptData(t *testing.T) {
 	nmapXml := filepath.Join(testSettings.PathDataDir, "discovery", "host123.domain.tld.xml")
 
 	// Read Nmap result form file
-	in, errRead := os.ReadFile(nmapXml)
-	if errRead != nil {
-		t.Errorf("Reading Nmap sample result failed: %s", errRead)
+	in, errIn := os.ReadFile(nmapXml)
+	if errIn != nil {
+		t.Errorf("Reading Nmap sample result failed: %s", errIn)
 	}
 
 	// Parse Nmap result
@@ -559,7 +559,7 @@ func Test_orderDnsNames(t *testing.T) {
 	order := []string{
 		"forrest1.domain.local", "host.forrest1.domain.local", "domain.local", "forrest2.domain.local", "forrest3.domain.local",
 		"host.forrest3.domain.local", "other.local", "host.other.local", "host.third-party.com", "g.com", "google.com", "some.com", "some.de",
-		"some4life.de", "host.google.com", "host.some.com", "some.geocities.com", "some.hosting.com",
+		"some4life.de", "some.geocities.com", "host.google.com", "some.hosting.com", "host.some.com",
 		"anythingelse",
 	}
 
@@ -584,7 +584,7 @@ func Test_orderDnsNames(t *testing.T) {
 		{name: "disorder12", hostnames: utils.Shuffle([]string{"some.de", "some4life.de"}), want: []string{"some.de", "some4life.de"}},
 		{name: "disorder13", hostnames: utils.Shuffle([]string{"some4life.de", "host.google.com"}), want: []string{"some4life.de", "host.google.com"}},
 		{name: "disorder14", hostnames: utils.Shuffle([]string{"host.google.com", "host.some.com"}), want: []string{"host.google.com", "host.some.com"}},
-		{name: "disorder15", hostnames: utils.Shuffle([]string{"host.some.com", "some.geocities.com"}), want: []string{"host.some.com", "some.geocities.com"}},
+		{name: "disorder15", hostnames: utils.Shuffle([]string{"host.some.com", "some.geocities.com"}), want: []string{"some.geocities.com", "host.some.com"}},
 		{name: "disorder16", hostnames: utils.Shuffle([]string{"some.geocities.com", "some.hosting.com"}), want: []string{"some.geocities.com", "some.hosting.com"}},
 		{name: "disorder17", hostnames: utils.Shuffle([]string{"some.hosting.com", "anythingelse"}), want: []string{"some.hosting.com", "anythingelse"}},
 		{name: "disorder18", hostnames: utils.Shuffle(order), want: order},
@@ -685,28 +685,28 @@ func TestAppendMissingOtHosts(t *testing.T) {
 		},
 		{
 			name:      "new-mac-appended",
-			hostsOt:   []ot.Host{{MacAddress: "AA:BB:CC:DD:EE:FF", Ip: "192.0.2.1"}},
+			hostsOt:   []ot.Host{{MacAddress: "AA:BB:CC:DD:EE:FF", Ips: []string{"192.0.2.1"}}},
 			seenMacs:  map[string]struct{}{},
 			initial:   []*Host{},
 			wantCount: 1,
 		},
 		{
 			name:      "duplicate-mac-skipped",
-			hostsOt:   []ot.Host{{MacAddress: "AA:BB:CC:DD:EE:FF", Ip: "192.0.2.1"}},
+			hostsOt:   []ot.Host{{MacAddress: "AA:BB:CC:DD:EE:FF", Ips: []string{"192.0.2.1"}}},
 			seenMacs:  map[string]struct{}{"AA:BB:CC:DD:EE:FF": {}},
 			initial:   []*Host{},
 			wantCount: 0,
 		},
 		{
 			name:      "empty-mac-always-appended",
-			hostsOt:   []ot.Host{{MacAddress: "", Ip: "192.0.2.2"}},
+			hostsOt:   []ot.Host{{MacAddress: "", Ips: []string{"192.0.2.2"}}},
 			seenMacs:  map[string]struct{}{"": {}},
 			initial:   []*Host{},
 			wantCount: 1,
 		},
 		{
 			name:      "identifier-falls-back-to-mac",
-			hostsOt:   []ot.Host{{MacAddress: "BB:CC:DD:EE:FF:00", Ip: "", DnsName: ""}},
+			hostsOt:   []ot.Host{{MacAddress: "BB:CC:DD:EE:FF:00"}},
 			seenMacs:  map[string]struct{}{},
 			initial:   []*Host{},
 			wantCount: 1,
@@ -714,12 +714,85 @@ func TestAppendMissingOtHosts(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := appendMissingOtHosts(testLogger, tt.hostsOt, tt.seenMacs, tt.initial)
+			got := appendMissingOtHosts(testLogger, tt.hostsOt, tt.seenMacs, nil, tt.initial, nil, nil)
 			if len(got) != tt.wantCount {
 				t.Errorf("appendMissingOtHosts() len = '%v', want = '%v'", len(got), tt.wantCount)
 			}
 		})
 	}
+
+	// Verify that extra IPs from OT hosts are propagated to the injected discovery Host
+	t.Run("other-ips-propagated", func(t *testing.T) {
+		hostsOt := []ot.Host{{
+			MacAddress: "AA:BB:CC:DD:EE:FF",
+			Ips:        []string{"192.0.2.1", "192.0.2.2", "192.0.2.3"},
+		}}
+		got := appendMissingOtHosts(testLogger, hostsOt, map[string]struct{}{}, nil, []*Host{}, nil, nil)
+		if len(got) != 1 {
+			t.Fatalf("appendMissingOtHosts() len = %d, want 1", len(got))
+		}
+		if len(got[0].OtherIps) != 2 {
+			t.Errorf("OtherIps len = %d, want 2", len(got[0].OtherIps))
+		} else {
+			if got[0].OtherIps[0] != "192.0.2.2" || got[0].OtherIps[1] != "192.0.2.3" {
+				t.Errorf("OtherIps = %v, want [192.0.2.2 192.0.2.3]", got[0].OtherIps)
+			}
+		}
+	})
+
+	// Verify that all OT DNS names are passed through decideDnsName for sanitization and ordering.
+	// OT station names (e.g. PROFINET name-of-station) typically don't resolve in DNS, so they
+	// remain in OtherNames while DnsName stays empty.
+	t.Run("dns-names-sanitized", func(t *testing.T) {
+		hostsOt := []ot.Host{{
+			MacAddress: "AA:BB:CC:DD:EE:FF",
+			Ips:        []string{"192.0.2.1"},
+			DnsNames:   []string{"plc-station-1", "plc-station-1.local", "alias-1"},
+		}}
+		got := appendMissingOtHosts(testLogger, hostsOt, map[string]struct{}{}, nil, []*Host{}, nil, nil)
+		if len(got) != 1 {
+			t.Fatalf("appendMissingOtHosts() len = %d, want 1", len(got))
+		}
+		if len(got[0].OtherNames) != 3 {
+			t.Errorf("OtherNames len = %d, want 3", len(got[0].OtherNames))
+		}
+	})
+
+	// Verify that when an OT host has multiple IPs and the first is already in nmap results,
+	// the function picks an unseen IP as primary instead.
+	t.Run("prefers-unseen-ip-as-primary", func(t *testing.T) {
+		hostsOt := []ot.Host{{
+			MacAddress: "AA:BB:CC:DD:EE:FF",
+			Ips:        []string{"192.0.2.1", "192.0.2.2", "192.0.2.3"},
+		}}
+		seenIps := map[string]struct{}{"192.0.2.1": {}}
+		got := appendMissingOtHosts(testLogger, hostsOt, map[string]struct{}{}, seenIps, []*Host{}, nil, nil)
+		if len(got) != 1 {
+			t.Fatalf("appendMissingOtHosts() len = %d, want 1", len(got))
+		}
+		if got[0].Ip != "192.0.2.2" {
+			t.Errorf("Ip = %s, want 192.0.2.2 (first unseen)", got[0].Ip)
+		}
+		if len(got[0].OtherIps) != 2 {
+			t.Errorf("OtherIps len = %d, want 2", len(got[0].OtherIps))
+		}
+	})
+
+	// Verify fallback: when all IPs are already seen, Ips[0] is used as primary.
+	t.Run("falls-back-to-first-ip-when-all-seen", func(t *testing.T) {
+		hostsOt := []ot.Host{{
+			MacAddress: "AA:BB:CC:DD:EE:FF",
+			Ips:        []string{"192.0.2.1", "192.0.2.2"},
+		}}
+		seenIps := map[string]struct{}{"192.0.2.1": {}, "192.0.2.2": {}}
+		got := appendMissingOtHosts(testLogger, hostsOt, map[string]struct{}{}, seenIps, []*Host{}, nil, nil)
+		if len(got) != 1 {
+			t.Fatalf("appendMissingOtHosts() len = %d, want 1", len(got))
+		}
+		if got[0].Ip != "192.0.2.1" {
+			t.Errorf("Ip = %s, want 192.0.2.1 (fallback to first)", got[0].Ip)
+		}
+	})
 }
 
 // TestAllZero verifies that allZero returns true only when every byte in the slice is zero.
@@ -805,6 +878,45 @@ func TestParseStringData(t *testing.T) {
 			}
 			if len(got.bindingsStringArray) != tt.wantArrayLen {
 				t.Errorf("parseStringData() bindingsStringArray len = '%v', want = '%v'", len(got.bindingsStringArray), tt.wantArrayLen)
+			}
+		})
+	}
+}
+
+// TestUnique verifies that unique removes duplicate entries while preserving order.
+func TestUnique(t *testing.T) {
+
+	// Prepare and run test cases
+	tests := []struct {
+		name  string
+		input []string
+		want  []string
+	}{
+		{
+			name:  "no-duplicates",
+			input: []string{"a", "b", "c"},
+			want:  []string{"a", "b", "c"},
+		},
+		{
+			name:  "with-duplicates",
+			input: []string{"a", "b", "a", "c", "b"},
+			want:  []string{"a", "b", "c"},
+		},
+		{
+			name:  "all-same",
+			input: []string{"x", "x", "x"},
+			want:  []string{"x"},
+		},
+		{
+			name:  "single-element",
+			input: []string{"only"},
+			want:  []string{"only"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := utils.UniqueStrings(tt.input); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("unique() = '%v', want = '%v'", got, tt.want)
 			}
 		})
 	}

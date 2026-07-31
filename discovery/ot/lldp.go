@@ -11,38 +11,37 @@
 package ot
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"net"
 	"strings"
 	"time"
 
+	"github.com/siemens/GoScans/discovery/ot/rawsocket"
 	"github.com/siemens/GoScans/utils"
 )
 
-const (
-	lldpEtherType      = 0x88CC
-	lldpListenDuration = 60 * time.Second // 2x LLDP default interval (30s)
+const lldpEtherType = 0x88CC                // Ethernet protocol type for LLDP
+const lldpListenDuration = 60 * time.Second // Twice the LLDP default interval
 
-	// LLDP TLV Types
-	lldpTlvEnd       = 0
-	lldpTlvChassisId = 1
-	lldpTlvSysName   = 5
-	lldpTlvSysDesc   = 6
-	lldpTlvMgmtAddr  = 8
-)
+const lldpTlvEnd = 0       // End-of-LLDPDU TLV type
+const lldpTlvChassisId = 1 // Chassis-ID TLV type
+const lldpTlvSysName = 5   // System-name TLV type
+const lldpTlvSysDesc = 6   // System-description TLV type
+const lldpTlvMgmtAddr = 8  // Management-address TLV type
 
 // ListenLldp passively listens for LLDP frames on the given interface.
 func ListenLldp(logger utils.Logger, iface string) ([]Host, error) {
 
 	// Open raw socket on the interface
-	ifi, errIf := net.InterfaceByName(iface)
-	if errIf != nil {
-		return nil, fmt.Errorf("could not find interface '%s': %w", iface, errIf)
+	ifi, errIfi := net.InterfaceByName(iface)
+	if errIfi != nil {
+		return nil, fmt.Errorf("could not find interface '%s': %w", iface, errIfi)
 	}
 
 	// Bind an Ethernet raw socket for the LLDP EtherType on the found interface
-	conn, errConn := openRawEthernetSocket(ifi, lldpEtherType)
+	conn, errConn := rawsocket.OpenEthernetSocket(ifi, lldpEtherType)
 	if errConn != nil {
 		return nil, fmt.Errorf("could not open raw socket on '%s': %w", iface, errConn)
 	}
@@ -58,9 +57,9 @@ func ListenLldp(logger utils.Logger, iface string) ([]Host, error) {
 	logger.Debugf("Listening for LLDP frames on '%s' for %s.", iface, lldpListenDuration)
 	buf := make([]byte, 1500)
 	for time.Now().Before(deadline) {
-		n, errRead := conn.Read(buf)
-		if errRead != nil {
-			if netErr, ok := errRead.(net.Error); ok && netErr.Timeout() {
+		n, errN := conn.Read(buf)
+		if errN != nil {
+			if netErr, ok := errN.(net.Error); ok && netErr.Timeout() {
 				break
 			}
 			continue
@@ -87,7 +86,7 @@ func ListenLldp(logger utils.Logger, iface string) ([]Host, error) {
 		// Parse the LLDP payload into a Host record and add it to the result set
 		host := parseLldpFrame(buf[14:n], srcMac)
 		if host != nil {
-			logger.Debugf("LLDP frame from '%s': %s", srcMac, host.DnsName)
+			logger.Debugf("LLDP frame from '%s': hostname '%s', IP '%s'.", srcMac, strings.Join(host.DnsNames, ", "), strings.Join(host.Ips, ", "))
 			hosts = append(hosts, *host)
 		}
 	}
@@ -134,10 +133,14 @@ func parseLldpFrame(data []byte, srcMac string) *Host {
 			}
 
 		case lldpTlvSysName:
-			host.DnsName = strings.TrimRight(string(tlvData), "\x00")
+			if name := strings.TrimRight(string(tlvData), "\x00"); name != "" {
+				host.DnsNames = utils.AppendUnique(host.DnsNames, name)
+			}
 
 		case lldpTlvSysDesc:
-			host.OsGuess = strings.TrimRight(string(tlvData), "\x00")
+			if desc := strings.TrimRight(string(tlvData), "\x00"); desc != "" {
+				host.OsGuesses = utils.AppendUnique(host.OsGuesses, desc)
+			}
 
 		case lldpTlvMgmtAddr:
 			// Management address: addrLen(1) + addrSubType(1) + addr(variable)
@@ -147,7 +150,7 @@ func parseLldpFrame(data []byte, srcMac string) *Host {
 				if addrSubType == 1 && len(tlvData) >= 6 {
 					ip := net.IP(tlvData[2:6])
 					if !ip.Equal(net.IPv4zero) {
-						host.Ip = ip.String()
+						host.Ips = utils.AppendUnique(host.Ips, ip.String())
 					}
 				}
 			}
@@ -158,4 +161,56 @@ func parseLldpFrame(data []byte, srcMac string) *Host {
 
 	// Return nil as everything went fine
 	return host
+}
+
+// listenLldp continuously captures LLDP frames on iface and emits discovered hosts to ch.
+// It returns when ctx is cancelled. The socket is closed from a watcher goroutine so that a
+// blocked Read() returns immediately without waiting for a deadline.
+func listenLldp(ctx context.Context, logger utils.Logger, iface string, ch chan<- Host) error {
+
+	// Look up the named interface
+	ifi, errIfi := net.InterfaceByName(iface)
+	if errIfi != nil {
+		return fmt.Errorf("could not find interface '%s': %w", iface, errIfi)
+	}
+
+	// Open a raw Ethernet socket for LLDP frames
+	conn, errConn := rawsocket.OpenEthernetSocket(ifi, lldpEtherType)
+	if errConn != nil {
+		return fmt.Errorf("could not open raw socket on '%s': %w", iface, errConn)
+	}
+	defer func() { _ = conn.Close() }()
+
+	// Close the socket when the context is cancelled so the blocked Read() below returns immediately
+	go func() {
+		<-ctx.Done()
+		_ = conn.Close()
+	}()
+
+	// Read LLDP frames forever; exit when the socket is closed by the watcher goroutine above
+	buf := make([]byte, 1500)
+	for {
+		n, errN := conn.Read(buf)
+		if errN != nil {
+			return nil // context cancelled or socket closed — clean exit
+		}
+
+		// Discard frames too short for an Ethernet header
+		if n < 14 {
+			continue
+		}
+
+		// Filter to LLDP EtherType only
+		if binary.BigEndian.Uint16(buf[12:14]) != lldpEtherType {
+			continue
+		}
+
+		// Parse the LLDP payload and forward a valid host to the caller
+		srcMac := strings.ToUpper(net.HardwareAddr(buf[6:12]).String())
+		host := parseLldpFrame(buf[14:n], srcMac)
+		if host != nil {
+			// logger.Debugf("LLDP passive: frame from '%s': hostname '%s', IP '%s'.", srcMac, strings.Join(host.DnsNames, ", "), strings.Join(host.Ips, ", "))
+			ch <- *host
+		}
+	}
 }

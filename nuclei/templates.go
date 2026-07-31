@@ -1,3 +1,13 @@
+/*
+* GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
+*
+* Copyright (c) Siemens AG, 2016-2026.
+*
+* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+* directory or visit <https://opensource.org/licenses/MIT>.
+*
+ */
+
 package nuclei
 
 import (
@@ -30,101 +40,97 @@ func GetPortTemplates(
 	excludeIds []string,
 ) ([]string, error) {
 
-	// Prepare list of actually included template IDs.
-	// This list starts empty and is filled with templates surviving the validation logic below.
-	var templateIds []string
-
-	// Create quick lookup map for excludeIds
-	lookupDisallowed := make(map[string]struct{}, len(excludeIds))
-	for _, id := range excludeIds {
-		lookupDisallowed[id] = struct{}{}
+	// Acquire the catalog shared by scanners using this template root
+	catalog, errCatalog := acquireTemplateCatalog(pathTemplates)
+	if errCatalog != nil {
+		return nil, fmt.Errorf("could not acquire template catalog: %w", errCatalog)
 	}
 
-	// Create quick lookup map for includeIds
-	lookupAllowed := make(map[string]struct{}, len(includeIds))
-	for _, id := range includeIds {
-		lookupAllowed[id] = struct{}{}
+	// Apply the same selection contract used by Scanner execution
+	ids, _, errSelection := selectPortTemplates(logger, catalog, port, includeIds, excludeIds)
+	if errSelection != nil {
+		return nil, fmt.Errorf("could not select port templates: %w", errSelection)
 	}
 
-	// Prepare action to take on each loaded template
-	fnWalkCallback := func(tplPath string, tpl *nucleitemplates.Template) error {
+	// Return the selected template identifiers
+	return ids, nil
+}
 
-		// Skip template if it is on the exclude list
-		if _, disallowed := lookupDisallowed[tpl.ID]; disallowed {
-			return nil
-		}
+// selectPortTemplates returns matching identifiers and paths from an existing catalog reference
+func selectPortTemplates(
+	logger utils.Logger,
+	catalog *templateCatalog,
+	port int,
+	includeIds []string,
+	excludeIds []string,
+) ([]string, []string, error) {
 
-		// Skip template, if it is outside the include list
-		if len(lookupAllowed) > 0 {
-			if _, allowed := lookupAllowed[tpl.ID]; !allowed {
-				return nil
-			}
-		}
-
-		// Skip template if it is purely host-based (DNS / WHOIS) for a service scan
-		if len(tpl.RequestsDNS) > 0 || len(tpl.RequestsWHOIS) > 0 {
-			return nil
-		}
-
-		// Skip template, if it contains HTTP requests not allowed
-		for _, r := range tpl.RequestsHTTP {
-			if !isHttpRequestAllowed(port, r) {
-				return nil
-			}
-		}
-
-		// Skip template, if it contains Javascript requests not allowed
-		for _, r := range tpl.RequestsJavascript {
-			if !isJavascriptRequestAllowed(port, r) {
-				return nil
-			}
-		}
-
-		// Skip template, if it contains network requests not allowed
-		for _, r := range tpl.RequestsNetwork {
-			if !isNetworkRequestAllowed(port, r) {
-				return nil
-			}
-		}
-
-		// Skip template, if it contains SSL requests not allowed
-		for _, r := range tpl.RequestsSSL {
-			if !isSslRequestAllowed(port, r) {
-				return nil
-			}
-		}
-
-		// Skip template, if it contains WebSocket not allowed
-		for _, r := range tpl.RequestsWebsocket {
-			if !isWebsocketRequestAllowed(port, r) {
-				return nil
-			}
-		}
-
-		// Skip template, if it contains no port-sensitive requests at all
-		if len(tpl.RequestsHTTP) == 0 &&
-			len(tpl.RequestsNetwork) == 0 &&
-			len(tpl.RequestsSSL) == 0 &&
-			len(tpl.RequestsWebsocket) == 0 &&
-			len(tpl.RequestsJavascript) == 0 {
-			return nil
-		}
-
-		// Append to actual list of included templates
-		templateIds = append(templateIds, tpl.ID)
-
-		// Return nil to keep walking
-		return nil
+	// Select templates relevant for the requested service port
+	sources, errSources := catalog.portSources(logger, port)
+	if errSources != nil {
+		return nil, nil, fmt.Errorf("could not load port template sources: %w", errSources)
 	}
 
-	// Walk templates
-	errWalk := walkTemplates(logger, pathTemplates, fnWalkCallback)
-	if errWalk != nil {
-		return nil, errWalk
+	// Apply caller specific identifier filters to the cached selection
+	ids, paths := filterTemplateSources(sources, includeIds, excludeIds)
+
+	// Return synchronized identifier and path slices
+	return ids, paths, nil
+}
+
+// templateRelevantForPort applies the established GoScans port selection rules without compilation
+func templateRelevantForPort(template *nucleitemplates.Template, port int) bool {
+
+	// Exclude protocols that are reserved for host scans
+	if len(template.RequestsDNS) > 0 || len(template.RequestsWHOIS) > 0 {
+		return false
 	}
 
-	// Return templates
-	return templateIds, nil
+	// Reject templates containing an HTTP request for another port
+	for _, request := range template.RequestsHTTP {
+		if !isHttpRequestAllowed(port, request) {
+			return false
+		}
+	}
+
+	// Reject templates containing a JavaScript request for another port
+	for _, request := range template.RequestsJavascript {
+		if !isJavascriptRequestAllowed(port, request) {
+			return false
+		}
+	}
+
+	// Reject templates containing a network request for another port
+	for _, request := range template.RequestsNetwork {
+		if !isNetworkRequestAllowed(port, request) {
+			return false
+		}
+	}
+
+	// Reject templates containing an SSL request for another port
+	for _, request := range template.RequestsSSL {
+		if !isSslRequestAllowed(port, request) {
+			return false
+		}
+	}
+
+	// Reject templates containing a WebSocket request for another port
+	for _, request := range template.RequestsWebsocket {
+		if !isWebsocketRequestAllowed(port, request) {
+			return false
+		}
+	}
+
+	// Accept templates containing at least one supported service request
+	serviceRequestCount := len(template.RequestsHTTP) +
+		len(template.RequestsNetwork) +
+		len(template.RequestsSSL) +
+		len(template.RequestsWebsocket) +
+		len(template.RequestsJavascript)
+	hasServiceRequests := serviceRequestCount > 0
+
+	// Return whether the template contains a supported service request
+	return hasServiceRequests
 }
 
 // --------------------------

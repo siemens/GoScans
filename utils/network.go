@@ -17,10 +17,8 @@ import (
 	"strings"
 )
 
-// dnsLookupIp and dnsLookupAddr are the DNS functions used internally.
-// Override via OverrideDNS in tests.
-var dnsLookupIp func(host string) ([]net.IP, error) = net.LookupIP
-var dnsLookupAddr func(addr string) ([]string, error) = net.LookupAddr
+var dnsLookupIp func(host string) ([]net.IP, error) = net.LookupIP     // DNS hostname lookup, replaceable in tests
+var dnsLookupAddr func(addr string) ([]string, error) = net.LookupAddr // Reverse-DNS lookup, replaceable in tests
 
 // OverrideDNS replaces the DNS lookup functions used by ResolvesToIp and ResolvesToHostname.
 // Returns a restore function. For use in tests only.
@@ -44,8 +42,8 @@ func ResolvesToIp(hostname string, expectedIp string) bool {
 	}
 
 	// Return false if hostname lookup failed
-	ips, err := dnsLookupIp(hostname)
-	if err != nil {
+	ips, errIps := dnsLookupIp(hostname)
+	if errIps != nil {
 		return false
 	}
 
@@ -75,8 +73,8 @@ func ResolvesToHostname(ip string, hostname string) bool {
 	}
 
 	// Return false if reverse lookup failed
-	resolvedHostnames, err := dnsLookupAddr(ip)
-	if err != nil {
+	resolvedHostnames, errResolvedHostnames := dnsLookupAddr(ip)
+	if errResolvedHostnames != nil {
 		return false
 	}
 
@@ -160,15 +158,16 @@ func IsValidIpV6(s string) bool {
 
 // IsValidIpRange determines whether a given string is a valid network range
 func IsValidIpRange(s string) bool {
-	_, _, err := net.ParseCIDR(s)
-	return err == nil
+	_, _, errParseCIDR := net.ParseCIDR(s)
+	return errParseCIDR == nil
 }
 
 // IsValidAddress determines whether a given string is a valid IPv4, IPv6 or hostname, but NOT a network range
 func IsValidAddress(s string) bool {
 	if IsValidIp(s) {
 		return true
-	} else if IsValidHostname(s) {
+	}
+	if IsValidHostname(s) {
 		return true
 	}
 	return false
@@ -178,8 +177,8 @@ func IsValidAddress(s string) bool {
 func IsValidUrl(s string) bool {
 
 	// Attempt to parse as URL
-	parsedUrl, errParse := url.Parse(s)
-	if errParse != nil {
+	parsedUrl, errParsedUrl := url.Parse(s)
+	if errParsedUrl != nil {
 		return false
 	}
 
@@ -201,8 +200,8 @@ func IsValidUrl(s string) bool {
 func IsValidUrlHttp(s string) bool {
 
 	// Attempt to parse as URL
-	parsedUrl, errParse := url.Parse(s)
-	if errParse != nil {
+	parsedUrl, errParsedUrl := url.Parse(s)
+	if errParsedUrl != nil {
 		return false
 	}
 

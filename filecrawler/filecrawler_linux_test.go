@@ -433,9 +433,9 @@ func TestCrawler_processFile(t *testing.T) {
 	crawlFolder := filepath.Join(testSettings.PathDataDir, "filecrawler")
 
 	// Create a temporary symlink in the test working directory for the symlink-file test case
-	symlinkPath, errSymAbs := filepath.Abs("symlink-to-file.txt")
-	if errSymAbs != nil {
-		t.Fatalf("TestCrawler_processFile could not resolve symlink path: '%v'", errSymAbs)
+	symlinkPath, errSymlinkPath := filepath.Abs("symlink-to-file.txt")
+	if errSymlinkPath != nil {
+		t.Fatalf("TestCrawler_processFile could not resolve symlink path: '%v'", errSymlinkPath)
 	}
 	_ = os.Remove(symlinkPath)
 	if errSym := os.Symlink(filepath.Join(crawlFolder, "file_with_content.txt"), symlinkPath); errSym != nil {
@@ -635,8 +635,8 @@ func TestCrawler_Crawl_SymlinkLoop(t *testing.T) {
 			// Build a fresh cyclic symlink tree per sub-test under t.TempDir() (auto-cleaned).
 			base := t.TempDir()
 			loop := filepath.Join(base, "loop")
-			if err := os.Symlink(base, loop); err != nil {
-				t.Fatalf("failed to create self-referential symlink %s -> %s: %v", loop, base, err)
+			if errSymlink := os.Symlink(base, loop); errSymlink != nil {
+				t.Fatalf("failed to create self-referential symlink %s -> %s: %v", loop, base, errSymlink)
 			}
 
 			// Build the context for this sub-test (deadline contexts must not be shared across iterations).

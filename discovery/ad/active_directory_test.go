@@ -25,9 +25,9 @@ func TestMain(m *testing.M) {
 	_test.GetSettings()
 
 	// Prepare test directory
-	tmpDir, errTmp := os.MkdirTemp(".", "goscans-ad-test-*")
-	if errTmp != nil {
-		panic(errTmp)
+	tmpDir, errTmpDir := os.MkdirTemp(".", "goscans-ad-test-*")
+	if errTmpDir != nil {
+		panic(errTmpDir)
 	}
 	if errChdir := os.Chdir(tmpDir); errChdir != nil {
 		panic(errChdir)
@@ -231,9 +231,9 @@ func TestGeneralizedTimeToTime(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, errParse := GeneralizedTimeToTime(tt.val)
-			if (errParse != nil) != tt.wantErr {
-				t.Errorf("GeneralizedTimeToTime() error = '%v', wantErr = '%v'", errParse, tt.wantErr)
+			got, errGot := GeneralizedTimeToTime(tt.val)
+			if (errGot != nil) != tt.wantErr {
+				t.Errorf("GeneralizedTimeToTime() error = '%v', wantErr = '%v'", errGot, tt.wantErr)
 				return
 			}
 			if !tt.wantErr && got.Year() != tt.wantYear {

@@ -21,7 +21,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"time"
 
@@ -37,6 +36,7 @@ type EntryPoint struct {
 	InsideDfs bool
 }
 
+// File holds all metadata and access information discovered for a single file system entry.
 type File struct {
 	Share           string
 	Path            string
@@ -55,6 +55,7 @@ type File struct {
 	NfsRestrictions []string // Linux exclusive
 }
 
+// Result aggregates the crawl statistics and all discovered file entries for a single crawl run.
 type Result struct {
 	FoldersReadable int
 	FilesReadable   int
@@ -66,14 +67,14 @@ type Result struct {
 	// this flag! This flag may additionally come along with a message put into the Status attribute.
 }
 
-// Intermediate result containing the processed files to be returned and new tasks (unprocessed folder and files)
+// processResult holds the output of a single goroutine processing step: the optional file data and any new tasks spawned.
 type processResult struct {
 	isReadableDir bool  // Is needed for calculating how many folders where crawled (we don't count unaccessible ones)
 	data          *File // The actual result data for this file
 	newTasks      []*task
 }
 
-// For every file or folder a task is created with attributes describing the object to be processed
+// task holds the path and metadata of a file system entry queued for processing by the crawler.
 type task struct {
 	path          string
 	isFolder      bool // Identifies for what process this task is meant
@@ -92,7 +93,7 @@ const OOXMLCustomPropertiesFile = "docProps/custom.xml"
 // is many times larger than any legitimate Office custom-properties block.
 const maxCustomPropsBytes = 10 * 1024 * 1024
 
-// OOXMLProperties mirrors the xml structure of custom property metadata of Open Office Files
+// OOXMLProperties mirrors the xml structure of custom property metadata of OpenOffice Files
 type OOXMLProperties struct {
 	XMLName    xml.Name        `xml:"Properties"` // Important when adding attributes, always use uppercase for it, otherwise unmarshalling might not work
 	Properties []OOXMLProperty `xml:"property"`
@@ -122,6 +123,7 @@ type Crawler struct {
 	context                   context.Context // Context for the crawling, controllable from outside
 }
 
+// NewCrawler initialises a Crawler with the given configuration and returns it ready to call Crawl.
 func NewCrawler(
 	logger utils.Logger,
 	maxDepth int,
@@ -151,7 +153,7 @@ func NewCrawler(
 	}
 }
 
-// Crawl crawls the filesystem begging by the given entry point. For every element it discovers, a new porcessing task
+// Crawl crawls the filesystem beginning at the given entry point. For every element it discovers, a new processing task
 // is generated, back-feeding the crawler.
 func (c *Crawler) Crawl(entryPoint *EntryPoint) *Result {
 
@@ -161,7 +163,7 @@ func (c *Crawler) Crawl(entryPoint *EntryPoint) *Result {
 	}
 
 	// Check that root is not nil
-	if entryPoint == nil || (reflect.ValueOf(entryPoint).Kind() == reflect.Ptr && reflect.ValueOf(entryPoint).IsNil()) {
+	if entryPoint == nil {
 		c.logger.Debugf("Invalid crawl entry point.")
 		return result
 	}
@@ -173,9 +175,10 @@ func (c *Crawler) Crawl(entryPoint *EntryPoint) *Result {
 	}
 
 	// Check whether access is possible
-	rootInfo, err := os.Lstat(entryPoint.Path)
-	if err != nil {
-		if pErr, ok := err.(*os.PathError); ok {
+	rootInfo, errRootInfo := os.Lstat(entryPoint.Path)
+	if errRootInfo != nil {
+		var pErr *os.PathError
+		if errors.As(errRootInfo, &pErr) {
 			c.logger.Debugf("Could not get root info of '%s': %s", pErr.Path, pErr.Err)
 		}
 		return result
@@ -269,7 +272,7 @@ func (c *Crawler) run(rootTask *task, result *Result) {
 		}
 	}
 
-	// Manage crawling. Launch new tasks, listen for results and queue new URLs until done or scan timout
+	// Manage crawling. Launch new tasks, listen for results and queue new URLs until done or scan timeout
 	for {
 
 		// Do not continue feeding the crawler if scan time is reached
@@ -304,7 +307,7 @@ func (c *Crawler) processFolder(folderTask *task, processId int, chProcessResult
 	// Log potential panics before letting them move on
 	defer func() {
 		if r := recover(); r != nil {
-			c.logger.Errorf(fmt.Sprintf("Panic: %s%s", r, utils.StacktraceIndented("\t")))
+			c.logger.Errorf("Panic: %s%s", r, utils.StacktraceIndented("\t"))
 			panic(r)
 		}
 	}()
@@ -320,9 +323,10 @@ func (c *Crawler) processFolder(folderTask *task, processId int, chProcessResult
 	}
 
 	// Get more info about folder, if not possible then abort
-	info, errStat := os.Lstat(folderTask.path)
-	if errStat != nil {
-		pErr, ok := errStat.(*os.PathError)
+	info, errInfo := os.Lstat(folderTask.path)
+	if errInfo != nil {
+		var pErr *os.PathError
+		ok := errors.As(errInfo, &pErr)
 		if ok && !(errors.Is(pErr, os.ErrPermission) || pErr.Err.Error() == os.ErrPermission.Error()) {
 			c.logger.Debugf("Could not get folder info of '%s': %s", pErr.Path, pErr.Err)
 		}
@@ -344,9 +348,10 @@ func (c *Crawler) processFolder(folderTask *task, processId int, chProcessResult
 	}
 
 	// Get all folders and files
-	content, errDir := os.ReadDir(folderTask.path)
-	if errDir != nil { // Log if an unexpected error occurred
-		pErr, ok := errDir.(*os.PathError)
+	content, errContent := os.ReadDir(folderTask.path)
+	if errContent != nil { // Log if an unexpected error occurred
+		var pErr *os.PathError
+		ok := errors.As(errContent, &pErr)
 		if ok && !(errors.Is(pErr, os.ErrPermission) || pErr.Err.Error() == os.ErrPermission.Error()) {
 			processLogger.Debugf("Could not get folder content of '%s': %s", pErr.Path, pErr.Err)
 		}
@@ -381,15 +386,16 @@ func (c *Crawler) processFile(fileTask *task, processId int, chProcessResults ch
 	// Log potential panics before letting them move on
 	defer func() {
 		if r := recover(); r != nil {
-			c.logger.Errorf(fmt.Sprintf("Panic: %s%s", r, utils.StacktraceIndented("\t")))
+			c.logger.Errorf("Panic: %s%s", r, utils.StacktraceIndented("\t"))
 			panic(r)
 		}
 	}()
 
 	// Get more info about file, if not possible then abort
-	info, errStat := os.Lstat(fileTask.path)
-	if errStat != nil {
-		pErr, ok := errStat.(*os.PathError)
+	info, errInfo := os.Lstat(fileTask.path)
+	if errInfo != nil {
+		var pErr *os.PathError
+		ok := errors.As(errInfo, &pErr)
 		if ok && !(errors.Is(pErr, os.ErrPermission) || pErr.Err.Error() == os.ErrPermission.Error()) {
 			c.logger.Debugf("Could not get file info of '%s': %s", pErr.Path, pErr.Err)
 		}
@@ -454,16 +460,16 @@ func (c *Crawler) processFile(fileTask *task, processId int, chProcessResults ch
 	}
 
 	// Check read rights
-	readable, errRead := accessFile(file.Path, os.O_RDONLY)
-	if errRead != nil {
-		c.logger.Debugf("Could not fully detect file permissions: %s", errRead)
+	readable, errReadable := utils.AccessFile(file.Path, os.O_RDONLY)
+	if errReadable != nil {
+		c.logger.Debugf("Could not fully detect file permissions: %s", errReadable)
 	}
 	file.Readable = readable
 
 	// Check write rights
-	writable, errWrite := accessFile(file.Path, os.O_WRONLY)
-	if errWrite != nil {
-		c.logger.Debugf("Could not fully detect file permissions: %s", errWrite)
+	writable, errWritable := utils.AccessFile(file.Path, os.O_WRONLY)
+	if errWritable != nil {
+		c.logger.Debugf("Could not fully detect file permissions: %s", errWritable)
 	}
 	file.Writable = writable
 
@@ -476,7 +482,8 @@ func (c *Crawler) processFile(fileTask *task, processId int, chProcessResults ch
 	// Get mime type
 	mime, errMime := mimetype.DetectFile(file.Path)
 	if errMime != nil {
-		pErr, ok := errMime.(*os.PathError)
+		var pErr *os.PathError
+		ok := errors.As(errMime, &pErr)
 		if ok && !(errors.Is(pErr, os.ErrPermission) || pErr.Err.Error() == os.ErrPermission.Error()) {
 			processLogger.Debugf("Could not detect the mime-type of '%s': %s", pErr.Path, pErr.Err)
 		}
@@ -490,7 +497,7 @@ func (c *Crawler) processFile(fileTask *task, processId int, chProcessResults ch
 	// Get the custom properties
 	customProps, errCustomProps := getCustomProperties(file.Path, c.logger)
 	if errCustomProps != nil {
-		c.logger.Debugf("custom property determination failed: %s [%s]", errCustomProps, file.Path)
+		c.logger.Debugf("Could not determine custom properties of '%s': %s", file.Path, errCustomProps)
 		file.Properties = []string{}
 	} else {
 		file.Properties = customProps
@@ -503,46 +510,18 @@ func (c *Crawler) processFile(fileTask *task, processId int, chProcessResults ch
 	}
 }
 
-// accessFile detects and returns if a file could be opened with a given flag (eg. readable/writable). If an error
-// (other than a permission error) occurred it, is returned.
-func accessFile(path string, flag int) (opened bool, err error) {
-
-	// Try to open the file
-	file, errOpen := os.OpenFile(path, flag, 0660) // the perm attribute does not matter, since no file is created
-	if errOpen != nil {
-
-		// Try to cast to path error
-		errPath, isPathError := errOpen.(*os.PathError)
-
-		// Check if it is a permission denied error, if yes return that file could not be opened
-		if isPathError && (errors.Is(errPath, os.ErrPermission) || errPath.Err.Error() == os.ErrPermission.Error()) {
-			return false, nil
-
-			// If it is another error, additionally return the error
-		} else {
-			return false, errOpen
-		}
-	}
-
-	// If opening was successful, close the handle and return true
-	_ = file.Close()
-
-	// Return that file could be opened
-	return true, nil
-}
-
 // getCustomProperties retrieves the custom properties of OOXML files, by extracting their docProps/custom.xml file and
 // returns a slice of strings in the form of "property: value"
-func getCustomProperties(filepath string, logger utils.Logger) ([]string, error) {
+func getCustomProperties(filePath string, logger utils.Logger) ([]string, error) {
 
-	//Get OOXMLProperties struct with the names and values of the custom properties
-	customFileProps, errOOXMLProps := getOOXMLProperties(filepath, logger)
-	if errOOXMLProps != nil {
-		return nil, fmt.Errorf("error while getting custom property names: %s [%s]", errOOXMLProps, filepath)
+	// Get OOXMLProperties struct with the names and values of the custom properties
+	customFileProps, errCustomFileProps := getOOXMLProperties(filePath, logger)
+	if errCustomFileProps != nil {
+		return nil, fmt.Errorf("could not get custom property names: %w", errCustomFileProps)
 	}
 
 	// If no custom properties were determined, the function returns with an empty result
-	if customFileProps.Properties == nil {
+	if len(customFileProps.Properties) == 0 {
 		return []string{}, nil
 	}
 
@@ -556,22 +535,22 @@ func getCustomProperties(filepath string, logger utils.Logger) ([]string, error)
 	return customPropsResult, nil
 }
 
-// This function gets the properties specified in the Metadata (docProps/custom.xml) file of an OOXML-file
-// (Office Open XML). It checks the OOXML-properties by opening them as a zip file and reading the docProps/custom.xml
-func getOOXMLProperties(filepath string, logger utils.Logger) (*OOXMLProperties, error) {
+// getOOXMLProperties parses the custom metadata from the docProps/custom.xml entry of an OOXML file
+// (Office Open XML) by opening the file as a zip archive.
+func getOOXMLProperties(filePath string, logger utils.Logger) (*OOXMLProperties, error) {
 
-	//Open file as zip
-	readerZip, errOpen := zip.OpenReader(filepath)
-	if errOpen != nil {
-		if errOpen.Error() == "zip: not a valid zip file" { // this is not an error
+	// Open file as zip
+	readerZip, errReaderZip := zip.OpenReader(filePath)
+	if errReaderZip != nil {
+		if errReaderZip.Error() == "zip: not a valid zip file" { // this is not an error
 			return &OOXMLProperties{}, nil
 		}
-		return nil, errOpen
+		return nil, errReaderZip
 	}
 	defer func() {
 		errClose := readerZip.Close()
 		if errClose != nil {
-			logger.Debugf("Could not close zip reader of '%s': %s", filepath, errClose)
+			logger.Debugf("Could not close zip reader of '%s': %s", filePath, errClose)
 		}
 	}()
 
@@ -590,15 +569,15 @@ func getOOXMLProperties(filepath string, logger utils.Logger) (*OOXMLProperties,
 	}
 
 	// Get reader for docProps/custom.xml
-	customPropsReader, errOpenProps := customPropsXML.Open()
-	if errOpenProps != nil {
-		return nil, fmt.Errorf("could not open '%s': %s", OOXMLCustomPropertiesFile, errOpenProps)
+	customPropsReader, errCustomPropsReader := customPropsXML.Open()
+	if errCustomPropsReader != nil {
+		return nil, fmt.Errorf("could not open '%s': %w", OOXMLCustomPropertiesFile, errCustomPropsReader)
 	}
 	defer func() {
 		errPropReaderClose := customPropsReader.Close()
 		if errPropReaderClose != nil {
 			logger.Debugf("Could not close file reader for '%s' of '%s': %s",
-				OOXMLCustomPropertiesFile, filepath, errPropReaderClose)
+				OOXMLCustomPropertiesFile, filePath, errPropReaderClose)
 		}
 	}()
 
@@ -607,17 +586,17 @@ func getOOXMLProperties(filepath string, logger utils.Logger) (*OOXMLProperties,
 	buf := &bytes.Buffer{}
 	_, errCopy := io.Copy(buf, io.LimitReader(customPropsReader, maxCustomPropsBytes+1))
 	if errCopy != nil {
-		return nil, fmt.Errorf("could not get content of '%s': %s", customPropsXML.Name, errCopy)
+		return nil, fmt.Errorf("could not get content of '%s': %w", customPropsXML.Name, errCopy)
 	}
 	if buf.Len() > maxCustomPropsBytes {
-		return nil, fmt.Errorf("'%s' in '%s' exceeds %d-byte limit", customPropsXML.Name, filepath, maxCustomPropsBytes)
+		return nil, fmt.Errorf("'%s' in '%s' exceeds %d-byte limit", customPropsXML.Name, filePath, maxCustomPropsBytes)
 	}
 
 	// Unmarshal XML content of the docProps/custom.xml file
 	var customProps OOXMLProperties
 	errUnmarshal := xml.Unmarshal(buf.Bytes(), &customProps)
 	if errUnmarshal != nil {
-		return nil, fmt.Errorf("could not Unmarshal %s: %s", OOXMLCustomPropertiesFile, errUnmarshal)
+		return nil, fmt.Errorf("could not unmarshal %s: %w", OOXMLCustomPropertiesFile, errUnmarshal)
 	}
 
 	// Return struct with extracted properties

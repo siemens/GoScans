@@ -11,51 +11,51 @@
 package ot
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"net"
 	"strings"
 	"time"
 
+	"github.com/siemens/GoScans/discovery/ot/rawsocket"
 	"github.com/siemens/GoScans/utils"
 )
 
-const (
-	profinetEtherType = 0x8892
+// profinetEtherType identifies PROFINET DCP Ethernet frames
+const profinetEtherType = 0x8892
 
-	// profinetDcpIdentify and profinetDcpResponse share the value 0x05 because the PROFINET DCP spec
-	// assigns ServiceID=5 ("Identify") to both the request and its response; the ServiceType byte
-	// (Request=0x00, Response=0x01) distinguishes the two directions.
-	profinetDcpIdentify   = 0x05 // ServiceID for DCP Identify request
-	profinetDcpResponse   = 0x05 // ServiceID for DCP Identify response (same value by spec design)
-	profinetDcpServiceReq = 0x00 // Request service type
-	profinetDcpServiceRes = 0x01 // Response service type
+// profinetDcpIdentify and profinetDcpResponse share the value 0x05 because the PROFINET DCP spec
+// assigns ServiceID=5 ("Identify") to both the request and its response; the ServiceType byte
+// (Request=0x00, Response=0x01) distinguishes the two directions.
+const profinetDcpIdentify = 0x05              // ServiceID for DCP Identify request
+const profinetDcpResponse = 0x05              // ServiceID for DCP Identify response (same value by spec design)
+const profinetDcpServiceReq = 0x00            // Request service type
+const profinetDcpServiceRes = 0x01            // Response service type
+const profinetListenTimeout = 5 * time.Second // profinetListenTimeout limits how long discovery waits for PROFINET responses
 
-	// DCP Block Options
-	dcpOptionDeviceProperties = 0x02
-	dcpSubOptionVendor        = 0x01
-	dcpSubOptionNameOfStation = 0x02
-	dcpSubOptionDeviceId      = 0x03
+const dcpOptionDeviceProperties = 0x02 // Device-properties DCP option
+const dcpSubOptionVendor = 0x01        // Device-vendor suboption
+const dcpSubOptionNameOfStation = 0x02 // Station-name suboption
+const dcpSubOptionDeviceId = 0x03      // Device-ID suboption
 
-	dcpOptionIp          = 0x01
-	dcpSubOptionIpParams = 0x02
+const dcpOptionIp = 0x01          // IP DCP option
+const dcpSubOptionIpParams = 0x02 // IP-parameters suboption
 
-	profinetListenTimeout = 5 * time.Second
-)
-
+// profinetMulticast stores the Profinet multicast destination
 var profinetMulticast = net.HardwareAddr{0x01, 0x0E, 0xCF, 0x00, 0x00, 0x00}
 
 // ScanProfinetDcp sends a PROFINET DCP Identify multicast and collects responses.
 func ScanProfinetDcp(logger utils.Logger, iface string) ([]Host, error) {
 
 	// Open raw socket on the interface
-	ifi, errIf := net.InterfaceByName(iface)
-	if errIf != nil {
-		return nil, fmt.Errorf("could not find interface '%s': %w", iface, errIf)
+	ifi, errIfi := net.InterfaceByName(iface)
+	if errIfi != nil {
+		return nil, fmt.Errorf("could not find interface '%s': %w", iface, errIfi)
 	}
 
 	// Bind an Ethernet raw socket for the PROFINET EtherType on the found interface
-	conn, errConn := openRawEthernetSocket(ifi, profinetEtherType)
+	conn, errConn := rawsocket.OpenEthernetSocket(ifi, profinetEtherType)
 	if errConn != nil {
 		return nil, fmt.Errorf("could not open raw socket on '%s': %w", iface, errConn)
 	}
@@ -77,9 +77,9 @@ func ScanProfinetDcp(logger utils.Logger, iface string) ([]Host, error) {
 	// Receive loop: read raw Ethernet frames until the deadline elapses
 	buf := make([]byte, 1500)
 	for time.Now().Before(deadline) {
-		n, errRead := conn.Read(buf)
-		if errRead != nil {
-			if netErr, ok := errRead.(net.Error); ok && netErr.Timeout() {
+		n, errN := conn.Read(buf)
+		if errN != nil {
+			if netErr, ok := errN.(net.Error); ok && netErr.Timeout() {
 				break
 			}
 			continue
@@ -100,7 +100,7 @@ func ScanProfinetDcp(logger utils.Logger, iface string) ([]Host, error) {
 		srcMac := net.HardwareAddr(buf[6:12]).String()
 		host := parseDcpResponse(buf[14:n], srcMac)
 		if host != nil {
-			logger.Debugf("PROFINET DCP response from '%s': %s", srcMac, host.DnsName)
+			logger.Debugf("PROFINET DCP response from '%s': hostname '%s', IP '%s'.", srcMac, strings.Join(host.DnsNames, ", "), strings.Join(host.Ips, ", "))
 			hosts = append(hosts, *host)
 		}
 	}
@@ -205,12 +205,14 @@ func parseDcpResponse(data []byte, srcMac string) *Host {
 			// Dispatch on sub-option to set the corresponding Host field
 			switch subOption {
 			case dcpSubOptionNameOfStation:
-				host.DnsName = value
+				if value != "" {
+					host.DnsNames = utils.AppendUnique(host.DnsNames, value)
+				}
 			case dcpSubOptionVendor:
-				host.OsGuess = "PROFINET - " + value
+				host.OsGuesses = utils.AppendUnique(host.OsGuesses, "PROFINET - "+value)
 			case dcpSubOptionDeviceId:
-				if host.OsGuess == "" {
-					host.OsGuess = "PROFINET IO Device"
+				if len(host.OsGuesses) == 0 {
+					host.OsGuesses = utils.AppendUnique(host.OsGuesses, "PROFINET IO Device")
 				}
 			}
 
@@ -219,7 +221,7 @@ func parseDcpResponse(data []byte, srcMac string) *Host {
 			if subOption == dcpSubOptionIpParams && len(blockData) >= 14 {
 				ip := net.IP(blockData[2:6])
 				if !ip.Equal(net.IPv4zero) {
-					host.Ip = ip.String()
+					host.Ips = utils.AppendUnique(host.Ips, ip.String())
 				}
 			}
 		}
@@ -233,4 +235,56 @@ func parseDcpResponse(data []byte, srcMac string) *Host {
 
 	// Return nil as everything went fine
 	return host
+}
+
+// listenProfinetDcp continuously captures PROFINET DCP Identify Response frames on iface and
+// emits discovered hosts to ch. It only observes responses already present on the wire (e.g. from
+// other controllers' broadcasts) without sending any probe itself. It returns when ctx is cancelled.
+func listenProfinetDcp(ctx context.Context, logger utils.Logger, iface string, ch chan<- Host) error {
+
+	// Look up the named interface
+	ifi, errIfi := net.InterfaceByName(iface)
+	if errIfi != nil {
+		return fmt.Errorf("could not find interface '%s': %w", iface, errIfi)
+	}
+
+	// Open a raw Ethernet socket for PROFINET frames
+	conn, errConn := rawsocket.OpenEthernetSocket(ifi, profinetEtherType)
+	if errConn != nil {
+		return fmt.Errorf("could not open raw socket on '%s': %w", iface, errConn)
+	}
+	defer func() { _ = conn.Close() }()
+
+	// Close the socket when the context is cancelled so the blocked Read() below returns immediately
+	go func() {
+		<-ctx.Done()
+		_ = conn.Close()
+	}()
+
+	// Read PROFINET frames forever; exit when the socket is closed by the watcher goroutine above
+	buf := make([]byte, 1500)
+	for {
+		n, errN := conn.Read(buf)
+		if errN != nil {
+			return nil // context cancelled or socket closed — clean exit
+		}
+
+		// Discard frames too short for an Ethernet header
+		if n < 14 {
+			continue
+		}
+
+		// Filter to PROFINET EtherType only
+		if binary.BigEndian.Uint16(buf[12:14]) != profinetEtherType {
+			continue
+		}
+
+		// Parse source MAC and DCP response payload after the 14-byte Ethernet header
+		srcMac := net.HardwareAddr(buf[6:12]).String()
+		host := parseDcpResponse(buf[14:n], srcMac)
+		if host != nil {
+			//logger.Debugf("PROFINET DCP passive: response from '%s': hostname '%s', IP '%s'.", srcMac, strings.Join(host.DnsNames, ", "), strings.Join(host.Ips, ", "))
+			ch <- *host
+		}
+	}
 }

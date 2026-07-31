@@ -68,10 +68,10 @@ func Test_NewScanner(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewScanner(testLogger, tt.args.sslyzePath, tt.args.customTruststore, tt.args.target,
+			_, errNewScanner := NewScanner(testLogger, tt.args.sslyzePath, tt.args.customTruststore, tt.args.target,
 				tt.args.port, tt.args.vhosts)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("NewScanner() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			if (errNewScanner != nil) != tt.wantErr {
+				t.Errorf("NewScanner() error = '%v', wantErr = '%v'", errNewScanner, tt.wantErr)
 				return
 			}
 		})

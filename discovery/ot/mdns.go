@@ -11,44 +11,54 @@
 package ot
 
 import (
+	"encoding/binary"
 	"fmt"
 	"net"
 	"strings"
 	"time"
 
+	"github.com/siemens/GoScans/discovery/ot/rawsocket"
 	"github.com/siemens/GoScans/utils"
 )
 
-const (
-	mdnsAddr          = "224.0.0.251:5353"
-	ssdpAddr          = "239.255.255.250:1900"
-	mdnsListenTimeout = 5 * time.Second
-)
+const mdnsAddr = "224.0.0.251:5353"       // mDNS multicast endpoint
+const ssdpAddr = "239.255.255.250:1900"   // SSDP multicast endpoint
+const mdnsListenTimeout = 5 * time.Second // Time allowed for multicast responses
+const ipV4EtherType = uint16(0x0800)      // EtherType for IPv4 frames
+const mdnsPort = uint16(5353)             // mDNS destination UDP port
+const ssdpPort = uint16(1900)             // SSDP destination UDP port
+
+var mdnsDstIp = net.IP{224, 0, 0, 251}     // mDNS multicast group address
+var ssdpDstIp = net.IP{239, 255, 255, 250} // SSDP multicast group address
 
 // ScanMdnsSsdp queries mDNS and SSDP multicast groups to discover devices on the given interface.
 func ScanMdnsSsdp(logger utils.Logger, iface string) ([]Host, error) {
 
-	// Resolve the interface's IPv4 address for binding the outgoing socket
-	localIp, errIp := getInterfaceIpV4(iface)
-	if errIp != nil {
-		return nil, errIp
+	// Resolve the interface object and its IPv4 address for binding the outgoing socket
+	ifi, errIfi := net.InterfaceByName(iface)
+	if errIfi != nil {
+		return nil, fmt.Errorf("could not find interface '%s': %w", iface, errIfi)
+	}
+	localIp, errLocalIp := getInterfaceIpV4(iface)
+	if errLocalIp != nil {
+		return nil, errLocalIp
 	}
 
 	// Accumulate results from both sub-protocols
 	var allHosts []Host
 
 	// mDNS discovery
-	mdnsHosts, errMdns := queryMdns(logger, localIp)
-	if errMdns != nil {
-		logger.Warningf("Could not execute mDNS discovery: %s", errMdns)
+	mdnsHosts, errMdnsHosts := queryMdns(logger, ifi, localIp)
+	if errMdnsHosts != nil {
+		logger.Warningf("Could not execute mDNS discovery: %s", errMdnsHosts)
 	} else {
 		allHosts = append(allHosts, mdnsHosts...)
 	}
 
 	// SSDP discovery
-	ssdpHosts, errSsdp := querySsdp(logger, localIp)
-	if errSsdp != nil {
-		logger.Warningf("Could not execute SSDP discovery: %s", errSsdp)
+	ssdpHosts, errSsdpHosts := querySsdp(logger, ifi, localIp)
+	if errSsdpHosts != nil {
+		logger.Warningf("Could not execute SSDP discovery: %s", errSsdpHosts)
 	} else {
 		allHosts = append(allHosts, ssdpHosts...)
 	}
@@ -85,62 +95,72 @@ func getInterfaceIpV4(iface string) (net.IP, error) {
 	return nil, fmt.Errorf("no IPv4 address on interface '%s'", iface)
 }
 
-// queryMdns sends an mDNS service-discovery query and collects responders.
-func queryMdns(logger utils.Logger, localIp net.IP) ([]Host, error) {
+// queryMdns sends an mDNS service-discovery query and collects responders. It opens a raw
+// Ethernet socket for receiving so that the source MAC is extracted from every response frame.
+func queryMdns(logger utils.Logger, ifi *net.Interface, localIp net.IP) ([]Host, error) {
 
-	// Resolve the mDNS multicast address and open a UDP socket bound to the local IP
+	// Open a raw IPv4 socket for capturing mDNS response frames with their Ethernet headers
+	raw, errRaw := rawsocket.OpenEthernetSocket(ifi, ipV4EtherType)
+	if errRaw != nil {
+		return nil, fmt.Errorf("could not open raw socket on '%s': %w", ifi.Name, errRaw)
+	}
+	defer func() { _ = raw.Close() }()
+
+	// Resolve the mDNS multicast address and open a UDP socket bound to the local IP for sending
 	addr, errAddr := net.ResolveUDPAddr("udp4", mdnsAddr)
 	if errAddr != nil {
 		return nil, errAddr
 	}
-
-	// Open a UDP socket bound to the local interface address
-	conn, errConn := net.ListenUDP("udp4", &net.UDPAddr{IP: localIp, Port: 0})
-	if errConn != nil {
-		return nil, errConn
+	udp, errUdp := net.ListenUDP("udp4", &net.UDPAddr{IP: localIp, Port: 0})
+	if errUdp != nil {
+		return nil, errUdp
 	}
-	defer func() { _ = conn.Close() }()
+	defer func() { _ = udp.Close() }()
 
 	// Send the mDNS PTR query for _services._dns-sd._udp.local
 	query := buildMdnsQuery("_services._dns-sd._udp.local")
-	_, errSend := conn.WriteToUDP(query, addr)
+	_, errSend := udp.WriteToUDP(query, addr)
 	if errSend != nil {
 		logger.Debugf("Could not send mDNS query: %s", errSend)
 	}
 
-	// Collect unique responders until the read deadline fires
+	// Collect unique responders until the read deadline fires; mDNS responses are multicast
 	var hosts []Host
 	var seen = make(map[string]bool)
-	_ = conn.SetReadDeadline(time.Now().Add(mdnsListenTimeout))
+	_ = raw.SetReadDeadline(time.Now().Add(mdnsListenTimeout))
 
-	// Receive loop: read UDP datagrams until the deadline fires
+	// Receive loop: read raw frames until the deadline fires
 	buf := make([]byte, 1500)
 	for {
-		n, remote, errRead := conn.ReadFromUDP(buf)
-		if errRead != nil {
+		n, errN := raw.Read(buf)
+		if errN != nil {
 			break
 		}
 
-		// Minimum DNS header is 12 bytes
-		if n < 12 {
+		// Extract source MAC, source IP, and UDP payload; filters for mDNS destination
+		srcMac, ip, payload := parseUdpFrame(buf[:n], mdnsDstIp, mdnsPort)
+		if ip == "" {
 			continue
 		}
 
 		// Record each unique source IP once
-		ip := remote.IP.String()
 		if seen[ip] {
 			continue
 		}
 		seen[ip] = true
 
-		// Decode the mDNS response name and build a Host record
-		hostname := extractMdnsName(buf[:n])
-		host := Host{
-			Ip:      ip,
-			DnsName: hostname,
-			OsGuess: "mDNS Responder",
+		// Minimum DNS header is 12 bytes
+		if len(payload) < 12 {
+			continue
 		}
-		logger.Debugf("mDNS response from '%s': %s", ip, hostname)
+
+		// Decode the mDNS response name and build a Host record
+		hostname := extractMdnsName(payload)
+		host := Host{MacAddress: srcMac, Ips: []string{ip}}
+		if hostname != "" {
+			host.DnsNames = []string{hostname}
+		}
+		logger.Debugf("mDNS response from '%s': MAC '%s', hostname '%s'.", ip, srcMac, hostname)
 		hosts = append(hosts, host)
 	}
 
@@ -148,21 +168,30 @@ func queryMdns(logger utils.Logger, localIp net.IP) ([]Host, error) {
 	return hosts, nil
 }
 
-// querySsdp sends an SSDP M-SEARCH request and collects responders.
-func querySsdp(logger utils.Logger, localIp net.IP) ([]Host, error) {
+// querySsdp sends an SSDP M-SEARCH request and collects responders. It opens a raw Ethernet
+// socket for receiving so that the source MAC is extracted from every unicast response frame.
+func querySsdp(logger utils.Logger, ifi *net.Interface, localIp net.IP) ([]Host, error) {
 
-	// Resolve the SSDP multicast address and open a UDP socket bound to the local IP
+	// Open a raw IPv4 socket for capturing SSDP response frames with their Ethernet headers
+	raw, errRaw := rawsocket.OpenEthernetSocket(ifi, ipV4EtherType)
+	if errRaw != nil {
+		return nil, fmt.Errorf("could not open raw socket on '%s': %w", ifi.Name, errRaw)
+	}
+	defer func() { _ = raw.Close() }()
+
+	// Resolve the SSDP multicast address and open a UDP socket bound to the local IP for sending
 	addr, errAddr := net.ResolveUDPAddr("udp4", ssdpAddr)
 	if errAddr != nil {
 		return nil, errAddr
 	}
-
-	// Open a UDP socket bound to the local interface address
-	conn, errConn := net.ListenUDP("udp4", &net.UDPAddr{IP: localIp, Port: 0})
-	if errConn != nil {
-		return nil, errConn
+	udp, errUdp := net.ListenUDP("udp4", &net.UDPAddr{IP: localIp, Port: 0})
+	if errUdp != nil {
+		return nil, errUdp
 	}
-	defer func() { _ = conn.Close() }()
+	defer func() { _ = udp.Close() }()
+
+	// Read back the ephemeral port the OS assigned so we can filter incoming unicast responses
+	localPort := uint16(udp.LocalAddr().(*net.UDPAddr).Port)
 
 	// Send the SSDP M-SEARCH request to the multicast group
 	msearch := "M-SEARCH * HTTP/1.1\r\n" +
@@ -171,38 +200,44 @@ func querySsdp(logger utils.Logger, localIp net.IP) ([]Host, error) {
 		"MX: 3\r\n" +
 		"ST: ssdp:all\r\n" +
 		"\r\n"
-	_, errSend := conn.WriteToUDP([]byte(msearch), addr)
+	_, errSend := udp.WriteToUDP([]byte(msearch), addr)
 	if errSend != nil {
 		logger.Debugf("Could not send SSDP M-SEARCH: %s", errSend)
 	}
 
-	// Collect unique responders until the read deadline fires
+	// Collect unique responders until the read deadline fires. SSDP responses are unicast to our
+	// ephemeral port so we filter on localIp:localPort rather than the multicast destination.
 	var hosts []Host
 	var seen = make(map[string]bool)
-	_ = conn.SetReadDeadline(time.Now().Add(mdnsListenTimeout))
+	_ = raw.SetReadDeadline(time.Now().Add(mdnsListenTimeout))
 
-	// Receive loop: read UDP datagrams until the deadline fires
+	// Receive loop: read raw frames until the deadline fires
 	buf := make([]byte, 1500)
 	for {
-		n, remote, errRead := conn.ReadFromUDP(buf)
-		if errRead != nil {
+		n, errN := raw.Read(buf)
+		if errN != nil {
 			break
 		}
 
+		// Extract source MAC, source IP, and UDP payload; filters for our unicast destination
+		srcMac, ip, payload := parseUdpFrame(buf[:n], localIp, localPort)
+		if ip == "" {
+			continue
+		}
+
 		// Record each unique source IP once
-		ip := remote.IP.String()
 		if seen[ip] {
 			continue
 		}
 		seen[ip] = true
 
 		// Extract the SERVER header and build a Host record
-		serverInfo := extractSsdpServer(string(buf[:n]))
-		host := Host{
-			Ip:      ip,
-			OsGuess: serverInfo,
+		serverInfo := extractSsdpServer(string(payload))
+		host := Host{MacAddress: srcMac, Ips: []string{ip}}
+		if serverInfo != "" {
+			host.OsGuesses = []string{serverInfo}
 		}
-		logger.Debugf("SSDP response from '%s': %s", ip, serverInfo)
+		logger.Debugf("SSDP response from '%s': MAC '%s', server '%s'.", ip, srcMac, serverInfo)
 		hosts = append(hosts, host)
 	}
 
@@ -233,7 +268,12 @@ func buildMdnsQuery(name string) []byte {
 	return pkt
 }
 
-// extractMdnsName decodes the name from the first answer record in an mDNS/DNS response packet.
+// extractMdnsName scans the answer records of an mDNS packet and returns the hostname from the
+// first A record (Type 1). In an A record the owner NAME is "hostname.local", making it the only
+// record type where the NAME field directly identifies the device. PTR records are intentionally
+// excluded: their NAME is the query being answered (e.g. a reverse IPv6 arpa address or a service
+// type like "_http._tcp.local"), not the device hostname — the hostname lives in their RDATA.
+// Returns an empty string when no A record is present (e.g. queries, probes, service-only responses).
 func extractMdnsName(data []byte) string {
 
 	// Require at least a 12-byte DNS header
@@ -241,33 +281,65 @@ func extractMdnsName(data []byte) string {
 		return ""
 	}
 
-	// Skip past the DNS header and any question records to reach the first answer
+	// Skip past all question records to reach the answer section
 	offset := 12
 	qdCount := int(data[4])<<8 | int(data[5])
 	for i := 0; i < qdCount && offset < len(data); i++ {
-		for offset < len(data) && data[offset] != 0 {
-			if data[offset]&0xC0 == 0xC0 {
-				offset += 2
-				break
-			}
-			offset += int(data[offset]) + 1
-		}
-		if offset < len(data) && data[offset] == 0 {
-			offset++
-		}
+		offset = skipDnsName(data, offset)
 		offset += 4 // QTYPE + QCLASS
 	}
 
-	// Bail out if question-record parsing consumed all available data
-	if offset >= len(data) {
-		return ""
+	// Iterate answer records looking for the first A record (Type 1)
+	anCount := int(data[6])<<8 | int(data[7])
+	for i := 0; i < anCount && offset < len(data); i++ {
+
+		// Record the start of this record's name so we can decode it if the type matches
+		nameOffset := offset
+		offset = skipDnsName(data, offset)
+
+		// Need at least type(2) + class(2) + ttl(4) + rdlength(2) = 10 bytes after the name
+		if offset+10 > len(data) {
+			break
+		}
+
+		// Read the record type and rdlength, then advance past the rdata
+		rrType := int(data[offset])<<8 | int(data[offset+1])
+		rdLength := int(data[offset+8])<<8 | int(data[offset+9])
+		offset += 10 + rdLength
+
+		// Only A records carry the device hostname as their owner NAME
+		if rrType != 1 {
+			continue
+		}
+
+		// Decode, strip .local suffix, and return the hostname
+		name := decodeDnsName(data, nameOffset)
+		name = strings.TrimSuffix(name, ".local.")
+		name = strings.TrimSuffix(name, ".local")
+		return name
 	}
 
-	// Decode and strip .local suffix from the answer name
-	name := decodeDnsName(data, offset)
-	name = strings.TrimSuffix(name, ".local.")
-	name = strings.TrimSuffix(name, ".local")
-	return name
+	// No A record found in the answer section
+	return ""
+}
+
+// skipDnsName advances offset past a DNS wire-format name (labels or compression pointer) and
+// returns the new offset positioned immediately after the name terminator.
+func skipDnsName(data []byte, offset int) int {
+
+	// Walk labels and pointers until the root label or end of data
+	for offset < len(data) {
+		if data[offset]&0xC0 == 0xC0 {
+			return offset + 2 // compression pointer is always 2 bytes
+		}
+		if data[offset] == 0 {
+			return offset + 1 // root label terminator
+		}
+		offset += int(data[offset]) + 1
+	}
+
+	// Return offset as-is if data ran out
+	return offset
 }
 
 // decodeDnsName iteratively decodes a DNS wire-format name starting at offset.
@@ -316,8 +388,56 @@ func decodeDnsName(data []byte, offset int) string {
 	return strings.Join(parts, ".")
 }
 
+// parseUdpFrame extracts the source MAC, source IP, and UDP payload from a raw Ethernet frame,
+// verifying that the destination IP and destination UDP port match the given values. Returns empty
+// strings and nil payload when the frame does not match. Works for both multicast and unicast destinations.
+func parseUdpFrame(frame []byte, dstIp net.IP, dstPort uint16) (srcMac, srcIp string, payload []byte) {
+
+	// Require at least a 14-byte Ethernet header + 20-byte IPv4 header + 8-byte UDP header
+	if len(frame) < 42 {
+		return "", "", nil
+	}
+
+	// Only handle IPv4 frames (EtherType 0x0800)
+	if binary.BigEndian.Uint16(frame[12:14]) != ipV4EtherType {
+		return "", "", nil
+	}
+
+	// Only handle UDP (IP protocol 17)
+	ipHeader := frame[14:]
+	if ipHeader[9] != 17 {
+		return "", "", nil
+	}
+
+	// Verify the destination IP matches the expected multicast group
+	if !net.IP(ipHeader[16:20]).Equal(dstIp) {
+		return "", "", nil
+	}
+
+	// Compute the IPv4 header length from the IHL field (lower nibble, in 32-bit words)
+	ihl := int(ipHeader[0]&0x0F) * 4
+	if len(ipHeader) < ihl+8 {
+		return "", "", nil
+	}
+
+	// Verify the destination UDP port matches
+	udpHeader := ipHeader[ihl:]
+	if binary.BigEndian.Uint16(udpHeader[2:4]) != dstPort {
+		return "", "", nil
+	}
+
+	// Extract source MAC from Ethernet header bytes 6–11
+	mac := strings.ToUpper(net.HardwareAddr(frame[6:12]).String())
+
+	// Extract source IP from the IPv4 header
+	ip := net.IP(ipHeader[12:16]).String()
+
+	// Return source MAC, source IP, and UDP payload (after the 8-byte UDP header)
+	return mac, ip, udpHeader[8:]
+}
+
 // extractSsdpServer extracts the value of the SERVER header from an SSDP response.
-// Returns "SSDP Device" when no SERVER header is present.
+// Returns an empty string when no SERVER header is present.
 func extractSsdpServer(response string) string {
 
 	// Scan header lines for the SERVER field
@@ -326,5 +446,5 @@ func extractSsdpServer(response string) string {
 			return strings.TrimSpace(line[7:])
 		}
 	}
-	return "SSDP Device"
+	return ""
 }

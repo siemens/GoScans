@@ -27,9 +27,9 @@ func TestMain(m *testing.M) {
 	_test.GetSettings()
 
 	// Prepare test directory
-	tmpDir, errTmp := os.MkdirTemp(".", "goscans-ssl-test-*")
-	if errTmp != nil {
-		panic(errTmp)
+	tmpDir, errTmpDir := os.MkdirTemp(".", "goscans-ssl-test-*")
+	if errTmpDir != nil {
+		panic(errTmpDir)
 	}
 	if errChdir := os.Chdir(tmpDir); errChdir != nil {
 		panic(errChdir)
@@ -166,9 +166,9 @@ func TestParseSslyzeVersion(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			version, errParse := parseSslyzeVersion(tt.input)
-			if (errParse != nil) != tt.wantErr {
-				t.Errorf("parseSslyzeVersion() error = '%v', wantErr = '%v'", errParse, tt.wantErr)
+			version, errVersion := parseSslyzeVersion(tt.input)
+			if (errVersion != nil) != tt.wantErr {
+				t.Errorf("parseSslyzeVersion() error = '%v', wantErr = '%v'", errVersion, tt.wantErr)
 				return
 			}
 			if !tt.wantErr {
@@ -239,10 +239,10 @@ func TestScanner_Results(t *testing.T) {
 	// Run test scans
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			scanner, errNew := NewScanner(testLogger, tt.args.sslyzePath, tt.args.customTruststore, tt.args.target,
+			scanner, errScanner := NewScanner(testLogger, tt.args.sslyzePath, tt.args.customTruststore, tt.args.target,
 				tt.args.port, tt.args.vhosts)
-			if errNew != nil {
-				t.Errorf("NewScanner() error = '%v', want = 'nil'", errNew)
+			if errScanner != nil {
+				t.Errorf("NewScanner() error = '%v', want = 'nil'", errScanner)
 				return
 			}
 

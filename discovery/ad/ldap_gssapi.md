@@ -27,14 +27,12 @@ we only need one realm/domain of course.
 "password": "test_password"
 },
 ```
-
 #### Scan Target
 
 If we have a scan target as `host123.sales.example.org`, then inside hostLookupAd,
 host or searchCN is `host123` and ldapAddress or targetDomain is `sales.example.org`
 
 The call to ldapConnectGssapi is then as follows:
-
 ```
 ldapConnectGssapi(logger, ldapAddress, ldapPort, ldapDomain, ldapUser, ldapPassword, dialTimeout)
 
@@ -49,7 +47,6 @@ with values:
 #### Resolve Service Principal Name (SPN)
 
 We must discover an LDAP service endpoint from the target domain.
-
 - SPN = LDAP SRV record of a domain controller.
 
 Therefore:
@@ -57,7 +54,6 @@ Therefore:
 `spn=cache.GetDc(logger, ldapAddress)`
 
 In command line you can check up if the system is able to find those service records:
-
 ```
 nslookup -type=srv _ldap._tcp.dc._msdcs.<domain>
 
@@ -79,7 +75,6 @@ Then before we can build a gssapi client, we have to programmatically build the 
 // Prepare Kerberos config
 krb5Config := buildKrb5Config(logger, defaultRealm, ldapAddress)
 ```
-
 In this scenario we have two different realms:
 
 - sub.domain.tld as default

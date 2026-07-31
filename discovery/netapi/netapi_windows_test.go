@@ -54,11 +54,11 @@ func TestUtf16PtrToString(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Simply convert back and forth
-			strPtr, errPtr := syscall.UTF16PtrFromString(tt.args.str)
-			if errPtr != nil {
+			strPtr, errStrPtr := syscall.UTF16PtrFromString(tt.args.str)
+			if errStrPtr != nil {
 				// It's an error, but it is not in the function that we actually want to test. Therefore only log and
 				// skip it.
-				t.Skipf("Could not convert the string '%s' to an '*uint16' - skipping: %s", tt.args.str, errPtr)
+				t.Skipf("Could not convert the string '%s' to an '*uint16' - skipping: %s", tt.args.str, errStrPtr)
 			}
 
 			str := utf16PtrToString(strPtr)

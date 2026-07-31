@@ -1,3 +1,13 @@
+/*
+* GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
+*
+* Copyright (c) Siemens AG, 2016-2026.
+*
+* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+* directory or visit <https://opensource.org/licenses/MIT>.
+*
+ */
+
 package ad
 
 import (
@@ -18,7 +28,7 @@ var cache = &Cache{
 	ttl:        7 * 24 * time.Hour,
 }
 
-// Timeout for the connection attempts during discovery
+// dialTimeout is the maximum duration allowed for each LDAP connection attempt during discovery.
 const dialTimeout = 30 * time.Second
 
 // Cache stores domain controller (dc) and key distribution centers (kdc) per domain/realm with TTL management.
@@ -58,17 +68,17 @@ func (c *Cache) GetDc(logger utils.Logger, domain string) (string, error) {
 	}
 
 	// If not found or expired, discover a new domain controller
-	dcNew, err := findDc(logger, domain)
-	if err != nil {
+	dcNew, errDcNew := findDc(logger, domain)
+	if errDcNew != nil {
 
 		// If discovery fails, check if a stale cache entry can be used as a fallback
 		if found && entry.dc != "" {
-			logger.Debugf("Using stale domain controller for '%s' due to discovery error: %v", domain, err)
+			logger.Debugf("Using stale domain controller for '%s' due to discovery error: %v", domain, errDcNew)
 			return entry.dc, nil
 		}
 
 		// Return error otherwise
-		return "", err
+		return "", errDcNew
 	}
 
 	// Add new entry to the cache
@@ -235,17 +245,17 @@ func findDc(logger utils.Logger, domainName string) (string, error) {
 func testStartTls(server string, port int) bool {
 
 	// Attempt to dial the LDAP server
-	conn, err := ldap.DialURL(fmt.Sprintf("ldap://%s:%d", server, port), ldap.DialWithDialer(&net.Dialer{Timeout: dialTimeout}))
-	if err != nil {
+	conn, errConn := ldap.DialURL(fmt.Sprintf("ldap://%s:%d", server, port), ldap.DialWithDialer(&net.Dialer{Timeout: dialTimeout}))
+	if errConn != nil {
 		return false // If dialing fails, TLS cannot be tested
 	}
 
 	// Ensure the connection is closed when the function exits
 	defer func() { _ = conn.Close() }()
 
-	// Attempt to perform the StartTLS operation.
-	err = conn.StartTLS(utils.InsecureTlsConfigFactory()) // Insecure, because this is not a user interface, we are trying to discover content...
+	// Attempt to perform the StartTLS operation
+	errTls := conn.StartTLS(utils.InsecureTlsConfigFactory()) // Insecure, because this is not a user interface, we are trying to discover content...
 
-	// If err is nil, StartTLS was successful
-	return err == nil
+	// If errTls is nil, StartTLS was successful
+	return errTls == nil
 }

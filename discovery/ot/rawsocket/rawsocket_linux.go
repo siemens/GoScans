@@ -10,7 +10,7 @@
 *
  */
 
-package ot
+package rawsocket
 
 import (
 	"net"
@@ -18,36 +18,19 @@ import (
 	"time"
 )
 
-// rawConn wraps a Linux AF_PACKET socket for sending/receiving raw Ethernet frames.
-type rawConn struct {
+// conn wraps a Linux AF_PACKET socket for sending/receiving raw Ethernet frames.
+type conn struct {
 	fd    int
 	ifIdx int
 }
 
-// timeoutError wraps a syscall errno to satisfy the net.Error interface when a socket deadline fires.
-// Linux syscall.Recvfrom returns EAGAIN/EWOULDBLOCK when SO_RCVTIMEO expires. This type ensures
-// call sites that use errRead.(net.Error) get consistent Timeout() == true behaviour.
-type timeoutError struct{ cause error }
-
-// Error returns the underlying error message.
-func (e *timeoutError) Error() string { return e.cause.Error() }
-
-// Timeout reports that this error represents a deadline expiry.
-func (e *timeoutError) Timeout() bool { return true }
-
-// Temporary reports that this error is transient.
-func (e *timeoutError) Temporary() bool { return true }
-
-// Ensure timeoutError satisfies net.Error at compile time.
-var _ net.Error = (*timeoutError)(nil)
-
-// openRawEthernetSocket opens a raw Ethernet socket bound to the given interface and EtherType.
-func openRawEthernetSocket(ifi *net.Interface, etherType uint16) (*rawConn, error) {
+// openEthernetSocket opens a raw Ethernet socket bound to the given interface and EtherType.
+func openEthernetSocket(ifi *net.Interface, etherType uint16) (*conn, error) {
 
 	// Create AF_PACKET raw socket for the requested EtherType
-	fd, errSock := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_RAW, int(htons(etherType)))
-	if errSock != nil {
-		return nil, errSock
+	fd, errFd := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_RAW, int(htons(etherType)))
+	if errFd != nil {
+		return nil, errFd
 	}
 
 	// Bind the socket to the network interface
@@ -61,11 +44,11 @@ func openRawEthernetSocket(ifi *net.Interface, etherType uint16) (*rawConn, erro
 	}
 
 	// Return nil as everything went fine
-	return &rawConn{fd: fd, ifIdx: ifi.Index}, nil
+	return &conn{fd: fd, ifIdx: ifi.Index}, nil
 }
 
 // Write sends raw bytes to the bound interface.
-func (c *rawConn) Write(b []byte) (int, error) {
+func (c *conn) Write(b []byte) (int, error) {
 
 	// Send bytes via AF_PACKET sendto; return 0 bytes written on any failure
 	addr := syscall.SockaddrLinklayer{
@@ -81,7 +64,7 @@ func (c *rawConn) Write(b []byte) (int, error) {
 
 // Read receives raw bytes from the socket. When the SO_RCVTIMEO deadline fires, it returns a
 // net.Error with Timeout() == true so callers can break their receive loop with a single type check.
-func (c *rawConn) Read(b []byte) (int, error) {
+func (c *conn) Read(b []byte) (int, error) {
 
 	// Receive a frame; wrap EAGAIN/EWOULDBLOCK as a timeout net.Error
 	n, _, errRecv := syscall.Recvfrom(c.fd, b, 0)
@@ -94,7 +77,7 @@ func (c *rawConn) Read(b []byte) (int, error) {
 }
 
 // SetReadDeadline sets a timeout for read operations using SO_RCVTIMEO.
-func (c *rawConn) SetReadDeadline(t time.Time) error {
+func (c *conn) SetReadDeadline(t time.Time) error {
 
 	// Convert the absolute deadline to a relative duration clamped to zero
 	d := time.Until(t)
@@ -111,7 +94,7 @@ func (c *rawConn) SetReadDeadline(t time.Time) error {
 }
 
 // Close closes the raw socket.
-func (c *rawConn) Close() error {
+func (c *conn) Close() error {
 	return syscall.Close(c.fd)
 }
 

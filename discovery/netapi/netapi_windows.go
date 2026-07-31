@@ -22,26 +22,22 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const maxPreferredLength uint32 = 0xFFFFFFFF // This will let the netapi function allocate the needed memory
+// maxPreferredLength requests the maximum result size supported by the Windows API
+const maxPreferredLength uint32 = 0xFFFFFFFF
 
-var (
-	modNetapi32             = windows.NewLazySystemDLL("Netapi32.dll")
-	netLocalGroupGetMembers = modNetapi32.NewProc("NetLocalGroupGetMembers")
-	netApiBufferFree        = modNetapi32.NewProc("NetApiBufferFree")
-)
+var modNetapi32 = windows.NewLazySystemDLL("Netapi32.dll")                   // Lazy-loaded handle to the Windows Netapi32 DLL
+var netLocalGroupGetMembers = modNetapi32.NewProc("NetLocalGroupGetMembers") // Procedure for enumerating local group members
+var netApiBufferFree = modNetapi32.NewProc("NetApiBufferFree")               // Procedure for freeing Netapi32-allocated buffers
 
-// Small helper struct in order to parse the returned data
+// members2Raw is a small helper struct that maps to the LOCALGROUP_MEMBERS_INFO_2 layout returned by the NetAPI call.
 type members2Raw struct {
 	sid           *syscall.SID
 	sidUsage      uint32
 	domainAndName *uint16
 }
 
-// Create an instance of the helper and get the size of that instance
-var (
-	structInstance members2Raw
-	structSize     = unsafe.Sizeof(structInstance)
-)
+var structInstance members2Raw                 // Helper instance used to derive the native structure size
+var structSize = unsafe.Sizeof(structInstance) // Native LOCALGROUP_MEMBERS_INFO_2 structure size
 
 // Some of these values are actually not valid values to be returned in "LOCALGROUP_MEMBERS_INFO_2", but we've
 // encountered these types as well.
@@ -59,6 +55,7 @@ var usageToString = map[uint32]string{
 	10: "Label",            // SidTypeLabel 	- Should not be a valid value
 }
 
+// GetGroupInfo enumerates the members of the local group identified by sidString on the given target host.
 func GetGroupInfo(logger utils.Logger, target, sidString string) ([]string, error) {
 
 	var (
@@ -72,15 +69,15 @@ func GetGroupInfo(logger utils.Logger, target, sidString string) ([]string, erro
 	)
 
 	// Encode the server name in UTF-16 and get a pointer to it
-	targetPtr, errUtf := syscall.UTF16PtrFromString(target)
-	if errUtf != nil {
-		return users, fmt.Errorf("can not convert the target string '%s' to an UTF-16 pointer: %s", target, errUtf)
+	targetPtr, errTargetPtr := syscall.UTF16PtrFromString(target)
+	if errTargetPtr != nil {
+		return users, fmt.Errorf("cannot convert the target string '%s' to an UTF-16 pointer: %s", target, errTargetPtr)
 	}
 
 	// Get the Administrator SID
 	sid, errSid := syscall.StringToSid(sidString)
 	if errSid != nil {
-		return users, fmt.Errorf("can not convert sid string '%s' to an SID: %s", sidString, errSid)
+		return users, fmt.Errorf("cannot convert sid string '%s' to an SID: %s", sidString, errSid)
 	}
 
 	// Make a lookup for the group name
@@ -93,13 +90,13 @@ func GetGroupInfo(logger utils.Logger, target, sidString string) ([]string, erro
 		}
 
 		// Return unexpected error
-		return users, fmt.Errorf("can not lookup group name for target '%s': %s", target, errLookup)
+		return users, fmt.Errorf("cannot lookup group name for target '%s': %s", target, errLookup)
 	}
 
 	// Encode the group name in UTF-16 and get a pointer to it
-	groupNamePtr, errGroup := syscall.UTF16PtrFromString(groupName)
-	if errGroup != nil {
-		return users, fmt.Errorf("can not convert the group name '%s' to an UTF-16 pointer: %s", target, errGroup)
+	groupNamePtr, errGroupNamePtr := syscall.UTF16PtrFromString(groupName)
+	if errGroupNamePtr != nil {
+		return users, fmt.Errorf("cannot convert the group name '%s' to an UTF-16 pointer: %s", target, errGroupNamePtr)
 	}
 
 	// Create a function that frees the buffer and log errors that might occur
@@ -198,8 +195,8 @@ func GetGroupInfo(logger utils.Logger, target, sidString string) ([]string, erro
 	return users, nil
 }
 
-// utf16PtrToString converts a  pointer to a null-terminated, UTF-16 encoded string into a (golang) string. The length
-// of the string can be arbitrary. Be cautious with this function if the memory address in invalid the program might
+// utf16PtrToString converts a pointer to a null-terminated UTF-16 encoded string into a Go string. The length
+// of the string can be arbitrary. Be cautious with this function if the memory address is invalid, as the program might
 // crash.
 func utf16PtrToString(p *uint16) string {
 	if p == nil {

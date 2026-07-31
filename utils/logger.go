@@ -1,7 +1,7 @@
 /*
 * GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
 *
-* Copyright (c) Siemens AG, 2016-2025.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -32,19 +32,27 @@ type TaggedLogger struct {
 	tag string
 }
 
+// Debugf prepends the tag to the format string and delegates to the wrapped logger.
 func (l *TaggedLogger) Debugf(format string, v ...interface{}) {
 	l.Logger.Debugf("["+l.tag+"] "+format, v...)
 }
+
+// Infof prepends the tag to the format string and delegates to the wrapped logger.
 func (l *TaggedLogger) Infof(format string, v ...interface{}) {
 	l.Logger.Infof("["+l.tag+"] "+format, v...)
 }
+
+// Warningf prepends the tag to the format string and delegates to the wrapped logger.
 func (l *TaggedLogger) Warningf(format string, v ...interface{}) {
 	l.Logger.Warningf("["+l.tag+"] "+format, v...)
 }
+
+// Errorf prepends the tag to the format string and delegates to the wrapped logger.
 func (l *TaggedLogger) Errorf(format string, v ...interface{}) {
 	l.Logger.Errorf("["+l.tag+"] "+format, v...)
 }
 
+// NewTaggedLogger wraps a logger with a tag that is prepended to every log message.
 func NewTaggedLogger(logger Logger, tag string) *TaggedLogger {
 	return &TaggedLogger{
 		logger,
@@ -58,15 +66,22 @@ type TestLogger struct {
 	tag string
 }
 
+// Debugf logs a debug-level message via the underlying standard logger.
 func (l *TestLogger) Debugf(format string, v ...interface{}) {
 	l.Printf(format+"\n", v...)
 }
+
+// Infof logs an info-level message via the underlying standard logger.
 func (l *TestLogger) Infof(format string, v ...interface{}) {
 	l.Printf(format+"\n", v...)
 }
+
+// Warningf logs a warning-level message via the underlying standard logger.
 func (l *TestLogger) Warningf(format string, v ...interface{}) {
 	l.Printf(format+"\n", v...)
 }
+
+// Errorf logs an error-level message via the underlying standard logger.
 func (l *TestLogger) Errorf(format string, v ...interface{}) {
 	l.Printf(format+"\n", v...)
 }

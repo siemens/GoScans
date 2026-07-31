@@ -1,7 +1,7 @@
 /*
 * Large-Scale Discovery, a network scanning solution for information gathering in large IT/OT network environments.
 *
-* Copyright (c) Siemens AG, 2016-2023.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -19,23 +19,27 @@ import (
 	"strings"
 )
 
+// DCERPCTransport holds the target and port for a DCE/RPC connection used by the OXID resolver.
 type DCERPCTransport struct {
 	target string
 	port   string
 }
 
+// ServerAlive2Response holds the parsed fields of a DCE/RPC ServerAlive2 response.
 type ServerAlive2Response struct {
 	bindingsStringArray    []uint16
 	bindingsSecurityOffset int
 	bindingsNumEntries     int
 }
 
+// bindingToAddr extracts a single binding string address and its byte length from the bindings payload.
 func bindingToAddr(bindings []byte) (string, int) {
 	offset := 2
 	dataLen := bytes.Index(bindings, []byte("\x00\x00\x00")) + 3 - offset
 	return string(bindings[offset : offset+dataLen]), dataLen + offset
 }
 
+// parseStringData parses the binary payload of a ServerAlive2 response into a structured ServerAlive2Response.
 func parseStringData(data []byte) ServerAlive2Response {
 
 	// Prepare result data structure
@@ -77,7 +81,7 @@ func extractAddresses(data []byte) (string, []string, error) {
 	// Prepare memory for alive response data
 	sa2r := parseStringData(data)
 	if sa2r.bindingsStringArray == nil {
-		return "", nil, fmt.Errorf("could not extract inferface information") // Target isn't listening on endpoint or access denied
+		return "", nil, fmt.Errorf("could not extract interface information") // Target isn't listening on endpoint or access denied
 	}
 
 	// Parse oxIDs
@@ -113,7 +117,7 @@ func extractAddresses(data []byte) (string, []string, error) {
 
 	// Return with no result if there is no data
 	if len(stringBindings) < 2 {
-		return "", []string{}, fmt.Errorf("unexpected OXID response legnth %d", len(stringBindings))
+		return "", []string{}, fmt.Errorf("unexpected OXID response length %d", len(stringBindings))
 	}
 
 	// Return extracted hostname and IP addresses

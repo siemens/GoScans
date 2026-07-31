@@ -26,9 +26,9 @@ import (
 	"github.com/siemens/GoScans/utils"
 )
 
-const testFile = "test.csv"
-const testFolder = "webcraler-test"
-const notExistingFile = "notexisting.csv"
+const testFile = "test.csv"               // Test output filename
+const testFolder = "webcrawler-test"      // Test working-directory name
+const notExistingFile = "notexisting.csv" // Guaranteed-missing test filename
 
 // TestMain initializes the test environment and runs all tests in the webcrawler package.
 func TestMain(m *testing.M) {
@@ -37,9 +37,9 @@ func TestMain(m *testing.M) {
 	_test.GetSettings()
 
 	// Prepare test directory
-	tmpDir, errTmp := os.MkdirTemp(".", "goscans-webcrawler-test-*")
-	if errTmp != nil {
-		panic(errTmp)
+	tmpDir, errTmpDir := os.MkdirTemp(".", "goscans-webcrawler-test-*")
+	if errTmpDir != nil {
+		panic(errTmpDir)
 	}
 	if errChdir := os.Chdir(tmpDir); errChdir != nil {
 		panic(errChdir)
@@ -144,7 +144,7 @@ func TestNewScanner(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Initiate webcrawler scanner
-			_, err := NewScanner(
+			_, errNewScanner := NewScanner(
 				testLogger,
 				tt.args.address,
 				443,
@@ -163,8 +163,8 @@ func TestNewScanner(t *testing.T) {
 				tt.args.proxy,
 				requestTimeout,
 			)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("NewScanner() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			if (errNewScanner != nil) != tt.wantErr {
+				t.Errorf("NewScanner() error = '%v', wantErr = '%v'", errNewScanner, tt.wantErr)
 				return
 			}
 		})
@@ -231,7 +231,7 @@ func TestScanner_SetFollowContentTypes(t *testing.T) {
 		}
 
 		t.Run(tt.name, func(t *testing.T) {
-			s, errNew := NewScanner(
+			s, errS := NewScanner(
 				tt.fields.logger,
 				tt.fields.target,
 				tt.fields.port,
@@ -250,8 +250,8 @@ func TestScanner_SetFollowContentTypes(t *testing.T) {
 				proxy,
 				requestTimeout,
 			)
-			if errNew != nil {
-				t.Errorf("Scanner.SetFollowContentTypes() Could not prepare scanner: '%v'", errNew)
+			if errS != nil {
+				t.Errorf("Scanner.SetFollowContentTypes() Could not prepare scanner: '%v'", errS)
 				return
 			}
 
@@ -261,8 +261,8 @@ func TestScanner_SetFollowContentTypes(t *testing.T) {
 			s.running = tt.fields.running
 
 			// Execute test
-			if err := s.SetFollowContentTypes(tt.responseContentTypes); (err != nil) != tt.wantErr {
-				t.Errorf("Scanner.SetFollowContentTypes() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			if errSetFollowContentTypes := s.SetFollowContentTypes(tt.responseContentTypes); (errSetFollowContentTypes != nil) != tt.wantErr {
+				t.Errorf("Scanner.SetFollowContentTypes() error = '%v', wantErr = '%v'", errSetFollowContentTypes, tt.wantErr)
 			}
 		})
 	}
@@ -328,7 +328,7 @@ func TestScanner_SetDownloadContentTypes(t *testing.T) {
 				proxy = testSettings.HttpProxy.String()
 			}
 
-			s, errNew := NewScanner(
+			s, errS := NewScanner(
 				tt.fields.logger,
 				tt.fields.target,
 				tt.fields.port,
@@ -347,8 +347,8 @@ func TestScanner_SetDownloadContentTypes(t *testing.T) {
 				proxy,
 				requestTimeout,
 			)
-			if errNew != nil {
-				t.Errorf("Scanner.SetFollowContentTypes() Could not prepare scanner: '%v'", errNew)
+			if errS != nil {
+				t.Errorf("Scanner.SetFollowContentTypes() Could not prepare scanner: '%v'", errS)
 				return
 			}
 
@@ -358,8 +358,8 @@ func TestScanner_SetDownloadContentTypes(t *testing.T) {
 			s.running = tt.fields.running
 
 			// Execute test
-			if err := s.SetDownloadContentTypes(tt.responseContentTypes); (err != nil) != tt.wantErr {
-				t.Errorf("Scanner.SetDownloadContentTypes() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			if errSetDownloadContentTypes := s.SetDownloadContentTypes(tt.responseContentTypes); (errSetDownloadContentTypes != nil) != tt.wantErr {
+				t.Errorf("Scanner.SetDownloadContentTypes() error = '%v', wantErr = '%v'", errSetDownloadContentTypes, tt.wantErr)
 			}
 		})
 	}
@@ -373,12 +373,12 @@ func TestScanner_SetContext(t *testing.T) {
 
 	// Prepare unit test data
 	testLogger := utils.NewTestLogger()
-	s, errNew := NewScanner(
+	s, errS := NewScanner(
 		testLogger, "domain.tld", 80, []string{}, false, 1, 1, true, true, false, "",
 		"", "", "", testSettings.HttpUserAgent, "", 5*time.Second,
 	)
-	if errNew != nil {
-		t.Fatalf("TestScanner_SetContext() setup error = '%v', want = nil", errNew)
+	if errS != nil {
+		t.Fatalf("TestScanner_SetContext() setup error = '%v', want = nil", errS)
 	}
 	ctx1 := context.Background()
 	ctx2, cancel2 := context.WithCancel(context.Background())
@@ -405,12 +405,12 @@ func TestScanner_vhostResponseKnown(t *testing.T) {
 
 	// Prepare unit test data
 	testLogger := utils.NewTestLogger()
-	s, errNew := NewScanner(
+	s, errS := NewScanner(
 		testLogger, "domain.tld", 80, []string{}, false, 1, 1, true, true, false, "",
 		"", "", "", testSettings.HttpUserAgent, "", 5*time.Second,
 	)
-	if errNew != nil {
-		t.Fatalf("TestScanner_vhostResponseKnown() setup error = '%v', want = nil", errNew)
+	if errS != nil {
+		t.Fatalf("TestScanner_vhostResponseKnown() setup error = '%v', want = nil", errS)
 	}
 	mockResp := &http.Response{
 		StatusCode: 200,
@@ -479,12 +479,12 @@ func TestPrepareHrefsFile(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := prepareHrefsFile(tt.args.filePath, tt.args.header); (err != nil) != tt.wantErr {
-				t.Errorf("prepareHrefsFile() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			if errPrepareHrefsFile := prepareHrefsFile(tt.args.filePath, tt.args.header); (errPrepareHrefsFile != nil) != tt.wantErr {
+				t.Errorf("prepareHrefsFile() error = '%v', wantErr = '%v'", errPrepareHrefsFile, tt.wantErr)
 			} else if !tt.wantErr {
-				content, errRead := os.ReadFile(testFile)
-				if errRead != nil {
-					t.Errorf("prepareHrefsFile() could not read file: '%v'", errRead)
+				content, errContent := os.ReadFile(testFile)
+				if errContent != nil {
+					t.Errorf("prepareHrefsFile() could not read file: '%v'", errContent)
 					return
 				}
 				contentString := string(content)
@@ -619,11 +619,9 @@ func TestAppendHrefs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var (
-				appendHrefChan     = make(chan *hrefInfo, 30)
-				appendHrefStopChan = make(chan struct{})
-				appendHrefErrChan  = make(chan error, 1)
-			)
+			var appendHrefChan = make(chan *hrefInfo, 30)
+			var appendHrefStopChan = make(chan struct{})
+			var appendHrefErrChan = make(chan error, 1)
 
 			// Start the worker routine.
 			go appendHrefsWorker(
@@ -666,9 +664,9 @@ func TestAppendHrefs(t *testing.T) {
 
 			// Check if the data written to the file is correct.
 			if !tt.wantErr {
-				content, errRead := os.ReadFile(tt.args.filePath)
-				if errRead != nil {
-					t.Errorf("appendHrefs() could not read file: '%v'", errRead)
+				content, errContent := os.ReadFile(tt.args.filePath)
+				if errContent != nil {
+					t.Errorf("appendHrefs() could not read file: '%v'", errContent)
 					return
 				}
 				contentString := string(content)
@@ -714,9 +712,9 @@ func TestScanner_Run(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	srvUrl, errParse := url.Parse(srv.URL)
-	if errParse != nil {
-		t.Fatalf("TestScanner_Run() url.Parse() error = '%v', want = nil", errParse)
+	srvUrl, errSrvUrl := url.Parse(srv.URL)
+	if errSrvUrl != nil {
+		t.Fatalf("TestScanner_Run() url.Parse() error = '%v', want = nil", errSrvUrl)
 	}
 	host := srvUrl.Hostname()
 	port, errPort := strconv.Atoi(srvUrl.Port())
@@ -725,7 +723,7 @@ func TestScanner_Run(t *testing.T) {
 	}
 
 	// Prepare and run test cases
-	s, errNew := NewScanner(
+	s, errS := NewScanner(
 		testLogger,
 		host,
 		port,
@@ -742,8 +740,8 @@ func TestScanner_Run(t *testing.T) {
 		"",
 		5*time.Second,
 	)
-	if errNew != nil {
-		t.Fatalf("NewScanner() error = '%v', want = nil", errNew)
+	if errS != nil {
+		t.Fatalf("NewScanner() error = '%v', want = nil", errS)
 	}
 
 	// Verify result is non-nil and not an exception
@@ -776,9 +774,9 @@ func TestScanner_Run_Timeout(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	srvUrl, errParse := url.Parse(srv.URL)
-	if errParse != nil {
-		t.Fatalf("TestScanner_Run_Timeout() url.Parse() error = '%v', want = nil", errParse)
+	srvUrl, errSrvUrl := url.Parse(srv.URL)
+	if errSrvUrl != nil {
+		t.Fatalf("TestScanner_Run_Timeout() url.Parse() error = '%v', want = nil", errSrvUrl)
 	}
 	host := srvUrl.Hostname()
 	port, errPort := strconv.Atoi(srvUrl.Port())
@@ -787,7 +785,7 @@ func TestScanner_Run_Timeout(t *testing.T) {
 	}
 
 	// Prepare and run test cases
-	s, errNew := NewScanner(
+	s, errS := NewScanner(
 		testLogger,
 		host,
 		port,
@@ -804,8 +802,8 @@ func TestScanner_Run_Timeout(t *testing.T) {
 		"",
 		50*time.Millisecond,
 	)
-	if errNew != nil {
-		t.Fatalf("NewScanner() error = '%v', want = nil", errNew)
+	if errS != nil {
+		t.Fatalf("NewScanner() error = '%v', want = nil", errS)
 	}
 
 	// Verify result returns a non-exception status (timeout or completed)
@@ -828,7 +826,7 @@ func TestScanner_Run_NotReachable(t *testing.T) {
 	testLogger := utils.NewTestLogger()
 
 	// Prepare and run test cases — point at a port that has no listener
-	s, errNew := NewScanner(
+	s, errS := NewScanner(
 		testLogger,
 		"192.0.2.1",
 		9,
@@ -845,8 +843,8 @@ func TestScanner_Run_NotReachable(t *testing.T) {
 		"",
 		100*time.Millisecond,
 	)
-	if errNew != nil {
-		t.Fatalf("NewScanner() error = '%v', want = nil", errNew)
+	if errS != nil {
+		t.Fatalf("NewScanner() error = '%v', want = nil", errS)
 	}
 
 	// Verify result indicates unreachable endpoint

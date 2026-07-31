@@ -49,11 +49,11 @@ func TestScanner_mountAndUnmount(t *testing.T) {
 			s := Scanner{
 				logger: utils.NewTestLogger(),
 			}
-			if err := s.mountShare(tt.args.share); (err != nil) != tt.wantErrConn {
-				t.Errorf("mountShare() error = '%v', wantErr = '%v'", err, tt.wantErrConn)
+			if errMountShare := s.mountShare(tt.args.share); (errMountShare != nil) != tt.wantErrConn {
+				t.Errorf("mountShare() error = '%v', wantErr = '%v'", errMountShare, tt.wantErrConn)
 			}
-			if err := s.unmountShare(tt.args.share); (err != nil) != tt.wantErrCanc {
-				t.Errorf("unmountShare() error = '%v', wantErr = '%v'", err, tt.wantErrCanc)
+			if errUnmountShare := s.unmountShare(tt.args.share); (errUnmountShare != nil) != tt.wantErrCanc {
+				t.Errorf("unmountShare() error = '%v', wantErr = '%v'", errUnmountShare, tt.wantErrCanc)
 			}
 		})
 	}
@@ -83,9 +83,9 @@ func TestScanner_getShares(t *testing.T) {
 				logger: utils.NewTestLogger(),
 				target: tt.fields.target,
 			}
-			got, err := s.getShares()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("getShares() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			got, errGot := s.getShares()
+			if (errGot != nil) != tt.wantErr {
+				t.Errorf("getShares() error = '%v', wantErr = '%v'", errGot, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {

@@ -1,7 +1,7 @@
 /*
 * GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -42,7 +42,7 @@ func NewScanner(
 	cmd.Stderr = &stderr
 	errCmd := cmd.Run()
 	if errCmd != nil {
-		return nil, fmt.Errorf("'%s %v' can not be executed: %s: %s", sslyzePath, args, errCmd, stderr.String())
+		return nil, fmt.Errorf("'%s %v' could not be executed: %s: %s", sslyzePath, args, errCmd, stderr.String())
 	}
 
 	// Build version string based on output

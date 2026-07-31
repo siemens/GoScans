@@ -19,19 +19,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/noneymous/GoSslyze"
+	gosslyze "github.com/noneymous/GoSslyze"
 	"github.com/siemens/GoScans/utils"
 )
 
+// Label identifies the scan module in logs and results
 const Label = "Ssl"
 
-var (
-	sslyzeMinVersion = utils.Version{
-		Major: 5,
-		Minor: 0,
-		Patch: 0,
-	}
-)
+var sslyzeMinVersion = utils.Version{
+	Major: 5,
+	Minor: 0,
+	Patch: 0,
+}
 
 /*
  * This is a short summary of things that need to be revisited, can be improved or added.
@@ -53,7 +52,7 @@ var (
  *		information when the key exchange was a DH key exchange, but removed it and it seems like it won't come back
  *		anytime soon.
  *	-> The only place to get mor information about these keys is the 'clientHello' (and 'serverHello') messages of the
- * 		TLS protocol. Therefore, both solutions for this problem are quite similar:
+ * 		TLS protocol. Therefore, both solutions for this problem are quiet similar:
  * 		- add the information to the output of SSLyze										(might not be feasible as SSLyze relies on OpenSSL and OpenSSL probably does not expose this kind of information)
  * 		- implement the TLS protocol up to the clientHello and the serverHello messages.	(at this point we could probably re-implement SSLyze in Golang (^.^') )
  *
@@ -113,6 +112,7 @@ var StartTlsPorts = map[int]string{
 
 // ATTENTION: When changing any of the following structs, change the compareResultData function accordingly!
 
+// Data holds all SSL/TLS scan results for a single virtual host.
 type Data struct {
 	Vhost    string             // The target's hostname
 	Ciphers  map[string]*Cipher // The target's supported cipher suites. Key format: "protocol|cipher_id"
@@ -122,6 +122,7 @@ type Data struct {
 	Curves   *Curves            // The target's supported or rejected elliptic curves
 }
 
+// Cipher holds the full description of a single accepted cipher suite.
 type Cipher struct {
 	Id                  string
 	IanaName            string
@@ -150,12 +151,14 @@ type Cipher struct {
 	Draft               bool           // Indicates whether the cipher suite is a draft.
 }
 
+// Chain represents a single certificate deployment including its validation status.
 type Chain struct {
 	Certificates  []*Certificate // Certificates of this specific deployment
 	ValidatedBy   []string       // Name(s) of the trust store(s) that successfully validated this deployment
 	HasValidOrder bool           // Indicates whether the certificate chain was sent in valid order
 }
 
+// Certificate holds the parsed attributes of a single X.509 certificate.
 type Certificate struct {
 	Type                   string             // 'leaf' / 'intermediate' / 'root'
 	Version                int                // Version of the X.509 standard.
@@ -183,6 +186,7 @@ type Certificate struct {
 	Sha1Fingerprint        string             // SHA1 fingerprint of the certificate.
 }
 
+// Settings holds the server-side SSL/TLS configuration details discovered during the scan.
 type Settings struct {
 	// Any 'false' value indicates place for improvement, ideally they would be true!
 	LowestProtocol               Protocol // The lowest SSL / TLS version that is supported by the server.
@@ -195,6 +199,7 @@ type Settings struct {
 	IsCompliantToMozillaConfig   bool     // https://ssl-config.mozilla.org/    Check if the server's SSL config complies with the recommended one from Mozilla
 }
 
+// Issues holds flags for identified security concerns and known vulnerabilities.
 type Issues struct {
 	// Any 'true' value indicates a vulnerability, they all should be false!
 	LowEncryptionStrength   bool // Indicates whether the minimum of encryption strength is lower than 128 bit.
@@ -226,17 +231,20 @@ type Issues struct {
 	Sweet32                 bool // https://sweet32.info/ 			(https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2016-2183)
 }
 
+// Curves holds the sets of elliptic curves accepted and rejected by the server.
 type Curves struct {
 	SupportedCurves        []EllipticCurve // The curves that the target accepts
 	RejectedCurves         []EllipticCurve // The curves that the target rejects
 	SupportEcdhKeyExchange bool            // Indicates whether the target supports ECDH Key Exchange
 }
 
+// EllipticCurve represents a single named elliptic curve with its OpenSSL NID.
 type EllipticCurve struct {
 	Name       string
 	OpenSslNid int
 }
 
+// Result holds the final output of a completed SSL scan.
 type Result struct {
 	Data      []*Data
 	Status    string // Final scan status (success or graceful error). Should be stored along with the scan results.
@@ -245,6 +253,7 @@ type Result struct {
 	// this flag! This flag may additionally come along with a message put into the status attribute.
 }
 
+// Scanner holds the configuration and state for a single SSL scan.
 type Scanner struct {
 	Label          string
 	Started        time.Time
@@ -259,6 +268,7 @@ type Scanner struct {
 	contextInnerCancel context.CancelFunc // Context cancel function of inner context, not impacting optional outer one.
 }
 
+// newScanner initializes the internal scanner struct shared by all OS-specific public constructors.
 func newScanner( // Private, because the public factories are in the os specific files
 	logger utils.Logger, // Can be any logger implementing our minimalistic interface. Wrap your logger to satisfy the interface, if necessary (like utils.LoggerTest).
 	sslyzeCommand string, // Executable to call or Python3 SSLyze call, depending on operating system
@@ -308,7 +318,7 @@ func newScanner( // Private, because the public factories are in the os specific
 	}
 
 	// Prepare SSLyze main scan with original target as SNI
-	sslyzeScanner, errSslyze := initSslyze(
+	sslyzeScanner, errSslyzeScanner := initSslyze(
 		sslyzeCommand,
 		sslyzeCommandArgs,
 		sslyzeAdditionalTruststore,
@@ -317,8 +327,8 @@ func newScanner( // Private, because the public factories are in the os specific
 		port,
 		target,
 	)
-	if errSslyze != nil {
-		return nil, errSslyze
+	if errSslyzeScanner != nil {
+		return nil, errSslyzeScanner
 	}
 	scan.sslyzeScanners[target] = sslyzeScanner
 
@@ -326,7 +336,7 @@ func newScanner( // Private, because the public factories are in the os specific
 	for _, vhost := range vhosts {
 
 		// Prepare the SSLyze scan. Other scans target with sni=other hostname
-		sslyzeScannerVhost, errSslyzeOther := initSslyze(
+		sslyzeScannerVhost, errSslyzeScannerVhost := initSslyze(
 			sslyzeCommand,
 			sslyzeCommandArgs,
 			sslyzeAdditionalTruststore,
@@ -335,8 +345,8 @@ func newScanner( // Private, because the public factories are in the os specific
 			port,
 			vhost,
 		)
-		if errSslyzeOther != nil {
-			return nil, errSslyzeOther
+		if errSslyzeScannerVhost != nil {
+			return nil, errSslyzeScannerVhost
 		}
 		scan.sslyzeScanners[vhost] = sslyzeScannerVhost
 	}
@@ -363,7 +373,7 @@ func (s *Scanner) Run(timeout time.Duration) (res *Result) {
 		if r := recover(); r != nil {
 
 			// Log exception with stacktrace
-			s.logger.Errorf(fmt.Sprintf("Unexpected error: %s", r))
+			s.logger.Errorf("Unexpected error: %s%s", r, utils.StacktraceIndented("\t"))
 
 			// Build error status from error message and formatted stacktrace
 			errMsg := fmt.Sprintf("%s%s", r, utils.StacktraceIndented("\t"))
@@ -411,6 +421,7 @@ func (s *Scanner) Run(timeout time.Duration) (res *Result) {
 	return res
 }
 
+// execute runs all SSLyze scanners and collects deduplicated results.
 func (s *Scanner) execute() *Result {
 
 	// Cleanup inner context if set
@@ -442,7 +453,7 @@ func (s *Scanner) execute() *Result {
 			}
 
 			// Log outstanding work
-			left := utils.Map(remainingTargets, func(e string) string { return "'" + e + "'" })
+			left := utils.Map(remainingTargets, func(target string) string { return "'" + target + "'" })
 			s.logger.Debugf("Aborted vhost '%s', skipping vhosts '%s'.", target, strings.Join(left, ", "))
 
 			// Adjust the status
@@ -457,22 +468,22 @@ func (s *Scanner) execute() *Result {
 		sslyzeScanner.WithContext(s.contextInner)
 
 		// Execute SSLyze scan
-		scanResult, errSslyze := sslyzeScanner.Run()
+		scanResult, errScanResult := sslyzeScanner.Run()
 
 		// Check for errors
-		if errSslyze != nil {
+		if errScanResult != nil {
 
 			// Check if the scan timed out
-			if errors.Is(errSslyze, gosslyze.ErrContextExpired) {
+			if errors.Is(errScanResult, gosslyze.ErrContextExpired) {
 				s.logger.Debugf("SSLyze scan timout reached during SNI '%s'", target)
 				result.Status = utils.StatusDeadline
 				break
 			}
 
 			// Abort scans because there was some error during the execution of the scanner
-			s.logger.Errorf("SSLyze scan failed for target '%s': %s", target, errSslyze)
+			s.logger.Errorf("SSLyze scan failed for target '%s': %s", target, errScanResult)
 			result.Data = nil
-			result.Status = errSslyze.Error()
+			result.Status = errScanResult.Error()
 			result.Exception = true
 			break
 		}

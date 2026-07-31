@@ -34,6 +34,7 @@ const (
 	ReuseNone                      // Create new client (discarding cookies) and transport (not keeping connections)
 )
 
+// maxRedirects limits redirects followed by an HTTP request
 const maxRedirects = 10
 
 // InsecureTransportFactory is a basic transport factory that can be passed to the requester. This transport factory
@@ -160,9 +161,9 @@ func (r *Requester) Get(url_ string, vhost string) (resp *http.Response, redirec
 	client := r.yieldClient()
 
 	// Build first request
-	req, errNew := http.NewRequest("GET", nextUrl, nil)
-	if errNew != nil {
-		return nil, redirects, auth, errNew
+	req, errReq := http.NewRequest("GET", nextUrl, nil)
+	if errReq != nil {
+		return nil, redirects, auth, errReq
 	}
 
 	// Set initial vhost to use
@@ -190,22 +191,22 @@ func (r *Requester) Get(url_ string, vhost string) (resp *http.Response, redirec
 			if req.Host != req.URL.Host {
 				// If the caller specified a custom Host header and the redirect location is relative, preserve the
 				// Host header through the redirect. See issue #22233.
-				if u, _ := url.Parse(nextUrl); u != nil && !u.IsAbs() {
+				if parsed, _ := url.Parse(nextUrl); parsed != nil && !parsed.IsAbs() {
 					// Parse new (relative) URL in the context of the previous request to get a valid absolute URLs
-					u, errParse := req.URL.Parse(nextUrl)
-					if errParse != nil {
+					absoluteUrl, errAbsoluteUrl := req.URL.Parse(nextUrl)
+					if errAbsoluteUrl != nil {
 						return nil, redirects, auth, fmt.Errorf(
-							"could not parse Location header %q: %v", nextUrl, errParse)
+							"could not parse Location header %q: %v", nextUrl, errAbsoluteUrl)
 					}
-					nextUrl = u.String()
+					nextUrl = absoluteUrl.String()
 					vhostToUse = req.Host
 				}
 			}
 
 			// Build subsequent request
-			req, errNew = http.NewRequest("GET", nextUrl, nil)
-			if errNew != nil {
-				return nil, redirects, auth, errNew
+			req, errReq = http.NewRequest("GET", nextUrl, nil)
+			if errReq != nil {
+				return nil, redirects, auth, errReq
 			}
 		}
 
@@ -228,10 +229,10 @@ func (r *Requester) Get(url_ string, vhost string) (resp *http.Response, redirec
 		}
 
 		// Send request (Redirects will not be followed automatically)
-		var errDo error
-		resp, errDo = client.Do(req)
-		if errDo != nil {
-			return nil, redirects, auth, errDo
+		var errResp error
+		resp, errResp = client.Do(req)
+		if errResp != nil {
+			return nil, redirects, auth, errResp
 		}
 
 		// Detect required authentication. If detected, retry and remember for future requests.
@@ -274,8 +275,8 @@ func (r *Requester) Get(url_ string, vhost string) (resp *http.Response, redirec
 func (r *Requester) GetCookies(url_ string) []*http.Cookie {
 	if r.client != nil {
 		if r.client.Jar != nil {
-			u, _ := url.Parse(url_)
-			return r.client.Jar.Cookies(u)
+			parsedUrl, _ := url.Parse(url_)
+			return r.client.Jar.Cookies(parsedUrl)
 		}
 	}
 	return []*http.Cookie{}
@@ -396,7 +397,7 @@ func FormattedHeader(headers http.Header) string {
 	// Remove trailing newlines
 	respHeaders = strings.Trim(respHeaders, " \r\n")
 
-	// Return crated string
+	// Return created string
 	return respHeaders
 }
 
@@ -483,6 +484,7 @@ func HttpsIndicated(resp *http.Response, respBody []byte) bool {
 	return false
 }
 
+// ProxyStringToUrl converts a proxy address string to a *url.URL, or returns nil if the string is empty.
 func ProxyStringToUrl(proxy string) (*url.URL, error) {
 	var proxyUrl *url.URL // nil = No proxy
 	if proxy != "" {
@@ -496,9 +498,9 @@ func ProxyStringToUrl(proxy string) (*url.URL, error) {
 		}
 
 		// Convert proxy string to proxy URL
-		var errParse error
-		proxyUrl, errParse = url.Parse(proxy)
-		if errParse != nil {
+		var errProxyUrl error
+		proxyUrl, errProxyUrl = url.Parse(proxy)
+		if errProxyUrl != nil {
 			return nil, fmt.Errorf("invalid proxy URL '%s'", proxy)
 		}
 	}
@@ -507,21 +509,22 @@ func ProxyStringToUrl(proxy string) (*url.URL, error) {
 	return proxyUrl, nil
 }
 
-// UrlToRelative can be fed with a relative, absolute or garbage path and will try to convert it into a relative one
+// UrlToRelative can be fed with a relative, absolute or garbage path and will try to convert it into a relative one.
 // An absolute path will be converted into a relative one. A relative path will be returned but without leading slash.
 // Garbage input is interpreted as a relative path and be returned the same way without leading slash.
 func UrlToRelative(path string) string {
 
 	// Prepare base to remove
-	u, err := url.Parse(path)
-	if err != nil {
+	parsedUrl, errParsedUrl := url.Parse(path)
+	if errParsedUrl != nil {
 		// Return input if it could not be parsed as an URL
 		return strings.TrimLeft(path, "/")
 	}
-	base := u.Scheme + "://" + u.Host
+	base := parsedUrl.Scheme + "://" + parsedUrl.Host
 
 	// Remove absolute URL from path or return sanitized relative input
 	if strings.HasPrefix(path, base) {
+
 		// Remove base in order to return a relative path including optional query string and fragment
 		relPath := strings.Replace(path, base, "", 1)
 
@@ -530,10 +533,8 @@ func UrlToRelative(path string) string {
 
 		// Return relative path
 		return relPath
-
-	} else {
-		return strings.TrimLeft(path, "/")
 	}
+	return strings.TrimLeft(path, "/")
 }
 
 // ExtractHostPort extracts host and port from a given URL. If no port is specified the protocol defaults are returned.
@@ -609,8 +610,8 @@ func SameEndpoint(url *url.URL, endpointIp string, endpointPort int) bool {
 	if endpointIp != "" {
 
 		// Resolve URL's IP
-		ips, err := dnsLookupIp(host)
-		if err != nil {
+		ips, errIps := dnsLookupIp(host)
+		if errIps != nil {
 			return false
 		}
 
@@ -667,9 +668,9 @@ func (f *HttpFingerprint) String() string {
 
 // KnownIn checks whether the fingerprint is already part of a list of fingerprints
 func (f *HttpFingerprint) KnownIn(knownFingerprints map[string]*HttpFingerprint, lengthVariability int) (string, bool) {
-	for k, v := range knownFingerprints {
-		if v.Similar(f, lengthVariability) {
-			return k, true
+	for key, fingerprint := range knownFingerprints {
+		if fingerprint.Similar(f, lengthVariability) {
+			return key, true
 		}
 	}
 	return "", false
@@ -685,17 +686,17 @@ func ReadBody(response *http.Response) (body []byte, encoding string, err error)
 	contentType := response.Header.Get("Content-Type")
 
 	// Read raw bytes and close stream
-	raw, errRead := io.ReadAll(response.Body)
-	if errRead != nil {
-		return nil, "", errRead
+	raw, errRaw := io.ReadAll(response.Body)
+	if errRaw != nil {
+		return nil, "", errRaw
 	}
 
 	// Try to detect encoding
 	e, eName, _ := charset.DetermineEncoding(raw, contentType)
 
 	// Prepare reader for actual encoding
-	decoded, errUtf := e.NewDecoder().Bytes(raw)
-	if errUtf != nil {
+	decoded, errDecoded := e.NewDecoder().Bytes(raw)
+	if errDecoded != nil {
 
 		// Return raw bytes, if they couldn't be decoded
 		return raw, "", nil

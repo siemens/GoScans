@@ -27,9 +27,9 @@ func discoverHelperFiles(pathTemplates string) (map[string]struct{}, error) {
 
 	// Prepare the result map and resolve the canonical templates root for containment checks
 	allowlist := make(map[string]struct{})
-	cleanRoot, errAbs := filepath.Abs(filepath.Clean(pathTemplates))
-	if errAbs != nil {
-		return nil, fmt.Errorf("could not resolve templates path: %w", errAbs)
+	cleanRoot, errCleanRoot := filepath.Abs(filepath.Clean(pathTemplates))
+	if errCleanRoot != nil {
+		return nil, fmt.Errorf("could not resolve templates path: %w", errCleanRoot)
 	}
 	rootPrefix := cleanRoot + string(filepath.Separator)
 
@@ -56,8 +56,8 @@ func discoverHelperFiles(pathTemplates string) (map[string]struct{}, error) {
 
 		// Include only regular files; follow symlinks whose resolved target is inside pathTemplates
 		if d.Type()&fs.ModeSymlink != 0 {
-			realPath, errEval := filepath.EvalSymlinks(path)
-			if errEval != nil {
+			realPath, errRealPath := filepath.EvalSymlinks(path)
+			if errRealPath != nil {
 				return nil
 			}
 			cleanReal := filepath.Clean(realPath)

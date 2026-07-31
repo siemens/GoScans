@@ -8,11 +8,10 @@
 *
  */
 
-package nuclei
+package utils
 
 import (
 	"archive/zip"
-	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -96,68 +95,10 @@ func TestUnzip(t *testing.T) {
 			zipPath, destDir := tt.setup(t)
 
 			// Execute and verify the expected error outcome
-			if err := unzip(zipPath, destDir); (err != nil) != tt.wantErr {
-				t.Errorf("unzip() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			if errUnzip := Unzip(zipPath, destDir); (errUnzip != nil) != tt.wantErr {
+				t.Errorf("Unzip() error = '%v', wantErr = '%v'", errUnzip, tt.wantErr)
 			}
 		})
-	}
-}
-
-// TestScannerTargetAddr verifies that targetAddr returns "host:port" when a port is set on the scanner
-// and just the host string when no port is configured.
-func TestScannerTargetAddr(t *testing.T) {
-
-	// Prepare and run test cases
-	port443 := 443
-	tests := []struct {
-		name string
-		scan Scanner
-		want string
-	}{
-		{
-			name: "with-port",
-			scan: Scanner{target: "192.168.1.1", port: &port443},
-			want: "192.168.1.1:443",
-		},
-		{
-			name: "without-port",
-			scan: Scanner{target: "192.168.1.1", port: nil},
-			want: "192.168.1.1",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-
-			// Execute and verify the returned address
-			got := tt.scan.targetAddr()
-			if got != tt.want {
-				t.Errorf("targetAddr() result = '%v', want = '%v'", got, tt.want)
-			}
-		})
-	}
-}
-
-// TestScannerSetContext verifies that SetContext stores the provided context on the first call and ignores
-// subsequent calls, preserving the originally set context.
-func TestScannerSetContext(t *testing.T) {
-
-	// Prepare unit test data
-	scan := &Scanner{}
-	ctx1, cancel1 := context.WithCancel(context.Background())
-	defer cancel1()
-	ctx2, cancel2 := context.WithCancel(context.Background())
-	defer cancel2()
-
-	// Verify the first call stores the context
-	scan.SetContext(ctx1)
-	if scan.contextInner != ctx1 {
-		t.Errorf("SetContext() contextInner = '%v', want = '%v'", scan.contextInner, ctx1)
-	}
-
-	// Verify a second call does not overwrite the stored context
-	scan.SetContext(ctx2)
-	if scan.contextInner != ctx1 {
-		t.Errorf("SetContext() second call changed contextInner = '%v', want = '%v'", scan.contextInner, ctx1)
 	}
 }
 
@@ -167,9 +108,9 @@ func test_makeZip(t *testing.T, zipPath string, entries map[string]string) {
 	t.Helper()
 
 	// Create the zip file on disk
-	f, errCreate := os.Create(zipPath)
-	if errCreate != nil {
-		t.Fatalf("test_makeZip() could not create zip file: '%v'", errCreate)
+	f, errF := os.Create(zipPath)
+	if errF != nil {
+		t.Fatalf("test_makeZip() could not create zip file: '%v'", errF)
 	}
 	defer func() { _ = f.Close() }()
 
@@ -177,9 +118,9 @@ func test_makeZip(t *testing.T, zipPath string, entries map[string]string) {
 	w := zip.NewWriter(f)
 	defer func() { _ = w.Close() }()
 	for name, content := range entries {
-		fw, errCreate := w.Create(name)
-		if errCreate != nil {
-			t.Fatalf("test_makeZip() could not create zip entry '%s': '%v'", name, errCreate)
+		fw, errFw := w.Create(name)
+		if errFw != nil {
+			t.Fatalf("test_makeZip() could not create zip entry '%s': '%v'", name, errFw)
 		}
 		if _, errWrite := io.WriteString(fw, content); errWrite != nil {
 			t.Fatalf("test_makeZip() could not write zip entry '%s': '%v'", name, errWrite)
@@ -192,9 +133,9 @@ func test_makeZipWithDir(t *testing.T, zipPath, dirEntry, fileEntry, fileContent
 	t.Helper()
 
 	// Create the zip file on disk
-	f, errCreate := os.Create(zipPath)
-	if errCreate != nil {
-		t.Fatalf("test_makeZipWithDir() could not create zip file: '%v'", errCreate)
+	f, errF := os.Create(zipPath)
+	if errF != nil {
+		t.Fatalf("test_makeZipWithDir() could not create zip file: '%v'", errF)
 	}
 	defer func() { _ = f.Close() }()
 
@@ -210,9 +151,9 @@ func test_makeZipWithDir(t *testing.T, zipPath, dirEntry, fileEntry, fileContent
 	}
 
 	// Add file entry inside the directory
-	fw, errFile := w.Create(fileEntry)
-	if errFile != nil {
-		t.Fatalf("test_makeZipWithDir() could not create file entry: '%v'", errFile)
+	fw, errFw := w.Create(fileEntry)
+	if errFw != nil {
+		t.Fatalf("test_makeZipWithDir() could not create file entry: '%v'", errFw)
 	}
 	if _, errWrite := io.WriteString(fw, fileContent); errWrite != nil {
 		t.Fatalf("test_makeZipWithDir() could not write file entry: '%v'", errWrite)
@@ -225,9 +166,9 @@ func test_makeZipWithTraversal(t *testing.T, zipPath, entryName, content string)
 	t.Helper()
 
 	// Create the zip file on disk
-	f, errCreate := os.Create(zipPath)
-	if errCreate != nil {
-		t.Fatalf("test_makeZipWithTraversal() could not create zip file: '%v'", errCreate)
+	f, errF := os.Create(zipPath)
+	if errF != nil {
+		t.Fatalf("test_makeZipWithTraversal() could not create zip file: '%v'", errF)
 	}
 	defer func() { _ = f.Close() }()
 
@@ -235,9 +176,9 @@ func test_makeZipWithTraversal(t *testing.T, zipPath, entryName, content string)
 	w := zip.NewWriter(f)
 	defer func() { _ = w.Close() }()
 	hdr := &zip.FileHeader{Name: entryName, Method: zip.Deflate}
-	fw, errHdr := w.CreateHeader(hdr)
-	if errHdr != nil {
-		t.Fatalf("test_makeZipWithTraversal() could not create header: '%v'", errHdr)
+	fw, errFw := w.CreateHeader(hdr)
+	if errFw != nil {
+		t.Fatalf("test_makeZipWithTraversal() could not create header: '%v'", errFw)
 	}
 	if _, errWrite := io.WriteString(fw, content); errWrite != nil {
 		t.Fatalf("test_makeZipWithTraversal() could not write content: '%v'", errWrite)

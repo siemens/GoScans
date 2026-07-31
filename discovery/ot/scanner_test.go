@@ -27,9 +27,9 @@ func TestMain(m *testing.M) {
 	_test.GetSettings()
 
 	// Prepare test directory
-	tmpDir, errTmp := os.MkdirTemp(".", "goscans-ot-test-*")
-	if errTmp != nil {
-		panic(errTmp)
+	tmpDir, errTmpDir := os.MkdirTemp(".", "goscans-ot-test-*")
+	if errTmpDir != nil {
+		panic(errTmpDir)
 	}
 	if errChdir := os.Chdir(tmpDir); errChdir != nil {
 		panic(errChdir)
@@ -46,18 +46,21 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// TestMergeByMac verifies that mergeByMac correctly merges host fields by MAC address.
-func TestMergeByMac(t *testing.T) {
+// TestMergeResults verifies that mergeResults correctly merges host fields by MAC address or shared IP.
+func TestMergeHost(t *testing.T) {
+
+	// merge delegates to mergeResults, the same function used by Scanner.Run and the listener cache.
+	merge := mergeResults
 
 	// Prepare and run test cases
 	tests := []struct {
-		name      string
-		input     []Host
-		wantCount int
-		wantMac   string
-		wantIp    string
-		wantDns   string
-		wantOs    string
+		name          string
+		input         []Host
+		wantCount     int
+		wantMac       string
+		wantIps       []string
+		wantDnsNames  []string
+		wantOsGuesses []string
 	}{
 		{
 			name:      "empty-input",
@@ -67,69 +70,250 @@ func TestMergeByMac(t *testing.T) {
 		{
 			name: "single-host",
 			input: []Host{
-				{MacAddress: "AA:BB:CC:DD:EE:FF", Ip: "192.0.2.1", DnsName: "host.domain.tld"},
+				{MacAddress: "AA:BB:CC:DD:EE:FF", Ips: []string{"192.0.2.1"}, DnsNames: []string{"host.domain.tld"}},
 			},
-			wantCount: 1,
-			wantMac:   "AA:BB:CC:DD:EE:FF",
-			wantIp:    "192.0.2.1",
-			wantDns:   "host.domain.tld",
+			wantCount:    1,
+			wantMac:      "AA:BB:CC:DD:EE:FF",
+			wantIps:      []string{"192.0.2.1"},
+			wantDnsNames: []string{"host.domain.tld"},
 		},
 		{
-			name: "hosts-without-mac-preserved",
+			name: "hosts-without-mac-and-different-ips-preserved",
 			input: []Host{
-				{MacAddress: "", Ip: "192.0.2.1"},
-				{MacAddress: "", Ip: "192.0.2.2"},
+				{Ips: []string{"192.0.2.1"}},
+				{Ips: []string{"192.0.2.2"}},
 			},
 			wantCount: 2,
 		},
 		{
 			name: "multi-source-merge-for-one-mac",
 			input: []Host{
-				{MacAddress: "AA:BB:CC:DD:EE:FF", Ip: "192.0.2.1"},
-				{MacAddress: "AA:BB:CC:DD:EE:FF", DnsName: "host.domain.tld"},
-				{MacAddress: "AA:BB:CC:DD:EE:FF", OsGuess: "vendor-device-01"},
+				{MacAddress: "AA:BB:CC:DD:EE:FF", Ips: []string{"192.0.2.1"}},
+				{MacAddress: "AA:BB:CC:DD:EE:FF", DnsNames: []string{"host.domain.tld"}},
+				{MacAddress: "AA:BB:CC:DD:EE:FF", OsGuesses: []string{"vendor-device-01"}},
 			},
-			wantCount: 1,
-			wantMac:   "AA:BB:CC:DD:EE:FF",
-			wantIp:    "192.0.2.1",
-			wantDns:   "host.domain.tld",
-			wantOs:    "vendor-device-01",
+			wantCount:     1,
+			wantMac:       "AA:BB:CC:DD:EE:FF",
+			wantIps:       []string{"192.0.2.1"},
+			wantDnsNames:  []string{"host.domain.tld"},
+			wantOsGuesses: []string{"vendor-device-01"},
 		},
 		{
 			name: "mac-case-insensitive",
 			input: []Host{
-				{MacAddress: "aa:bb:cc:dd:ee:ff", Ip: "192.0.2.1"},
-				{MacAddress: "AA:BB:CC:DD:EE:FF", DnsName: "host.domain.tld"},
+				{MacAddress: "aa:bb:cc:dd:ee:ff", Ips: []string{"192.0.2.1"}},
+				{MacAddress: "AA:BB:CC:DD:EE:FF", DnsNames: []string{"host.domain.tld"}},
+			},
+			wantCount:    1,
+			wantMac:      "aa:bb:cc:dd:ee:ff",
+			wantIps:      []string{"192.0.2.1"},
+			wantDnsNames: []string{"host.domain.tld"},
+		},
+		{
+			name: "multi-ip-same-mac",
+			input: []Host{
+				{MacAddress: "AA:BB:CC:DD:EE:FF", Ips: []string{"192.0.2.1"}},
+				{MacAddress: "AA:BB:CC:DD:EE:FF", Ips: []string{"192.0.2.2"}},
+				{MacAddress: "AA:BB:CC:DD:EE:FF", Ips: []string{"192.0.2.3"}},
 			},
 			wantCount: 1,
-			wantIp:    "192.0.2.1",
-			wantDns:   "host.domain.tld",
+			wantMac:   "AA:BB:CC:DD:EE:FF",
+			wantIps:   []string{"192.0.2.1", "192.0.2.2", "192.0.2.3"},
+		},
+		{
+			name: "multi-ip-duplicate-ignored",
+			input: []Host{
+				{MacAddress: "AA:BB:CC:DD:EE:FF", Ips: []string{"192.0.2.1"}},
+				{MacAddress: "AA:BB:CC:DD:EE:FF", Ips: []string{"192.0.2.1"}},
+				{MacAddress: "AA:BB:CC:DD:EE:FF", Ips: []string{"192.0.2.2"}},
+			},
+			wantCount: 1,
+			wantMac:   "AA:BB:CC:DD:EE:FF",
+			wantIps:   []string{"192.0.2.1", "192.0.2.2"},
+		},
+		{
+			name: "extra-ips-propagated-on-merge",
+			input: []Host{
+				{MacAddress: "AA:BB:CC:DD:EE:FF", Ips: []string{"192.0.2.1", "192.0.2.10"}},
+				{MacAddress: "AA:BB:CC:DD:EE:FF", Ips: []string{"192.0.2.2"}},
+			},
+			wantCount: 1,
+			wantMac:   "AA:BB:CC:DD:EE:FF",
+			wantIps:   []string{"192.0.2.1", "192.0.2.10", "192.0.2.2"},
+		},
+		{
+			name: "multi-dns-same-mac",
+			input: []Host{
+				{MacAddress: "AA:BB:CC:DD:EE:FF", DnsNames: []string{"plc-station-1"}},
+				{MacAddress: "AA:BB:CC:DD:EE:FF", DnsNames: []string{"plc-station-1.local"}},
+			},
+			wantCount:    1,
+			wantMac:      "AA:BB:CC:DD:EE:FF",
+			wantDnsNames: []string{"plc-station-1", "plc-station-1.local"},
+		},
+		{
+			name: "multi-dns-duplicate-ignored",
+			input: []Host{
+				{MacAddress: "AA:BB:CC:DD:EE:FF", DnsNames: []string{"plc-station-1"}},
+				{MacAddress: "AA:BB:CC:DD:EE:FF", DnsNames: []string{"plc-station-1"}},
+				{MacAddress: "AA:BB:CC:DD:EE:FF", DnsNames: []string{"plc-station-1.local"}},
+			},
+			wantCount:    1,
+			wantMac:      "AA:BB:CC:DD:EE:FF",
+			wantDnsNames: []string{"plc-station-1", "plc-station-1.local"},
+		},
+		{
+			name: "extra-dns-names-propagated-on-merge",
+			input: []Host{
+				{MacAddress: "AA:BB:CC:DD:EE:FF", DnsNames: []string{"plc-station-1", "alias-1"}},
+				{MacAddress: "AA:BB:CC:DD:EE:FF", DnsNames: []string{"plc-station-1.local"}},
+			},
+			wantCount:    1,
+			wantMac:      "AA:BB:CC:DD:EE:FF",
+			wantDnsNames: []string{"plc-station-1", "alias-1", "plc-station-1.local"},
+		},
+		{
+			name: "multi-os-guesses-unioned",
+			input: []Host{
+				{MacAddress: "AA:BB:CC:DD:EE:FF", OsGuesses: []string{"Linux/2.6.36, UPnP/1.0"}},
+				{MacAddress: "AA:BB:CC:DD:EE:FF", OsGuesses: []string{"Ubuntu 20.04"}},
+			},
+			wantCount:     1,
+			wantMac:       "AA:BB:CC:DD:EE:FF",
+			wantOsGuesses: []string{"Linux/2.6.36, UPnP/1.0", "Ubuntu 20.04"},
+		},
+		{
+			name: "os-guess-duplicate-ignored",
+			input: []Host{
+				{MacAddress: "AA:BB:CC:DD:EE:FF", OsGuesses: []string{"Linux/2.6.36, UPnP/1.0"}},
+				{MacAddress: "AA:BB:CC:DD:EE:FF", OsGuesses: []string{"Linux/2.6.36, UPnP/1.0"}},
+			},
+			wantCount:     1,
+			wantMac:       "AA:BB:CC:DD:EE:FF",
+			wantOsGuesses: []string{"Linux/2.6.36, UPnP/1.0"},
+		},
+		{
+			// ARP entry (has MAC) arrives before mDNS/SSDP entry (no MAC, shared IP)
+			name: "no-mac-host-merged-into-mac-host-by-ip",
+			input: []Host{
+				{MacAddress: "AA:BB:CC:DD:EE:FF", Ips: []string{"192.0.2.1"}},
+				{Ips: []string{"192.0.2.1"}, DnsNames: []string{"host.domain.tld"}, OsGuesses: []string{"Linux/2.6.36, UPnP/1.0"}},
+			},
+			wantCount:     1,
+			wantMac:       "AA:BB:CC:DD:EE:FF",
+			wantIps:       []string{"192.0.2.1"},
+			wantDnsNames:  []string{"host.domain.tld"},
+			wantOsGuesses: []string{"Linux/2.6.36, UPnP/1.0"},
+		},
+		{
+			// mDNS/SSDP entry (no MAC) arrives before ARP entry (has MAC, shared IP)
+			name: "mac-host-merged-into-no-mac-host-by-ip-and-mac-propagated",
+			input: []Host{
+				{Ips: []string{"192.0.2.1"}, DnsNames: []string{"host.domain.tld"}, OsGuesses: []string{"Linux/2.6.36, UPnP/1.0"}},
+				{MacAddress: "AA:BB:CC:DD:EE:FF", Ips: []string{"192.0.2.1"}},
+			},
+			wantCount:     1,
+			wantMac:       "AA:BB:CC:DD:EE:FF",
+			wantIps:       []string{"192.0.2.1"},
+			wantDnsNames:  []string{"host.domain.tld"},
+			wantOsGuesses: []string{"Linux/2.6.36, UPnP/1.0"},
+		},
+		{
+			// A no-MAC host whose IP matches none of the existing entries stays standalone
+			name: "no-mac-host-with-unmatched-ip-stays-standalone",
+			input: []Host{
+				{MacAddress: "AA:BB:CC:DD:EE:FF", Ips: []string{"192.0.2.1"}},
+				{Ips: []string{"192.0.2.2"}, DnsNames: []string{"other.domain.tld"}},
+			},
+			wantCount: 2,
+		},
+		{
+			// Two hosts with different MACs that share an IP (DHCP lease reuse) must not merge
+			name: "different-macs-shared-ip-not-merged",
+			input: []Host{
+				{MacAddress: "AA:BB:CC:DD:EE:01", Ips: []string{"192.0.2.1"}},
+				{MacAddress: "AA:BB:CC:DD:EE:02", Ips: []string{"192.0.2.1"}},
+			},
+			wantCount: 2,
+		},
+		{
+			// A passive-listener cache entry with a MAC and two IPs (e.g. from a DHCP change
+			// during the listen window) bridges two separate MAC-less active-scan entries. The
+			// first pass merges only the first MAC-less entry; the second coalescing pass picks
+			// up the stranded second one.
+			name: "mac-multi-ip-bridges-two-macless-entries",
+			input: []Host{
+				{Ips: []string{"192.0.2.1"}, DnsNames: []string{"a.domain.tld"}},
+				{Ips: []string{"192.0.2.2"}, DnsNames: []string{"b.domain.tld"}},
+				{MacAddress: "AA:BB:CC:DD:EE:FF", Ips: []string{"192.0.2.1", "192.0.2.2"}},
+			},
+			wantCount:    1,
+			wantMac:      "AA:BB:CC:DD:EE:FF",
+			wantIps:      []string{"192.0.2.1", "192.0.2.2"},
+			wantDnsNames: []string{"a.domain.tld", "b.domain.tld"},
 		},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := mergeByMac(tt.input)
+			got := merge(tt.input)
 
 			// Verify result count
 			if len(got) != tt.wantCount {
-				t.Errorf("mergeByMac() len = %d, want %d", len(got), tt.wantCount)
+				t.Errorf("mergeResults() len = %d, want %d", len(got), tt.wantCount)
 				return
 			}
 
-			// Verify merged host fields when a specific outcome is expected
-			if tt.wantMac == "" && tt.wantIp == "" && tt.wantDns == "" && tt.wantOs == "" {
+			// Skip field checks when the test only cares about count
+			if tt.wantMac == "" && tt.wantIps == nil && tt.wantDnsNames == nil && tt.wantOsGuesses == nil {
 				return
 			}
-			for _, h := range got {
-				if h.MacAddress != "" {
-					if tt.wantIp != "" && h.Ip != tt.wantIp {
-						t.Errorf("mergeByMac() Ip = '%v', want '%v'", h.Ip, tt.wantIp)
+
+			// Find the host to verify: prefer the one whose MAC matches wantMac, else the first
+			var target *Host
+			for i := range got {
+				if strings.EqualFold(got[i].MacAddress, tt.wantMac) {
+					target = &got[i]
+					break
+				}
+			}
+			if target == nil {
+				t.Errorf("mergeResults() no host with MAC '%s' in result", tt.wantMac)
+				return
+			}
+
+			if tt.wantIps != nil {
+				if len(target.Ips) != len(tt.wantIps) {
+					t.Errorf("mergeResults() Ips = %v, want %v", target.Ips, tt.wantIps)
+				} else {
+					for i, want := range tt.wantIps {
+						if target.Ips[i] != want {
+							t.Errorf("mergeResults() Ips[%d] = '%s', want '%s'", i, target.Ips[i], want)
+						}
 					}
-					if tt.wantDns != "" && h.DnsName != tt.wantDns {
-						t.Errorf("mergeByMac() DnsName = '%v', want '%v'", h.DnsName, tt.wantDns)
+				}
+			}
+
+			if tt.wantDnsNames != nil {
+				if len(target.DnsNames) != len(tt.wantDnsNames) {
+					t.Errorf("mergeResults() DnsNames = %v, want %v", target.DnsNames, tt.wantDnsNames)
+				} else {
+					for i, want := range tt.wantDnsNames {
+						if target.DnsNames[i] != want {
+							t.Errorf("mergeResults() DnsNames[%d] = '%s', want '%s'", i, target.DnsNames[i], want)
+						}
 					}
-					if tt.wantOs != "" && h.OsGuess != tt.wantOs {
-						t.Errorf("mergeByMac() OsGuess = '%v', want '%v'", h.OsGuess, tt.wantOs)
+				}
+			}
+
+			if tt.wantOsGuesses != nil {
+				if len(target.OsGuesses) != len(tt.wantOsGuesses) {
+					t.Errorf("mergeResults() OsGuesses = %v, want %v", target.OsGuesses, tt.wantOsGuesses)
+				} else {
+					for i, want := range tt.wantOsGuesses {
+						if target.OsGuesses[i] != want {
+							t.Errorf("mergeResults() OsGuesses[%d] = '%s', want '%s'", i, target.OsGuesses[i], want)
+						}
 					}
 				}
 			}
@@ -278,14 +462,18 @@ func TestParseDcpResponse(t *testing.T) {
 				t.Errorf("parseDcpResponse() = nil, want non-nil")
 				return
 			}
-			if tt.wantDns != "" && got.DnsName != tt.wantDns {
-				t.Errorf("parseDcpResponse() DnsName = '%v', want '%v'", got.DnsName, tt.wantDns)
+			if tt.wantDns != "" {
+				if len(got.DnsNames) == 0 || got.DnsNames[0] != tt.wantDns {
+					t.Errorf("parseDcpResponse() DnsNames = %v, want [%v ...]", got.DnsNames, tt.wantDns)
+				}
 			}
-			if tt.wantIp != "" && got.Ip != tt.wantIp {
-				t.Errorf("parseDcpResponse() Ip = '%v', want '%v'", got.Ip, tt.wantIp)
+			if tt.wantIp != "" {
+				if len(got.Ips) == 0 || got.Ips[0] != tt.wantIp {
+					t.Errorf("parseDcpResponse() Ips = %v, want [%v ...]", got.Ips, tt.wantIp)
+				}
 			}
-			if tt.wantOsHas != "" && !strings.Contains(got.OsGuess, tt.wantOsHas) {
-				t.Errorf("parseDcpResponse() OsGuess = '%v', want it to contain '%v'", got.OsGuess, tt.wantOsHas)
+			if tt.wantOsHas != "" && (len(got.OsGuesses) == 0 || !strings.Contains(got.OsGuesses[0], tt.wantOsHas)) {
+				t.Errorf("parseDcpResponse() OsGuesses = '%v', want first entry to contain '%v'", got.OsGuesses, tt.wantOsHas)
 			}
 		})
 	}
@@ -357,14 +545,18 @@ func TestParseLldpFrame(t *testing.T) {
 				t.Errorf("parseLldpFrame() = nil, want non-nil")
 				return
 			}
-			if tt.wantDns != "" && got.DnsName != tt.wantDns {
-				t.Errorf("parseLldpFrame() DnsName = '%v', want '%v'", got.DnsName, tt.wantDns)
+			if tt.wantDns != "" {
+				if len(got.DnsNames) == 0 || got.DnsNames[0] != tt.wantDns {
+					t.Errorf("parseLldpFrame() DnsNames = %v, want [%v ...]", got.DnsNames, tt.wantDns)
+				}
 			}
-			if tt.wantOs != "" && got.OsGuess != tt.wantOs {
-				t.Errorf("parseLldpFrame() OsGuess = '%v', want '%v'", got.OsGuess, tt.wantOs)
+			if tt.wantOs != "" && (len(got.OsGuesses) == 0 || got.OsGuesses[0] != tt.wantOs) {
+				t.Errorf("parseLldpFrame() OsGuesses[0] = '%v', want '%v'", got.OsGuesses, tt.wantOs)
 			}
-			if tt.wantIp != "" && got.Ip != tt.wantIp {
-				t.Errorf("parseLldpFrame() Ip = '%v', want '%v'", got.Ip, tt.wantIp)
+			if tt.wantIp != "" {
+				if len(got.Ips) == 0 || got.Ips[0] != tt.wantIp {
+					t.Errorf("parseLldpFrame() Ips = %v, want [%v ...]", got.Ips, tt.wantIp)
+				}
 			}
 			if tt.wantMac != "" && !strings.EqualFold(got.MacAddress, tt.wantMac) {
 				t.Errorf("parseLldpFrame() MacAddress = '%v', want '%v'", got.MacAddress, tt.wantMac)
@@ -632,7 +824,7 @@ func TestExtractSsdpServer(t *testing.T) {
 		{
 			name:     "without-server",
 			response: "HTTP/1.1 200 OK\r\n\r\n",
-			want:     "SSDP Device",
+			want:     "",
 		},
 		{
 			name:     "lowercase-server",
@@ -782,7 +974,8 @@ func buildTestMdnsResponseNoAnswers() []byte {
 	return []byte{0x00, 0x00, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 }
 
-// buildTestMdnsResponseWithName builds a minimal mDNS response packet containing the given name as the answer.
+// buildTestMdnsResponseWithName builds a minimal mDNS response packet containing the given name as
+// an A record answer. An A record owner NAME is "hostname.local", which is what extractMdnsName reads.
 func buildTestMdnsResponseWithName(name string) []byte {
 	var pkt []byte
 
@@ -797,15 +990,16 @@ func buildTestMdnsResponseWithName(name string) []byte {
 	pkt = append(pkt, []byte(name)...)
 	pkt = append(pkt, 0) // root label terminator
 
-	// Answer TYPE=PTR(12), CLASS=IN(1), TTL=120, RDLENGTH=0
-	pkt = append(pkt, 0x00, 0x0C, 0x00, 0x01)
-	pkt = append(pkt, 0x00, 0x00, 0x00, 0x78) // TTL
-	pkt = append(pkt, 0x00, 0x00)             // RDLENGTH = 0
+	// Answer TYPE=A(1), CLASS=IN(1), TTL=120, RDLENGTH=4, RDATA=192.0.2.1
+	pkt = append(pkt, 0x00, 0x01, 0x00, 0x01) // TYPE=A, CLASS=IN
+	pkt = append(pkt, 0x00, 0x00, 0x00, 0x78) // TTL = 120
+	pkt = append(pkt, 0x00, 0x04)             // RDLENGTH = 4 (IPv4 address)
+	pkt = append(pkt, 192, 0, 2, 1)           // RDATA: 192.0.2.1
 
 	return pkt
 }
 
-// buildTestMdnsResponseWithQuestion builds a minimal mDNS response with one question and one answer.
+// buildTestMdnsResponseWithQuestion builds a minimal mDNS response with one question and one A record answer.
 // This exercises the question-skipping code path in extractMdnsName.
 func buildTestMdnsResponseWithQuestion(name string) []byte {
 	var pkt []byte
@@ -822,13 +1016,14 @@ func buildTestMdnsResponseWithQuestion(name string) []byte {
 	pkt = append(pkt, 0)
 	pkt = append(pkt, 0x00, 0x0C, 0x00, 0x01) // QTYPE=PTR, QCLASS=IN
 
-	// Answer: same name again
+	// Answer: A record carrying the hostname in the owner NAME field
 	pkt = append(pkt, byte(len(name)))
 	pkt = append(pkt, []byte(name)...)
 	pkt = append(pkt, 0)
-	pkt = append(pkt, 0x00, 0x0C, 0x00, 0x01)
-	pkt = append(pkt, 0x00, 0x00, 0x00, 0x78) // TTL
-	pkt = append(pkt, 0x00, 0x00)             // RDLENGTH = 0
+	pkt = append(pkt, 0x00, 0x01, 0x00, 0x01) // TYPE=A, CLASS=IN
+	pkt = append(pkt, 0x00, 0x00, 0x00, 0x78) // TTL = 120
+	pkt = append(pkt, 0x00, 0x04)             // RDLENGTH = 4
+	pkt = append(pkt, 192, 0, 2, 1)           // RDATA: 192.0.2.1
 
 	return pkt
 }
@@ -910,9 +1105,9 @@ func TestNewScanner_ValidInterface_ReturnsScanner(t *testing.T) {
 
 	// Attempt to create a scanner
 	testLogger := utils.NewTestLogger()
-	scanner, errNew := NewScanner(testLogger, ifaces[0].Name)
-	if errNew != nil {
-		t.Skipf("could not create scanner for interface '%s': %v", ifaces[0].Name, errNew)
+	scanner, errScanner := NewScanner(testLogger, ifaces[0].Name)
+	if errScanner != nil {
+		t.Skipf("could not create scanner for interface '%s': %v", ifaces[0].Name, errScanner)
 		return
 	}
 	if scanner == nil {
@@ -923,10 +1118,18 @@ func TestNewScanner_ValidInterface_ReturnsScanner(t *testing.T) {
 // TestGetInterfaceIpV4_Loopback verifies that the loopback interface returns an IPv4 address.
 func TestGetInterfaceIpV4_Loopback(t *testing.T) {
 
-	// Attempt to get the loopback IPv4 address
-	ip, errIp := getInterfaceIpV4("lo")
+	// Try platform-specific loopback names: "lo" on Linux, "Loopback Pseudo-Interface 1" on Windows
+	names := []string{"lo", "Loopback Pseudo-Interface 1"}
+	var ip net.IP
+	var errIp error
+	for _, name := range names {
+		ip, errIp = getInterfaceIpV4(name)
+		if errIp == nil {
+			break
+		}
+	}
 	if errIp != nil {
-		t.Skipf("loopback interface not available: %v", errIp)
+		t.Skipf("loopback interface not available under any known name: %v", errIp)
 		return
 	}
 
@@ -973,4 +1176,209 @@ func buildTestNdpAdvertisementWrongOptionType(mac []byte) []byte {
 	buf := buildTestNdpAdvertisement(mac)
 	buf[24] = 1 // type=1: Source Link-Layer Address (not the target)
 	return buf
+}
+
+// TestSubnetHosts verifies that subnetHosts enumerates the correct usable host addresses.
+func TestSubnetHosts(t *testing.T) {
+
+	// Prepare and run test cases
+	tests := []struct {
+		name      string
+		cidr      string
+		wantCount int
+		wantFirst string
+		wantLast  string
+	}{
+		{
+			name:      "slash-30-two-hosts",
+			cidr:      "192.0.2.0/30",
+			wantCount: 2,
+			wantFirst: "192.0.2.1",
+			wantLast:  "192.0.2.2",
+		},
+		{
+			name:      "slash-29-six-hosts",
+			cidr:      "198.51.100.0/29",
+			wantCount: 6,
+			wantFirst: "198.51.100.1",
+			wantLast:  "198.51.100.6",
+		},
+		{
+			name:      "slash-32-no-hosts",
+			cidr:      "192.0.2.1/32",
+			wantCount: 0,
+		},
+		{
+			name:      "slash-31-no-hosts",
+			cidr:      "192.0.2.0/31",
+			wantCount: 0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+
+			// Parse the CIDR and derive the network address
+			_, ipNet, errParse := net.ParseCIDR(tt.cidr)
+			if errParse != nil {
+				t.Fatalf("net.ParseCIDR(%q) error: %v", tt.cidr, errParse)
+			}
+
+			// Call and verify count
+			got := subnetHosts(ipNet)
+			if len(got) != tt.wantCount {
+				t.Errorf("subnetHosts() count = %d, want %d", len(got), tt.wantCount)
+				return
+			}
+
+			// Verify first and last addresses when expected
+			if tt.wantFirst != "" && got[0].String() != tt.wantFirst {
+				t.Errorf("subnetHosts() first = '%s', want '%s'", got[0].String(), tt.wantFirst)
+			}
+			if tt.wantLast != "" && got[len(got)-1].String() != tt.wantLast {
+				t.Errorf("subnetHosts() last = '%s', want '%s'", got[len(got)-1].String(), tt.wantLast)
+			}
+		})
+	}
+}
+
+// TestBuildArpRequestFrame verifies that buildArpRequestFrame produces a valid ARP request frame.
+func TestBuildArpRequestFrame(t *testing.T) {
+
+	// Prepare and run test cases
+	tests := []struct {
+		name     string
+		srcMac   net.HardwareAddr
+		srcIp    net.IP
+		targetIp net.IP
+	}{
+		{
+			name:     "standard-addresses",
+			srcMac:   net.HardwareAddr{0x00, 0x0E, 0xCF, 0x01, 0x02, 0x03},
+			srcIp:    net.IP{192, 0, 2, 1},
+			targetIp: net.IP{192, 0, 2, 254},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			frame := buildArpRequestFrame(tt.srcMac, tt.srcIp, tt.targetIp)
+
+			// Verify the frame length is exactly 42 bytes
+			if len(frame) != 42 {
+				t.Errorf("buildArpRequestFrame() length = %d, want 42", len(frame))
+				return
+			}
+
+			// Verify destination MAC is broadcast
+			for i := 0; i < 6; i++ {
+				if frame[i] != 0xFF {
+					t.Errorf("buildArpRequestFrame() dst MAC[%d] = %02X, want FF", i, frame[i])
+				}
+			}
+
+			// Verify EtherType is ARP
+			if frame[12] != 0x08 || frame[13] != 0x06 {
+				t.Errorf("buildArpRequestFrame() EtherType = %02X%02X, want 0806", frame[12], frame[13])
+			}
+
+			// Verify OPER = 1 (request)
+			oper := uint16(frame[20])<<8 | uint16(frame[21])
+			if oper != 1 {
+				t.Errorf("buildArpRequestFrame() OPER = %d, want 1", oper)
+			}
+
+			// Verify sender MAC embedded at bytes 22–27
+			for i, b := range tt.srcMac {
+				if frame[22+i] != b {
+					t.Errorf("buildArpRequestFrame() sender MAC[%d] = %02X, want %02X", i, frame[22+i], b)
+				}
+			}
+
+			// Verify sender IP at bytes 28–31
+			for i, b := range tt.srcIp.To4() {
+				if frame[28+i] != b {
+					t.Errorf("buildArpRequestFrame() sender IP[%d] = %d, want %d", i, frame[28+i], b)
+				}
+			}
+
+			// Verify target IP at bytes 38–41
+			for i, b := range tt.targetIp.To4() {
+				if frame[38+i] != b {
+					t.Errorf("buildArpRequestFrame() target IP[%d] = %d, want %d", i, frame[38+i], b)
+				}
+			}
+		})
+	}
+}
+
+// TestParseArpReply verifies that parseArpReply correctly extracts sender MAC and IP from ARP reply frames.
+func TestParseArpReply(t *testing.T) {
+
+	// Prepare and run test cases
+	tests := []struct {
+		name    string
+		frame   []byte
+		wantMac string
+		wantIp  string
+	}{
+		{
+			name:    "too-short",
+			frame:   make([]byte, 10),
+			wantMac: "",
+			wantIp:  "",
+		},
+		{
+			name:    "wrong-ethertype",
+			frame:   buildTestArpFrame(1, 0x0800, []byte{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF}, []byte{192, 0, 2, 10}),
+			wantMac: "",
+			wantIp:  "",
+		},
+		{
+			name:    "arp-request-not-reply",
+			frame:   buildTestArpFrame(1, 0x0806, []byte{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF}, []byte{192, 0, 2, 10}),
+			wantMac: "",
+			wantIp:  "",
+		},
+		{
+			name:    "valid-arp-reply",
+			frame:   buildTestArpFrame(2, 0x0806, []byte{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF}, []byte{192, 0, 2, 10}),
+			wantMac: "AA:BB:CC:DD:EE:FF",
+			wantIp:  "192.0.2.10",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotMac, gotIp := parseArpReply(tt.frame)
+			if gotMac != tt.wantMac {
+				t.Errorf("parseArpReply() mac = '%s', want '%s'", gotMac, tt.wantMac)
+			}
+			if gotIp != tt.wantIp {
+				t.Errorf("parseArpReply() ip = '%s', want '%s'", gotIp, tt.wantIp)
+			}
+		})
+	}
+}
+
+// buildTestArpFrame constructs a minimal 42-byte ARP Ethernet frame for testing.
+func buildTestArpFrame(oper int, etherType uint16, senderMac []byte, senderIp []byte) []byte {
+	frame := make([]byte, 42)
+
+	// Ethernet header
+	copy(frame[0:6], []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF})
+	copy(frame[6:12], senderMac)
+	frame[12] = byte(etherType >> 8)
+	frame[13] = byte(etherType)
+
+	// ARP payload
+	frame[14] = 0x00
+	frame[15] = 0x01 // HTYPE = Ethernet
+	frame[16] = 0x08
+	frame[17] = 0x00 // PTYPE = IPv4
+	frame[18] = 6    // HLEN
+	frame[19] = 4    // PLEN
+	frame[20] = byte(oper >> 8)
+	frame[21] = byte(oper) // OPER
+	copy(frame[22:28], senderMac)
+	copy(frame[28:32], senderIp)
+
+	return frame
 }

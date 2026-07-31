@@ -27,9 +27,9 @@ func TestMain(m *testing.M) {
 	_test.GetSettings()
 
 	// Prepare test directory
-	tmpDir, errTmp := os.MkdirTemp(".", "goscans-smb-test-*")
-	if errTmp != nil {
-		panic(errTmp)
+	tmpDir, errTmpDir := os.MkdirTemp(".", "goscans-smb-test-*")
+	if errTmpDir != nil {
+		panic(errTmpDir)
 	}
 	if errChdir := os.Chdir(tmpDir); errChdir != nil {
 		panic(errChdir)
@@ -63,7 +63,7 @@ func TestNewScanner(t *testing.T) {
 	}{
 		{
 			name:    "valid-ip",
-			target:  "192.168.1.1",
+			target:  "192.0.2.1",
 			wantErr: false,
 		},
 		{
@@ -78,17 +78,17 @@ func TestNewScanner(t *testing.T) {
 		},
 		{
 			name:    "invalid-cidr",
-			target:  "192.168.0.0/24",
+			target:  "192.0.2.0/24",
 			wantErr: true,
 		},
 		{
 			name:    "invalid-with-port",
-			target:  "192.168.1.1:445",
+			target:  "192.0.2.1:445",
 			wantErr: true,
 		},
 		{
 			name:        "invalid-credentials-domain-only",
-			target:      "192.168.1.1",
+			target:      "192.0.2.1",
 			smbDomain:   "DOMAIN",
 			smbUser:     "",
 			smbPassword: "",
@@ -96,7 +96,7 @@ func TestNewScanner(t *testing.T) {
 		},
 		{
 			name:        "invalid-credentials-user-only",
-			target:      "192.168.1.1",
+			target:      "192.0.2.1",
 			smbDomain:   "",
 			smbUser:     "user",
 			smbPassword: "",
@@ -104,7 +104,7 @@ func TestNewScanner(t *testing.T) {
 		},
 		{
 			name:        "invalid-credentials-password-only",
-			target:      "192.168.1.1",
+			target:      "192.0.2.1",
 			smbDomain:   "",
 			smbUser:     "",
 			smbPassword: "pass",
@@ -112,7 +112,7 @@ func TestNewScanner(t *testing.T) {
 		},
 		{
 			name:        "valid-with-credentials",
-			target:      "192.168.1.1",
+			target:      "192.0.2.1",
 			smbDomain:   "DOMAIN",
 			smbUser:     "user",
 			smbPassword: "pass",
@@ -121,7 +121,7 @@ func TestNewScanner(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			scanner, errNew := NewScanner(
+			scanner, errScanner := NewScanner(
 				testLogger,
 				tt.target,
 				-1,
@@ -137,8 +137,8 @@ func TestNewScanner(t *testing.T) {
 				tt.smbUser,
 				tt.smbPassword,
 			)
-			if (errNew != nil) != tt.wantErr {
-				t.Errorf("NewScanner() error = '%v', wantErr = '%v'", errNew, tt.wantErr)
+			if (errScanner != nil) != tt.wantErr {
+				t.Errorf("NewScanner() error = '%v', wantErr = '%v'", errScanner, tt.wantErr)
 				return
 			}
 			if !tt.wantErr && scanner == nil {
@@ -155,9 +155,9 @@ func TestScanner_Label_MatchesPackageConstant(t *testing.T) {
 	testLogger := utils.NewTestLogger()
 
 	// Create scanner
-	scanner, errNew := NewScanner(testLogger, "192.168.1.1", -1, 1, nil, nil, nil, nil, time.Time{}, 0, false, "", "", "")
-	if errNew != nil {
-		t.Errorf("NewScanner() error = '%v', want = 'nil'", errNew)
+	scanner, errScanner := NewScanner(testLogger, "192.0.2.1", -1, 1, nil, nil, nil, nil, time.Time{}, 0, false, "", "", "")
+	if errScanner != nil {
+		t.Errorf("NewScanner() error = '%v', want = 'nil'", errScanner)
 		return
 	}
 
@@ -174,9 +174,9 @@ func TestScanner_SetContext_SetsOnFirstCallOnly(t *testing.T) {
 	testLogger := utils.NewTestLogger()
 
 	// Create scanner
-	scanner, errNew := NewScanner(testLogger, "192.168.1.1", -1, 1, nil, nil, nil, nil, time.Time{}, 0, false, "", "", "")
-	if errNew != nil {
-		t.Errorf("NewScanner() error = '%v', want = 'nil'", errNew)
+	scanner, errScanner := NewScanner(testLogger, "192.0.2.1", -1, 1, nil, nil, nil, nil, time.Time{}, 0, false, "", "", "")
+	if errScanner != nil {
+		t.Errorf("NewScanner() error = '%v', want = 'nil'", errScanner)
 		return
 	}
 

@@ -11,13 +11,13 @@
 // Package utils provides common helper utilities shared across GoScans scan modules.
 package utils
 
+// ValidOrEmptyCredentials checks whether credentials are either all empty or at least user and password are set.
 func ValidOrEmptyCredentials(domain string, user string, password string) bool {
 	if domain == "" && user == "" && password == "" {
 		return true
-	} else {
-		if user == "" || password == "" {
-			return false
-		}
+	}
+	if user == "" || password == "" {
+		return false
 	}
 	return true
 }

@@ -28,17 +28,16 @@ func UniqueStrings(elements []string) []string {
 	result := make([]string, 0, len(elements))
 
 	// Iterate elements and add them to the new slice if they were not seen before
-	for v := range elements {
-		if encountered[elements[v]] {
-			// Do not add duplicate.
-		} else {
-
-			// Record this element as an encountered element.
-			encountered[elements[v]] = true
-
-			// Append to result slice.
-			result = append(result, elements[v])
+	for i := range elements {
+		if encountered[elements[i]] {
+			continue
 		}
+
+		// Record this element as an encountered element.
+		encountered[elements[i]] = true
+
+		// Append to result slice.
+		result = append(result, elements[i])
 	}
 
 	// Return the new slice.
@@ -189,9 +188,8 @@ func RemoveFromSlice(list []string, s string) []string {
 	for _, current := range list {
 		if current == s {
 			continue
-		} else {
-			retList = append(retList, current)
 		}
+		retList = append(retList, current)
 	}
 
 	// Return new filtered slice

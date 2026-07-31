@@ -22,9 +22,10 @@ import (
 // are our keys, we have to save a slice of ciphers per key. Gladly the name collisions occur only with ciphers from
 // different protocol versions and have a consistent prefix in their IANA names. Therefore we can determine the correct
 // cipher by supplying the protocol version and checking the IANA name.
-var cipherMapping map[string][]Cipher
-var loadCiphersOnce sync.Once
+var cipherMapping map[string][]Cipher // Ciphers indexed by their potentially non-unique OpenSSL name
+var loadCiphersOnce sync.Once         // Ensures the cipher mapping is loaded once
 
+// LoadCiphers initializes the cipher mapping from the built-in cipher info list. Safe to call multiple times.
 func LoadCiphers(logger utils.Logger) {
 
 	// Make sure that the mapping is only initialized once to save some time.
@@ -38,7 +39,7 @@ func getCipherByName(logger utils.Logger, opensslName string, protocol Protocol)
 
 	// Do some basic checks.
 	if opensslName == "" {
-		logger.Warningf("Can not cipher matching empty OpenSSL name.")
+		logger.Warningf("Cannot find cipher matching empty OpenSSL name.")
 	}
 
 	if len(cipherMapping) == 0 {
@@ -61,7 +62,7 @@ func getCipherByName(logger utils.Logger, opensslName string, protocol Protocol)
 				} else if strings.HasPrefix(ciphers[1].IanaName, "SSL_") {
 					return &ciphers[1]
 				}
-			} else if protocol >= Tlsv1_0 || protocol <= Tlsv1_3 {
+			} else if protocol >= Tlsv1_0 && protocol <= Tlsv1_3 {
 				if strings.HasPrefix(ciphers[0].IanaName, "TLS_") {
 					return &ciphers[0]
 				} else if strings.HasPrefix(ciphers[1].IanaName, "TLS_") {
@@ -88,6 +89,7 @@ func getCipherByName(logger utils.Logger, opensslName string, protocol Protocol)
 	return &Cipher{}
 }
 
+// loadCiphers populates the cipherMapping from the built-in cipherInfos slice.
 func loadCiphers(logger utils.Logger) {
 	cipherMapping = make(map[string][]Cipher)
 
@@ -203,7 +205,7 @@ func parseCipherMapping(logger utils.Logger, cipherInfo *CipherInfo, cipher *Cip
 		cipher.PrfBits = cipher.Prf.getDigestSize()
 		cipher.PrfStrength = cipher.Prf.getHmacStrength()
 	} else {
-		logger.Warningf(" pseudorandom function family for cipher suite '%s' is invalid.", cipher.IanaName)
+		logger.Warningf("Pseudorandom function family for cipher suite '%s' is invalid.", cipher.IanaName)
 	}
 }
 

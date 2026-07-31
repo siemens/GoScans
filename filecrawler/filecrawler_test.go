@@ -44,9 +44,9 @@ func TestMain(m *testing.M) {
 	}
 
 	// Prepare test directory
-	tmpDir, errTmp := os.MkdirTemp(".", "goscans-filecrawler-test-*")
-	if errTmp != nil {
-		panic(errTmp)
+	tmpDir, errTmpDir := os.MkdirTemp(".", "goscans-filecrawler-test-*")
+	if errTmpDir != nil {
+		panic(errTmpDir)
 	}
 	if errChdir := os.Chdir(tmpDir); errChdir != nil {
 		panic(errChdir)
@@ -367,9 +367,9 @@ func TestGetCustomProperties(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, errGet := getCustomProperties(tt.args.filepath, tt.args.logger)
-			if (errGet != nil) != tt.wantErr {
-				t.Errorf("getCustomProperties() error = '%v', wantErr = '%v'", errGet, tt.wantErr)
+			got, errGot := getCustomProperties(tt.args.filepath, tt.args.logger)
+			if (errGot != nil) != tt.wantErr {
+				t.Errorf("getCustomProperties() error = '%v', wantErr = '%v'", errGot, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
@@ -389,21 +389,21 @@ func TestGetOOXMLProperties(t *testing.T) {
 	crawlFolder := filepath.Join(testSettings.PathDataDir, "filecrawler")
 
 	// Create a minimal zip file without docProps/custom.xml to test the no-custom-xml path
-	zipNoCustomPath, errAbs := filepath.Abs("no-custom-props.zip")
-	if errAbs != nil {
-		t.Fatalf("TestGetOOXMLProperties setup error = '%v'", errAbs)
+	zipNoCustomPath, errZipNoCustomPath := filepath.Abs("no-custom-props.zip")
+	if errZipNoCustomPath != nil {
+		t.Fatalf("TestGetOOXMLProperties setup error = '%v'", errZipNoCustomPath)
 	}
 	func() {
-		f, errCreate := os.Create(zipNoCustomPath)
-		if errCreate != nil {
-			t.Fatalf("TestGetOOXMLProperties could not create test zip: '%v'", errCreate)
+		f, errF := os.Create(zipNoCustomPath)
+		if errF != nil {
+			t.Fatalf("TestGetOOXMLProperties could not create test zip: '%v'", errF)
 		}
 		defer func() { _ = f.Close() }()
 		w := zip.NewWriter(f)
 		defer func() { _ = w.Close() }()
-		fw, errFile := w.Create("word/document.xml")
-		if errFile != nil {
-			t.Fatalf("TestGetOOXMLProperties could not write zip entry: '%v'", errFile)
+		fw, errFw := w.Create("word/document.xml")
+		if errFw != nil {
+			t.Fatalf("TestGetOOXMLProperties could not write zip entry: '%v'", errFw)
 		}
 		_, errWrite := fw.Write([]byte("<doc/>"))
 		if errWrite != nil {
@@ -450,9 +450,9 @@ func TestGetOOXMLProperties(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, errGet := getOOXMLProperties(tt.args.filepath, tt.args.logger)
-			if (errGet != nil) != tt.wantErr {
-				t.Errorf("getOOXMLProperties() error = '%v', want = '%v'", errGet, tt.wantErr)
+			got, errGot := getOOXMLProperties(tt.args.filepath, tt.args.logger)
+			if (errGot != nil) != tt.wantErr {
+				t.Errorf("getOOXMLProperties() error = '%v', want = '%v'", errGot, tt.wantErr)
 				return
 			}
 			if tt.want != nil && !reflect.DeepEqual(got, tt.want) {
@@ -514,52 +514,6 @@ func TestOOXMLProperty_GetVal(t *testing.T) {
 			got := tt.prop.GetVal()
 			if got != tt.want {
 				t.Errorf("OOXMLProperty.GetVal() = '%v', want = '%v'", got, tt.want)
-			}
-		})
-	}
-}
-
-// TestAccessFile verifies that accessFile correctly detects file access on real and nonexistent paths.
-func TestAccessFile(t *testing.T) {
-
-	// Retrieve test settings
-	testSettings := _test.GetSettings()
-
-	// Prepare test variables
-	crawlFolder := filepath.Join(testSettings.PathDataDir, "filecrawler")
-
-	// Prepare and run test cases
-	tests := []struct {
-		name     string
-		path     string
-		flag     int
-		wantOpen bool
-		wantErr  bool
-	}{
-		{
-			name:     "readable-file",
-			path:     filepath.Join(crawlFolder, "file_with_content.txt"),
-			flag:     os.O_RDONLY,
-			wantOpen: true,
-			wantErr:  false,
-		},
-		{
-			name:     "nonexistent-file",
-			path:     "/does/not/exist/file.txt",
-			flag:     os.O_RDONLY,
-			wantOpen: false,
-			wantErr:  true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gotOpen, errAccess := accessFile(tt.path, tt.flag)
-			if (errAccess != nil) != tt.wantErr {
-				t.Errorf("accessFile() error = '%v', want = '%v'", errAccess, tt.wantErr)
-				return
-			}
-			if gotOpen != tt.wantOpen {
-				t.Errorf("accessFile() opened = '%v', want = '%v'", gotOpen, tt.wantOpen)
 			}
 		})
 	}

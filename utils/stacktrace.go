@@ -1,3 +1,13 @@
+/*
+* GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
+*
+* Copyright (c) Siemens AG, 2016-2026.
+*
+* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+* directory or visit <https://opensource.org/licenses/MIT>.
+*
+ */
+
 package utils
 
 import (
@@ -7,7 +17,8 @@ import (
 )
 
 // StacktraceIndented takes the stacktrace from stack and formats it in a nicely indented way (starting with newline):
-// 	Stacktrace:
+//
+//	Stacktrace:
 //		| goroutine 2775398 [running]:
 //		| go-scans/utils.(*Requester).Get(0xc001511810, 0xc001e39740, 0x2a, 0xc0001b2460, 0x20, 0x0, 0xe, 0xc0003063a0, 0xc, 0x0, ...)
 //		| 	C:/workplace/go/src/go-scans/scans/http.go:228 +0x2ac
@@ -24,7 +35,7 @@ func StacktraceIndented(indent string) string {
 	// Get stacktrace
 	trace := strings.Trim(string(debug.Stack()), "\n")
 
-	// Return stacktrace formatted with intents
+	// Return stacktrace formatted with indents
 	return fmt.Sprintf(
 		"\n%sStacktrace:\n%s\t| %s",
 		indent,

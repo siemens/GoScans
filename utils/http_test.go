@@ -144,9 +144,9 @@ func TestProxyStringToUrl(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ProxyStringToUrl(tt.proxy)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ProxyStringToUrl() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			got, errGot := ProxyStringToUrl(tt.proxy)
+			if (errGot != nil) != tt.wantErr {
+				t.Errorf("ProxyStringToUrl() error = '%v', wantErr = '%v'", errGot, tt.wantErr)
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("ProxyStringToUrl() = '%v', want = '%v'", got, tt.want)
@@ -347,9 +347,9 @@ func TestExtractHostPort(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			u, errParse := url.Parse(tt.url)
-			if errParse != nil {
-				t.Errorf("ExtractHostPort() url.Parse error = '%v'", errParse)
+			u, errU := url.Parse(tt.url)
+			if errU != nil {
+				t.Errorf("ExtractHostPort() url.Parse error = '%v'", errU)
 				return
 			}
 			got, got1 := ExtractHostPort(u)
@@ -515,9 +515,9 @@ func TestSameEndpoint(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			u, errParse := url.Parse(tt.args.url)
-			if errParse != nil {
-				t.Errorf("SameEndpoint() url.Parse error = '%v'", errParse)
+			u, errU := url.Parse(tt.args.url)
+			if errU != nil {
+				t.Errorf("SameEndpoint() url.Parse error = '%v'", errU)
 				return
 			}
 
@@ -907,9 +907,9 @@ func TestReadBody(t *testing.T) {
 			r.Header.Add("Content-Type", tt.contentType)
 
 			// Detect content type and read bytes
-			got, _, err := ReadBody(&r)
-			if err != nil {
-				t.Errorf("ReadBody() error = '%v'", err)
+			got, _, errReadBody := ReadBody(&r)
+			if errReadBody != nil {
+				t.Errorf("ReadBody() error = '%v'", errReadBody)
 				return
 			}
 

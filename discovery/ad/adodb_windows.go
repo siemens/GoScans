@@ -27,9 +27,9 @@ import (
 func AdodbQuery(logger utils.Logger, searchCn string, searchDomain string) *Ad {
 
 	// Prepare ADODB connection
-	adDb, errOpen := sql.Open("adodb", `Provider=ADSDSOObject`)
-	if errOpen != nil {
-		logger.Debugf("ADODB connection failed: %s", errOpen)
+	adDb, errAdDb := sql.Open("adodb", `Provider=ADSDSOObject`)
+	if errAdDb != nil {
+		logger.Debugf("ADODB connection failed: %s", errAdDb)
 		return &Ad{}
 	}
 
@@ -90,11 +90,11 @@ func adodbExpand(logger utils.Logger, adDb *sql.DB, result *Ad) {
 
 	// Execute search
 	logger.Debugf("ADODB searching for user '%s' in '%s'.", newSearchCn, newLdapAddress)
-	userResult, errUserSearch := adDb.Query(`SELECT cn, department, siemens-gid
+	userResult, errUserResult := adDb.Query(`SELECT cn, department, siemens-gid
 		FROM 'LDAP://` + newLdapAddress + `/` + newBaseDn + `' 
 		WHERE objectCategory = 'User' AND cn = '` + newSearchCn + `'`)
-	if errUserSearch != nil {
-		logger.Debugf("ADODB search for user '%s' in '%s' failed: %s", newSearchCn, newLdapAddress, errUserSearch)
+	if errUserResult != nil {
+		logger.Debugf("ADODB search for user '%s' in '%s' failed: %s", newSearchCn, newLdapAddress, errUserResult)
 		return
 	}
 
@@ -118,6 +118,7 @@ func adodbExpand(logger utils.Logger, adDb *sql.DB, result *Ad) {
 	}
 }
 
+// isNil reports whether v is a nil interface or a nil pointer wrapped in an interface.
 func isNil(v interface{}) bool {
 	return v == nil || (reflect.ValueOf(v).Kind() == reflect.Ptr && reflect.ValueOf(v).IsNil())
 }
@@ -126,9 +127,9 @@ func isNil(v interface{}) bool {
 func adodbPopulate(result *Ad, sqlResult *sql.Rows) error {
 
 	// Read column types
-	columns, errC := sqlResult.ColumnTypes()
-	if errC != nil {
-		return errC
+	columns, errColumns := sqlResult.ColumnTypes()
+	if errColumns != nil {
+		return errColumns
 	}
 
 	// Prepare temporary (type independent) slice where query results will be written to
@@ -235,16 +236,16 @@ func adodbPopulate(result *Ad, sqlResult *sql.Rows) error {
 
 				// HighPart and LowPart are properties of Interger8 type
 				// Invoke to get property for highpart ...
-				vth, errH := dispatchIf.GetProperty("HighPart")
+				vth, errVth := dispatchIf.GetProperty("HighPart")
 				// On error continue... probably is not integer8 and methods dont exists
-				if errH != nil {
+				if errVth != nil {
 					continue
 				}
 
 				// Invoke to get property for lowpart
-				vtl, errL := dispatchIf.GetProperty("LowPart")
+				vtl, errVtl := dispatchIf.GetProperty("LowPart")
 				// On error continue
-				if errL != nil {
+				if errVtl != nil {
 					continue
 				}
 

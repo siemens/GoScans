@@ -15,6 +15,7 @@ import (
 	"github.com/siemens/GoScans/utils"
 )
 
+// GetGroupInfo is a Linux stub that always returns an empty list, as NetAPI is Windows-only.
 func GetGroupInfo(logger utils.Logger, target, sidString string) ([]string, error) {
 	return []string{}, nil
 }

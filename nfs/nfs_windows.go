@@ -24,15 +24,13 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const (
-	nfsFeature       = "ClientForNFS-Infrastructure" // Name of the required NFS client feature on Windows clients
-	nfsFeatureHigher = "ServicesForNFS-ClientOnly"   // Additionally required NFS client feature on Windows clients
-	nfsFeatureServer = "NFS-Client"                  // Name of the required NFS client feature on Windows servers
-	VerNtWorkstation = 1                             // The product type of Windows clients
+const nfsFeature = "ClientForNFS-Infrastructure"     // Name of the required NFS client feature on Windows clients
+const nfsFeatureHigher = "ServicesForNFS-ClientOnly" // Additionally required NFS client feature on Windows clients
+const nfsFeatureServer = "NFS-Client"                // Name of the required NFS client feature on Windows servers
+const VerNtWorkstation = 1                           // The product type of Windows clients
 
-	adminRights = "" // We do not need admin rights for the scan on Windows
-	unmountArgs = "-f"
-)
+const adminRights = ""   // We do not need admin rights for the scan on Windows
+const unmountArgs = "-f" // Force unmounting the NFS share
 
 // setupOs configures the environment accordingly, if the scan module has some special requirements. A successful setup
 // is required before a scan can be started.
@@ -49,30 +47,30 @@ func setupOs(logger utils.Logger) error {
 
 		// Run command for installing the nfs client
 		logger.Infof("Enabling Windows feature '%s'.", nfsFeatureServer)
-		outCmd, errCmd := exec.Command(
+		outCmd, errOutCmd := exec.Command(
 			"powershell",
 			"-NonInteractive",
 			fmt.Sprintf("Install-WindowsFeature %s", nfsFeatureServer)).CombinedOutput()
-		if errCmd != nil {
-			return fmt.Errorf("could not enable Windows feature '%s': %s ", nfsFeatureServer, string(outCmd))
+		if errOutCmd != nil {
+			return fmt.Errorf("could not enable Windows feature '%s': %s", nfsFeatureServer, string(outCmd))
 		}
 
 	} else { // NFS client activation for Windows client OS
 
 		// Enable Higher feature of Windows Nfs Client
 		logger.Infof("Enabling Windows feature '%s'.", nfsFeatureHigher)
-		outHigher, errHigher := exec.Command(
+		outHigher, errOutHigher := exec.Command(
 			"dism", "/online", "/Enable-Feature", "/FeatureName:"+nfsFeatureHigher).CombinedOutput()
-		if errHigher != nil {
-			return fmt.Errorf("could not enable Windows feature '%s': %s ", nfsFeatureHigher, string(outHigher))
+		if errOutHigher != nil {
+			return fmt.Errorf("could not enable Windows feature '%s': %s", nfsFeatureHigher, string(outHigher))
 		}
 
 		// Enable Windows Nfs Client
 		logger.Infof("Enabling Windows feature '%s'.", nfsFeature)
-		outClient, errClient := exec.Command(
+		outClient, errOutClient := exec.Command(
 			"dism", "/online", "/Enable-Feature", "/FeatureName:"+nfsFeature).CombinedOutput()
-		if errClient != nil {
-			return fmt.Errorf("could not enable Windows feature '%s': %s ", nfsFeature, string(outClient))
+		if errOutClient != nil {
+			return fmt.Errorf("could not enable Windows feature '%s': %s", nfsFeature, string(outClient))
 		}
 	}
 
@@ -126,11 +124,11 @@ func (s *Scanner) mountExport(export string, option string) (string, error) {
 	)
 
 	// Mount export and let windows assign the mount point (map network drive)
-	out, err := exec.Command("mount", mountArgs...).CombinedOutput()
+	out, errOut := exec.Command("mount", mountArgs...).CombinedOutput()
 
 	// Prepare output message and return if an error occurred
-	outStr := strings.Replace(string(out), "\n", " ", -1)
-	if err != nil {
+	outStr := strings.ReplaceAll(string(out), "\n", " ")
+	if errOut != nil {
 		return "", fmt.Errorf("%s", outStr)
 	}
 
@@ -158,9 +156,9 @@ func deleteMountPoint(mountPoint string) error {
 func (s *Scanner) getUnixFlagsWindows(exportName string, exportResults *filecrawler.Result) {
 
 	// DialMount creates an rpc client for sending mount/umount procedure calls to the target
-	rpcTarget, err := nfsClient.DialMount(s.target)
-	if err != nil {
-		s.logger.Debugf("unable to dial MOUNT service: %v", err)
+	rpcTarget, errRpcTarget := nfsClient.DialMount(s.target)
+	if errRpcTarget != nil {
+		s.logger.Debugf("Could not dial MOUNT service: %s", errRpcTarget)
 		return
 	}
 	defer func() {
@@ -172,9 +170,9 @@ func (s *Scanner) getUnixFlagsWindows(exportName string, exportResults *filecraw
 
 	// Get another rpc client for performing file operations on the mounted export
 	auth := rpc.NewAuthUnix("", 65534, 65534) // Empty auth 65534 maps to nobody
-	rpcExport, errMnt := rpcTarget.Mount(exportName, auth.Auth())
-	if errMnt != nil {
-		s.logger.Debugf("unable to mount volume: %v", errMnt)
+	rpcExport, errRpcExport := rpcTarget.Mount(exportName, auth.Auth())
+	if errRpcExport != nil {
+		s.logger.Debugf("Could not mount volume: %s", errRpcExport)
 		return
 	}
 	defer func() {
@@ -201,8 +199,7 @@ func (s *Scanner) getUnixFlagsWindows(exportName string, exportResults *filecraw
 	}
 }
 
-// Function for converting the file-mode of Linux files to the os.FileMode of Go. Is needed for the usage oOriented on fillFileStatFromSys from
-// stat_linux.go
+// fileModeFromFattr converts a Linux file-mode (from NFS file attributes) to os.FileMode.
 func fileModeFromFattr(fs os.FileInfo) os.FileMode {
 
 	// Get the read, write and execute permissions

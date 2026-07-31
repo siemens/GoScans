@@ -21,16 +21,20 @@ import (
 // and subject alternative names from the SSL certificate. This function does not
 // check whether the peer certificate is a CA.
 func GetSubjectAlternativeNames(address string, port int, dialTimeout time.Duration) ([]string, error) {
+
 	// Connect to endpoint
-	conn, err := tls.DialWithDialer(
+	conn, errConn := tls.DialWithDialer(
 		&net.Dialer{Timeout: dialTimeout},
 		"tcp",
 		fmt.Sprintf("%s:%d", address, port),
 		InsecureTlsConfigFactory(), // Insecure, because this is not a user interface, we are trying to discover content...
 	)
-	if err != nil {
-		return nil, err
+	if errConn != nil {
+		return nil, errConn
 	}
+
+	// Make sure connection gets closed on exit
+	defer func() { _ = conn.Close() }()
 
 	// Grab certificate from the chain
 	certChain := conn.ConnectionState().PeerCertificates
@@ -38,9 +42,8 @@ func GetSubjectAlternativeNames(address string, port int, dialTimeout time.Durat
 	// Return subject and subject alternative names
 	if len(certChain) == 0 {
 		return nil, fmt.Errorf("certificate chain is empty")
-	} else {
-		return certChain[0].DNSNames, nil
 	}
+	return certChain[0].DNSNames, nil
 }
 
 // InsecureTlsConfigFactory returns an *INSECURE* SSL connection configuration allowing any supported SSL protocol,
@@ -61,7 +64,8 @@ func InsecureTlsConfigFactory() *tls.Config {
 	return &tls.Config{
 		InsecureSkipVerify: true,
 		MinVersion:         tls.VersionSSL30, //lint:ignore SA1019 needed to advertise SSLv3 support during security scans
-		MaxVersion:         tls.VersionTLS13, // If zero, the maximum version supported by the TLS package is used
+		MaxVersion:         tls.VersionTLS13,
 		CipherSuites:       ciphers,
+		Renegotiation:      tls.RenegotiateFreelyAsClient, // Required for legacy/OT devices that demand renegotiation
 	}
 }

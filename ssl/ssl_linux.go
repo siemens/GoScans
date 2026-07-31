@@ -1,7 +1,7 @@
 /*
 * GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -19,13 +19,11 @@ import (
 	"github.com/siemens/GoScans/utils"
 )
 
-var (
-	pythonMinVersion = utils.Version{
-		Major: 3,
-		Minor: 7,
-		Patch: 0,
-	}
-)
+var pythonMinVersion = utils.Version{
+	Major: 3,
+	Minor: 7,
+	Patch: 0,
+}
 
 // NewScanner initializes a new SSLyze scan. Linux specific implementation, Python and SSLyze package required
 func NewScanner(
@@ -50,7 +48,7 @@ func NewScanner(
 	cmd.Stderr = &stderr
 	errCmd := cmd.Run()
 	if errCmd != nil {
-		return nil, fmt.Errorf("'%s %v' can not be executed: %s: %s", pythonPath, args, errCmd, stderr.String())
+		return nil, fmt.Errorf("'%s %v' could not be executed: %s: %s", pythonPath, args, errCmd, stderr.String())
 	}
 
 	// Trim the Python version number
@@ -82,9 +80,9 @@ func NewScanner(
 	stderr.Reset()
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
-	errCmd = cmd.Run()
-	if errCmd != nil {
-		return nil, fmt.Errorf("'%s %v' can not be executed: %s: %s", pythonPath, args, errCmd, stderr.String())
+	errCmd2 := cmd.Run()
+	if errCmd2 != nil {
+		return nil, fmt.Errorf("'%s %v' could not be executed: %s: %s", pythonPath, args, errCmd2, stderr.String())
 	}
 
 	// Build version string based on output

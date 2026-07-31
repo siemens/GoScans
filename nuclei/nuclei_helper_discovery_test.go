@@ -49,9 +49,9 @@ func TestDiscoverHelperFiles_MultipleDepths(t *testing.T) {
 	}
 
 	// Prepare and run test cases
-	got, errDiscover := discoverHelperFiles(root)
-	if errDiscover != nil {
-		t.Fatalf("discoverHelperFiles() error = '%v', wantErr = 'false'", errDiscover)
+	got, errGot := discoverHelperFiles(root)
+	if errGot != nil {
+		t.Fatalf("discoverHelperFiles() error = '%v', wantErr = 'false'", errGot)
 	}
 	if len(got) != len(helpers) {
 		t.Errorf("discoverHelperFiles() len = '%d', want '%d'", len(got), len(helpers))
@@ -74,9 +74,9 @@ func TestDiscoverHelperFiles_MissingHelpersDir(t *testing.T) {
 	root := t.TempDir()
 
 	// Prepare and run test cases
-	got, errDiscover := discoverHelperFiles(root)
-	if errDiscover != nil {
-		t.Fatalf("discoverHelperFiles() error = '%v', wantErr = 'false'", errDiscover)
+	got, errGot := discoverHelperFiles(root)
+	if errGot != nil {
+		t.Fatalf("discoverHelperFiles() error = '%v', wantErr = 'false'", errGot)
 	}
 	if got == nil {
 		t.Error("discoverHelperFiles() returned nil map, want empty non-nil map")
@@ -110,9 +110,9 @@ func TestDiscoverHelperFiles_FilesOutsideHelpersNotIncluded(t *testing.T) {
 	}
 
 	// Prepare and run test cases
-	got, errDiscover := discoverHelperFiles(root)
-	if errDiscover != nil {
-		t.Fatalf("discoverHelperFiles() error = '%v', wantErr = 'false'", errDiscover)
+	got, errGot := discoverHelperFiles(root)
+	if errGot != nil {
+		t.Fatalf("discoverHelperFiles() error = '%v', wantErr = 'false'", errGot)
 	}
 	if _, ok := got["http/cves/foo.yaml"]; ok {
 		t.Errorf("discoverHelperFiles() unexpectedly contains 'http/cves/foo.yaml'")
@@ -139,23 +139,23 @@ func TestDiscoverHelperFiles_EndToEnd(t *testing.T) {
 	}
 
 	// Prepare and run test cases
-	allowlist, errDiscover := discoverHelperFiles(root)
-	if errDiscover != nil {
-		t.Fatalf("discoverHelperFiles() error = '%v', wantErr = 'false'", errDiscover)
+	allowlist, errAllowlist := discoverHelperFiles(root)
+	if errAllowlist != nil {
+		t.Fatalf("discoverHelperFiles() error = '%v', wantErr = 'false'", errAllowlist)
 	}
 
 	loader := makeHelperFileLoader(root, allowlist)
 
 	// In-tree helper must load successfully
-	rc, errLoad := loader(helperRelPath, "", nil)
-	if errLoad != nil {
-		t.Fatalf("makeHelperFileLoader() error = '%v', wantErr = 'false'", errLoad)
+	rc, errRc := loader(helperRelPath, "", nil)
+	if errRc != nil {
+		t.Fatalf("makeHelperFileLoader() error = '%v', wantErr = 'false'", errRc)
 	}
 	_ = rc.Close()
 
 	// File outside helpers/ must be rejected
-	rc2, errLoad2 := loader(outsideRelPath, "", nil)
-	if errLoad2 == nil {
+	rc2, errRc2 := loader(outsideRelPath, "", nil)
+	if errRc2 == nil {
 		_ = rc2.Close()
 		t.Errorf("makeHelperFileLoader() error = 'nil', wantErr = 'true' for path outside helpers/")
 	}
@@ -185,9 +185,9 @@ func TestDiscoverHelperFiles_SymlinkOutsideRoot(t *testing.T) {
 	}
 
 	// Prepare and run test cases
-	got, errDiscover := discoverHelperFiles(root)
-	if errDiscover != nil {
-		t.Fatalf("discoverHelperFiles() error = '%v', wantErr = 'false'", errDiscover)
+	got, errGot := discoverHelperFiles(root)
+	if errGot != nil {
+		t.Fatalf("discoverHelperFiles() error = '%v', wantErr = 'false'", errGot)
 	}
 	if _, ok := got["helpers/wordlists/evil.txt"]; ok {
 		t.Errorf("discoverHelperFiles() unexpectedly contains symlink that escapes root")
@@ -223,9 +223,9 @@ func TestDiscoverHelperFiles_SymlinkInsideRoot(t *testing.T) {
 	}
 
 	// Prepare and run test cases
-	got, errDiscover := discoverHelperFiles(root)
-	if errDiscover != nil {
-		t.Fatalf("discoverHelperFiles() error = '%v', wantErr = 'false'", errDiscover)
+	got, errGot := discoverHelperFiles(root)
+	if errGot != nil {
+		t.Fatalf("discoverHelperFiles() error = '%v', wantErr = 'false'", errGot)
 	}
 	if _, ok := got["helpers/wordlists/real.txt"]; !ok {
 		t.Errorf("discoverHelperFiles() missing expected key 'helpers/wordlists/real.txt'")

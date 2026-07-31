@@ -17,6 +17,7 @@ import (
 	"github.com/go-ole/go-ole"
 )
 
+// PROPVARIANT wraps the OLE VARIANT to add shell property conversion support.
 type PROPVARIANT struct {
 	ole.VARIANT
 }
@@ -37,6 +38,6 @@ func (pv *PROPVARIANT) ValueExt() (interface{}, error) {
 	case ole.VT_EMPTY:
 		return nil, nil
 	default:
-		return nil, fmt.Errorf("type %s conversion not suporrted", pv.VT)
+		return nil, fmt.Errorf("type %s conversion not supported", pv.VT)
 	}
 }

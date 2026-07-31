@@ -1,24 +1,38 @@
+/*
+* GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
+*
+* Copyright (c) Siemens AG, 2016-2026.
+*
+* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+* directory or visit <https://opensource.org/licenses/MIT>.
+*
+ */
+
 package filecrawler
 
 import (
-	"github.com/siemens/GoScans/utils"
+	"errors"
 	"os"
 	"syscall"
+
+	"github.com/siemens/GoScans/utils"
 )
 
+// determineSymlinkPermissions checks the read and write access of the symlink target on Windows by
+// opening it with CreateFile and the FILE_FLAG_OPEN_REPARSE_POINT flag to avoid following the link.
 func determineSymlinkPermissions(symlinkInfo *File, logger utils.Logger) {
 
 	// Determine Read permission
-	readable, errRead := accessSymlink(symlinkInfo.Path, syscall.GENERIC_READ)
-	if errRead != nil {
-		logger.Debugf("Could not file permissions of %s: %s", symlinkInfo.Path, errRead)
+	readable, errReadable := accessSymlink(symlinkInfo.Path, syscall.GENERIC_READ)
+	if errReadable != nil {
+		logger.Debugf("Could not file permissions of %s: %s", symlinkInfo.Path, errReadable)
 	}
 	symlinkInfo.Readable = readable
 
 	// Determine Write permission
-	writable, errWrite := accessSymlink(symlinkInfo.Path, syscall.GENERIC_WRITE)
-	if errWrite != nil {
-		logger.Debugf("Could not file permissions of %s: %s", symlinkInfo.Path, errWrite)
+	writable, errWritable := accessSymlink(symlinkInfo.Path, syscall.GENERIC_WRITE)
+	if errWritable != nil {
+		logger.Debugf("Could not file permissions of %s: %s", symlinkInfo.Path, errWritable)
 	}
 	symlinkInfo.Writable = writable
 }
@@ -28,9 +42,9 @@ func determineSymlinkPermissions(symlinkInfo *File, logger utils.Logger) {
 func accessSymlink(path string, accessFlag uint32) (access bool, err error) {
 
 	// Convert path to a UTF16 string
-	pathUTF16, errUTF16 := syscall.UTF16PtrFromString(path)
-	if errUTF16 != nil {
-		return false, errUTF16
+	pathUTF16, errPathUTF16 := syscall.UTF16PtrFromString(path)
+	if errPathUTF16 != nil {
+		return false, errPathUTF16
 	}
 
 	// Specify that file can be used by other processes while we open it
@@ -41,20 +55,20 @@ func accessSymlink(path string, accessFlag uint32) (access bool, err error) {
 	attrs := uint32(syscall.FILE_FLAG_BACKUP_SEMANTICS | syscall.FILE_FLAG_OPEN_REPARSE_POINT)
 
 	// Try to open file with the specified access flag
-	fileHandle, errOpen := syscall.CreateFile(
+	fileHandle, errFileHandle := syscall.CreateFile(
 		pathUTF16, accessFlag, sharemode, nil, syscall.OPEN_EXISTING, attrs, 0)
-	if errOpen != nil {
-		if errOpen == syscall.ERROR_ACCESS_DENIED {
+	if errFileHandle != nil {
+		if errors.Is(errFileHandle, syscall.ERROR_ACCESS_DENIED) {
 			return false, nil
 		} else {
-			return false, errOpen
+			return false, errFileHandle
 		}
 	}
 
 	// If opening was successful, close the handle and return true
 	errClose := syscall.CloseHandle(fileHandle)
 	if errClose != nil {
-		return true, err // return additionally the error of the failed file handle closing
+		return true, errClose // return additionally the error of the failed file handle closing
 	}
 
 	// Return flag that file could be accessed

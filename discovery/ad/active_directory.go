@@ -16,6 +16,7 @@ import (
 	"time"
 )
 
+// Ad holds Active Directory attributes retrieved for a computer object.
 type Ad struct {
 	Name                 string    `ldap:"name"`
 	DistinguishedName    string    `ldap:"distinguishedName"`
@@ -35,15 +36,15 @@ type Ad struct {
 	CriticalObject       bool      `ldap:"isCriticalSystemObject"`
 }
 
-// fqdnToDn transforms a fully qualified domain name (e.g. sub.domain.tld) to a distinguished name
-// (e.g. dc=sub,dc=domain,dc=tld)
+// fqdnToDn converts a fully qualified domain name into an LDAP distinguished name.
+// For example, "sub.domain.tld" becomes "dc=sub,dc=domain,dc=tld".
 func fqdnToDn(fqdn string) string {
 	splits := strings.Split(fqdn, ".")
 	baseDn := "dc=" + strings.Join(splits, ",dc=")
 	return baseDn
 }
 
-// parseDn
+// parseDn parses a distinguished name into its domain address, common name, and base DN components.
 func parseDn(dn string) (string, string, string) {
 
 	// Split distinguished name into its segments
@@ -108,6 +109,7 @@ func dnSplit(dn string) []string {
 	return elements
 }
 
+// Integer8ToTime converts a Windows FILETIME integer (100-nanosecond intervals since 1601-01-01) to a time.Time.
 func Integer8ToTime(val int64) time.Time {
 
 	// Translate to seconds
@@ -120,12 +122,13 @@ func Integer8ToTime(val int64) time.Time {
 	return timestamp
 }
 
+// GeneralizedTimeToTime parses an LDAP GeneralizedTime string into a time.Time value.
 func GeneralizedTimeToTime(val string) (time.Time, error) {
 
 	// Parse timestamp
-	timestamp, err := time.Parse("20060102150405Z0700", val)
-	if err != nil {
-		return time.Time{}, err
+	timestamp, errTimestamp := time.Parse("20060102150405Z0700", val)
+	if errTimestamp != nil {
+		return time.Time{}, errTimestamp
 	}
 
 	// Return timestamp

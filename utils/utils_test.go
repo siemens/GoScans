@@ -51,9 +51,9 @@ func TestMain(m *testing.M) {
 	}
 
 	// Prepare test directory
-	tmpDir, errTmp := os.MkdirTemp(".", "goscans-utils-test-*")
-	if errTmp != nil {
-		panic(errTmp)
+	tmpDir, errTmpDir := os.MkdirTemp(".", "goscans-utils-test-*")
+	if errTmpDir != nil {
+		panic(errTmpDir)
 	}
 	if errChdir := os.Chdir(tmpDir); errChdir != nil {
 		panic(errChdir)

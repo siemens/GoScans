@@ -1,7 +1,7 @@
 /*
 * GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
 *
-* Copyright (c) Siemens AG, 2016-2025.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -38,57 +38,62 @@ var commonGnfsComplexities = map[uint64]float64{
 
 // DO NOT alter!
 // Some constants that are used during the computation of the GNFS complexity.
-var (
-	once          sync.Once
-	two           *apd.Decimal
-	sixtyfournine = new(apd.Decimal)
-	onethird      = new(apd.Decimal)
-	twothirds     = new(apd.Decimal)
-	log10two      = new(apd.Decimal)
-	initSuccess   = false
-)
+var once sync.Once                   // Ensures GNFS constants are initialized once
+var two *apd.Decimal                 // Decimal representation of two
+var sixtyfournine = new(apd.Decimal) // Decimal representation of 64/9
+var onethird = new(apd.Decimal)      // Decimal representation of 1/3
+var twothirds = new(apd.Decimal)     // Decimal representation of 2/3
+var log10two = new(apd.Decimal)      // Decimal representation of log10(2)
+var initSuccess = false              // Whether GNFS initialization succeeded
 
+// acceptableConditions defines the decimal arithmetic conditions accepted by the complexity calculation
 const acceptableConditions = apd.Inexact | apd.Rounded
 
-func initGnfsComplexity(c *apd.Context) (err error) {
+// initGnfsComplexity initializes the GNFS constants used during complexity computation.
+func initGnfsComplexity(c *apd.Context) error {
 
+	// Initialize the base value two
 	two = apd.New(2, 0)
 
-	sixtyfournine, err = sixtyfournine.SetFloat64(64. / 9.)
-	if err != nil {
-		return fmt.Errorf("can not set 64/9: %s", err)
+	// Set 64/9 constant
+	var errSixtyfournine error
+	sixtyfournine, errSixtyfournine = sixtyfournine.SetFloat64(64. / 9.)
+	if errSixtyfournine != nil {
+		return fmt.Errorf("could not set 64/9: %s", errSixtyfournine)
 	}
 
-	onethird, err = onethird.SetFloat64(1. / 3.)
-	if err != nil {
-		return fmt.Errorf("can not set 64/9: %s", err)
+	// Set 1/3 constant
+	var errOnethird error
+	onethird, errOnethird = onethird.SetFloat64(1. / 3.)
+	if errOnethird != nil {
+		return fmt.Errorf("could not set 1/3: %s", errOnethird)
 	}
 
-	twothirds, err = twothirds.SetFloat64(2. / 3.)
-	if err != nil {
-		return fmt.Errorf("can not set 64/9: %s", err)
+	// Set 2/3 constant
+	var errTwothirds error
+	twothirds, errTwothirds = twothirds.SetFloat64(2. / 3.)
+	if errTwothirds != nil {
+		return fmt.Errorf("could not set 2/3: %s", errTwothirds)
 	}
 
-	// log10(z)
-	res, err := c.Log10(log10two, two)
-	if err != nil {
-		return fmt.Errorf("can not compute Log10(2): %s", err)
+	// Compute log10(2)
+	res, errRes := c.Log10(log10two, two)
+	if errRes != nil {
+		return fmt.Errorf("could not compute Log10(2): %s", errRes)
 	}
 	if errCond := checkConditions(res); errCond != nil {
-		return fmt.Errorf("can not compute Log10(2): %s", errCond)
+		return fmt.Errorf("could not compute Log10(2): %s", errCond)
 	}
 
 	initSuccess = true
 
+	// Return nil as everything went fine
 	return nil
 }
 
-// Strength computation helper
-// gnfsComplexity calculates the complexity of the 'general number field sieve'. GNFS is the most efficient classical
-// algorithm for factoring integers larger than 10^100 [wikipedia]
-// We have to use a third party package, because math/big does not have a log function. The apd package which we use
-// does not seem perfect in every way. A lot of it seems to be based on rob pikes ivy calculator (which is not inherently
-// bad, but he's not sure about precision himself). Though for our case it should be sufficient.
+// gnfsComplexity calculates the complexity of the general number field sieve. GNFS is the most efficient classical
+// algorithm for factoring integers larger than 10^100 [wikipedia]. A third-party package is required because math/big
+// does not have a log function.
 func gnfsComplexity(length uint64) (float64, error) {
 
 	// Skip the costly computation if we have a common (pre-calculated) complexity.
@@ -115,7 +120,7 @@ func gnfsComplexity(length uint64) (float64, error) {
 	}
 
 	if !initSuccess {
-		return -1, fmt.Errorf("can not compute GNFS complexity, because init failed previously")
+		return -1, fmt.Errorf("could not compute GNFS complexity because init failed previously")
 	}
 
 	// Init the length - check for a possible integer overflow before the conversion.
@@ -131,114 +136,114 @@ func gnfsComplexity(length uint64) (float64, error) {
 	z := new(apd.Decimal)
 
 	// 2^length = 1 << length
-	res, errInit := c.Pow(n, two, l)
-	if errInit != nil {
-		return -1., fmt.Errorf("can not compute 2^[key size]: %s", errInit)
+	res, errRes := c.Pow(n, two, l)
+	if errRes != nil {
+		return -1., fmt.Errorf("could not compute 2^[key size]: %s", errRes)
 	}
 
 	if errCond := checkConditions(res); errCond != nil {
-		return -1, fmt.Errorf("can not compute 2^[key size]: %s", errCond)
+		return -1, fmt.Errorf("could not compute 2^[key size]: %s", errCond)
 	}
 
 	// Ln(n)
 	// This is the last step we can safe in n as the second component also needs Ln(2^length)
-	res, errInit = c.Ln(n, n)
-	if errInit != nil {
-		return -1., fmt.Errorf("can not compute Ln(n): %s", errInit)
+	res, errRes = c.Ln(n, n)
+	if errRes != nil {
+		return -1., fmt.Errorf("could not compute Ln(n): %s", errRes)
 	}
 
 	if errCond := checkConditions(res); errCond != nil {
-		return -1, fmt.Errorf("can not compute Ln(n): %s", errCond)
+		return -1, fmt.Errorf("could not compute Ln(n): %s", errCond)
 	}
 
 	// 64 / 9 * x
-	res, errInit = c.Mul(x, sixtyfournine, n)
-	if errInit != nil {
-		return -1., fmt.Errorf("can not compute 64 / 9 * x: %s", errInit)
+	res, errRes = c.Mul(x, sixtyfournine, n)
+	if errRes != nil {
+		return -1., fmt.Errorf("could not compute 64 / 9 * x: %s", errRes)
 	}
 
 	if errCond := checkConditions(res); errCond != nil {
-		return -1, fmt.Errorf("can not compute 64 / 9 * x: %s", errCond)
+		return -1, fmt.Errorf("could not compute 64 / 9 * x: %s", errCond)
 	}
 
 	// x^(1/3)
-	res, errInit = c.Pow(x, x, onethird)
-	if errInit != nil {
-		return -1., fmt.Errorf("can not compute x^(1/3): %s", errInit)
+	res, errRes = c.Pow(x, x, onethird)
+	if errRes != nil {
+		return -1., fmt.Errorf("could not compute x^(1/3): %s", errRes)
 	}
 
 	if errCond := checkConditions(res); errCond != nil {
-		return -1, fmt.Errorf("can not compute x^(1/3): %s", errCond)
+		return -1, fmt.Errorf("could not compute x^(1/3): %s", errCond)
 	}
 
 	// Ln(n)
 	// Yes we need to take the Ln again
-	res, errInit = c.Ln(y, n)
-	if errInit != nil {
-		return -1., fmt.Errorf("can not compute Ln(n): %s", errInit)
+	res, errRes = c.Ln(y, n)
+	if errRes != nil {
+		return -1., fmt.Errorf("could not compute Ln(n): %s", errRes)
 	}
 
 	if errCond := checkConditions(res); errCond != nil {
-		return -1, fmt.Errorf("can not compute Ln(n): %s", errCond)
+		return -1, fmt.Errorf("could not compute Ln(n): %s", errCond)
 	}
 
 	// y^(2/3)
-	res, errInit = c.Pow(y, y, twothirds)
-	if errInit != nil {
-		return -1., fmt.Errorf("can not compute y^(2/3): %s", errInit)
+	res, errRes = c.Pow(y, y, twothirds)
+	if errRes != nil {
+		return -1., fmt.Errorf("could not compute y^(2/3): %s", errRes)
 	}
 
 	if errCond := checkConditions(res); errCond != nil {
-		return -1, fmt.Errorf("can not compute y^(2/3): %s", errCond)
+		return -1, fmt.Errorf("could not compute y^(2/3): %s", errCond)
 	}
 
 	// x * y
-	res, errInit = c.Mul(z, x, y)
-	if errInit != nil {
-		return -1., fmt.Errorf("can not compute x * y: %s", errInit)
+	res, errRes = c.Mul(z, x, y)
+	if errRes != nil {
+		return -1., fmt.Errorf("could not compute x * y: %s", errRes)
 	}
 
 	if errCond := checkConditions(res); errCond != nil {
-		return -1, fmt.Errorf("can not compute x * y: %s", errCond)
+		return -1, fmt.Errorf("could not compute x * y: %s", errCond)
 	}
 
 	// exp(z)
-	res, errInit = c.Exp(z, z)
-	if errInit != nil {
-		return -1., fmt.Errorf("can not compute Ln(n): %s", errInit)
+	res, errRes = c.Exp(z, z)
+	if errRes != nil {
+		return -1., fmt.Errorf("could not compute exp(z): %s", errRes)
 	}
 
 	if errCond := checkConditions(res); errCond != nil {
-		return -1, fmt.Errorf("can not compute Ln(n): %s", errCond)
+		return -1, fmt.Errorf("could not compute exp(z): %s", errCond)
 	}
 
 	// log2(z)
 	// We have to do a base change because apd doesn't support log2. (Log10(2) is computed during the initialization.)
 
 	// log10(z)
-	res, errInit = c.Log10(z, z)
-	if errInit != nil {
-		return -1., fmt.Errorf("can not compute Log10(z): %s", errInit)
+	res, errRes = c.Log10(z, z)
+	if errRes != nil {
+		return -1., fmt.Errorf("could not compute Log10(z): %s", errRes)
 	}
 
 	if errCond := checkConditions(res); errCond != nil {
-		return -1, fmt.Errorf("can not compute Log10(z): %s", errCond)
+		return -1, fmt.Errorf("could not compute Log10(z): %s", errCond)
 	}
 
 	// log2(z) = log10(z) / log10(2)
-	res, errInit = c.Quo(z, z, log10two)
-	if errInit != nil {
-		return -1., fmt.Errorf("can not compute Log2(z): %s", errInit)
+	res, errRes = c.Quo(z, z, log10two)
+	if errRes != nil {
+		return -1., fmt.Errorf("could not compute Log2(z): %s", errRes)
 	}
 
 	if errCond := checkConditions(res); errCond != nil {
-		return -1, fmt.Errorf("can not compute Log2(z): %s", errCond)
+		return -1, fmt.Errorf("could not compute Log2(z): %s", errCond)
 	}
 
 	// Get the float64 value and return it.
-	ret, errInit := z.Float64()
-	if errInit != nil {
-		return -1., fmt.Errorf("can not get the result's float value: %s", errInit)
+	ret, errRet := z.Float64()
+	if errRet != nil {
+		return -1., fmt.Errorf("could not get the result's float value: %s", errRet)
 	}
 
 	return ret, nil
@@ -339,7 +344,7 @@ func compareResultData(data1, data2 *Data) bool {
 				continue
 			}
 
-			if utils.Equals(d1.ValidatedBy, d2.ValidatedBy) {
+			if !utils.Equals(d1.ValidatedBy, d2.ValidatedBy) {
 				continue
 			}
 
@@ -361,6 +366,7 @@ func compareResultData(data1, data2 *Data) bool {
 	return true
 }
 
+// compareCipher checks whether two Cipher pointers refer to equivalent cipher suites.
 func compareCipher(cipher1, cipher2 *Cipher) bool {
 
 	// Check for nil pointers
@@ -371,7 +377,7 @@ func compareCipher(cipher1, cipher2 *Cipher) bool {
 		return false
 	}
 
-	// Compare the+ actual fields
+	// Compare the actual fields
 	c1 := *cipher1
 	c2 := *cipher2
 	return c1.Id == c2.Id &&
@@ -401,6 +407,7 @@ func compareCipher(cipher1, cipher2 *Cipher) bool {
 		utils.Equals(c1.KeyExchangeInfo, c2.KeyExchangeInfo)
 }
 
+// compareCerts checks whether two slices of Certificate pointers contain equivalent certificates.
 func compareCerts(certs1, certs2 []*Certificate) bool {
 
 	// Compare the arrays

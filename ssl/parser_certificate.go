@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/noneymous/GoSslyze"
+	gosslyze "github.com/noneymous/GoSslyze"
 	"github.com/siemens/GoScans/utils"
 )
 
@@ -73,9 +73,9 @@ func parseCertificateChains(
 		for i, cert := range deployment.CertificateChain {
 
 			// Get certificate info from SSLyze data
-			certificate, errCert := parseCertificate(logger, &cert, targetName)
-			if errCert != nil {
-				logger.Debugf("Could not parse certificate: %s", errCert)
+			certificate, errCertificate := parseCertificate(logger, &cert, targetName)
+			if errCertificate != nil {
+				logger.Debugf("Could not parse certificate: %s", errCertificate)
 				continue
 			}
 
@@ -141,9 +141,9 @@ func parseCertificate(logger utils.Logger, sslyzeCert *gosslyze.Certificate, tar
 		certificate.PublicKeyInfo = fmt.Sprintf("Curve: %s", curve)
 
 	} else if certificate.PublicKeyAlgorithm == PUB_K_RSA || certificate.PublicKeyAlgorithm == PUB_K_DSA {
-		strength, errGnfs := gnfsComplexity(certificate.PublicKeyBits)
-		if errGnfs != nil {
-			logger.Warningf("Could not compute GNFS complexity: %s", errGnfs)
+		strength, errStrength := gnfsComplexity(certificate.PublicKeyBits)
+		if errStrength != nil {
+			logger.Warningf("Could not compute GNFS complexity: %s", errStrength)
 			strength = 0
 		}
 		certificate.PublicKeyStrength = int(strength)
@@ -168,9 +168,9 @@ func parseCertificate(logger utils.Logger, sslyzeCert *gosslyze.Certificate, tar
 	certificate.Sha1Fingerprint = utils.HashSha1(block.Bytes, ":")
 
 	// This is the function that will return an error if for example a elliptic curve is used that is unknown to go.
-	x509Cert, errCert := x509.ParseCertificate(block.Bytes)
-	if errCert != nil {
-		return nil, fmt.Errorf("can not parse certificate for target '%s': %s", targetName, errCert.Error())
+	x509Cert, errX509Cert := x509.ParseCertificate(block.Bytes)
+	if errX509Cert != nil {
+		return nil, fmt.Errorf("can not parse certificate for target '%s': %s", targetName, errX509Cert.Error())
 	} else {
 
 		// Add the x509 certificate version.
@@ -198,9 +198,9 @@ func parseCertificate(logger utils.Logger, sslyzeCert *gosslyze.Certificate, tar
 				certificate.PublicKeyStrength = int(eccComplexity(certificate.PublicKeyBits))
 
 			} else if certificate.PublicKeyAlgorithm == PUB_K_RSA || certificate.PublicKeyAlgorithm == PUB_K_DSA {
-				strength, errGnfs := gnfsComplexity(certificate.PublicKeyBits)
-				if errGnfs != nil {
-					logger.Warningf("Could not compute GNFS complexity: %s", errGnfs)
+				strength, errStrength := gnfsComplexity(certificate.PublicKeyBits)
+				if errStrength != nil {
+					logger.Warningf("Could not compute GNFS complexity: %s", errStrength)
 					strength = 0
 				}
 				certificate.PublicKeyStrength = int(strength)

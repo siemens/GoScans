@@ -32,9 +32,9 @@ func TestMain(m *testing.M) {
 	_test.GetSettings()
 
 	// Prepare test directory
-	tmpDir, errTmp := os.MkdirTemp(".", "goscans-banner-test-*")
-	if errTmp != nil {
-		panic(errTmp)
+	tmpDir, errTmpDir := os.MkdirTemp(".", "goscans-banner-test-*")
+	if errTmpDir != nil {
+		panic(errTmpDir)
 	}
 	if errChdir := os.Chdir(tmpDir); errChdir != nil {
 		panic(errChdir)
@@ -58,17 +58,17 @@ func test_startBannerServer(t *testing.T) (string, int) {
 	t.Helper()
 
 	// Listen on a random loopback port
-	ln, errListen := net.Listen("tcp", "127.0.0.1:0")
-	if errListen != nil {
-		t.Fatalf("test_startBannerServer() could not start listener: %v", errListen)
+	ln, errLn := net.Listen("tcp", "127.0.0.1:0")
+	if errLn != nil {
+		t.Fatalf("test_startBannerServer() could not start listener: %v", errLn)
 	}
 	t.Cleanup(func() { _ = ln.Close() })
 
 	// Accept connections in background and write a banner response
 	go func() {
 		for {
-			accepted, errAccept := ln.Accept()
-			if errAccept != nil {
+			accepted, errAccepted := ln.Accept()
+			if errAccepted != nil {
 				return
 			}
 			go func(conn net.Conn) {
@@ -95,9 +95,9 @@ func test_closedPort(t *testing.T, network string) string {
 
 	// Allocate and immediately release a port on the given network
 	if network == "tcp" {
-		ln, errListen := net.Listen("tcp", "127.0.0.1:0")
-		if errListen != nil {
-			t.Fatalf("test_closedPort() could not allocate tcp port: %v", errListen)
+		ln, errLn := net.Listen("tcp", "127.0.0.1:0")
+		if errLn != nil {
+			t.Fatalf("test_closedPort() could not allocate tcp port: %v", errLn)
 		}
 		addr := ln.Addr().String()
 		_ = ln.Close()
@@ -105,9 +105,9 @@ func test_closedPort(t *testing.T, network string) string {
 	}
 
 	// UDP path
-	ln, errListen := net.ListenPacket("udp", "127.0.0.1:0")
-	if errListen != nil {
-		t.Fatalf("test_closedPort() could not allocate udp port: %v", errListen)
+	ln, errLn := net.ListenPacket("udp", "127.0.0.1:0")
+	if errLn != nil {
+		t.Fatalf("test_closedPort() could not allocate udp port: %v", errLn)
 	}
 	addr := ln.LocalAddr().String()
 	_ = ln.Close()
@@ -238,9 +238,9 @@ func TestScanner_Run_HappyPath(t *testing.T) {
 	host, port := test_startBannerServer(t)
 
 	// Initialize the banner scanner
-	scan, errNew := NewScanner(testLogger, host, port, "tcp", dialTimeout, receiveTimeout)
-	if errNew != nil {
-		t.Fatalf("NewScanner() error = '%v'", errNew)
+	scan, errScan := NewScanner(testLogger, host, port, "tcp", dialTimeout, receiveTimeout)
+	if errScan != nil {
+		t.Fatalf("NewScanner() error = '%v'", errScan)
 	}
 
 	// Launch scan and verify result
@@ -251,6 +251,10 @@ func TestScanner_Run_HappyPath(t *testing.T) {
 	}
 	if result.Status != utils.StatusCompleted {
 		t.Errorf("Scanner.Run() status = '%v', want = '%v'", result.Status, utils.StatusCompleted)
+		return
+	}
+	if len(result.Data.Plain) == 0 {
+		t.Errorf("Scanner.Run() result.Data.Plain length = '0', want = 'non-zero'")
 	}
 }
 
@@ -264,15 +268,15 @@ func TestScanner_Run_NotReachable(t *testing.T) {
 
 	// Allocate and immediately close a TCP port so connection is refused
 	closedAddr := test_closedPort(t, "tcp")
-	tcpAddr, errParse := net.ResolveTCPAddr("tcp", closedAddr)
-	if errParse != nil {
-		t.Fatalf("could not parse closed address: %v", errParse)
+	tcpAddr, errTcpAddr := net.ResolveTCPAddr("tcp", closedAddr)
+	if errTcpAddr != nil {
+		t.Fatalf("could not parse closed address: %v", errTcpAddr)
 	}
 
 	// Initialize the banner scanner
-	scan, errNew := NewScanner(testLogger, tcpAddr.IP.String(), tcpAddr.Port, "tcp", dialTimeout, receiveTimeout)
-	if errNew != nil {
-		t.Fatalf("NewScanner() error = '%v'", errNew)
+	scan, errScan := NewScanner(testLogger, tcpAddr.IP.String(), tcpAddr.Port, "tcp", dialTimeout, receiveTimeout)
+	if errScan != nil {
+		t.Fatalf("NewScanner() error = '%v'", errScan)
 	}
 
 	// Launch scan and verify result
@@ -296,15 +300,15 @@ func TestScanner_Run_UdpNotReachable(t *testing.T) {
 
 	// Allocate and immediately release a UDP port
 	closedAddr := test_closedPort(t, "udp")
-	udpAddr, errParse := net.ResolveUDPAddr("udp", closedAddr)
-	if errParse != nil {
-		t.Fatalf("could not parse closed udp address: %v", errParse)
+	udpAddr, errUdpAddr := net.ResolveUDPAddr("udp", closedAddr)
+	if errUdpAddr != nil {
+		t.Fatalf("could not parse closed udp address: %v", errUdpAddr)
 	}
 
 	// Initialize scanner
-	scan, errNew := NewScanner(testLogger, udpAddr.IP.String(), udpAddr.Port, "udp", dialTimeout, receiveTimeout)
-	if errNew != nil {
-		t.Fatalf("NewScanner() error = '%v'", errNew)
+	scan, errScan := NewScanner(testLogger, udpAddr.IP.String(), udpAddr.Port, "udp", dialTimeout, receiveTimeout)
+	if errScan != nil {
+		t.Fatalf("NewScanner() error = '%v'", errScan)
 	}
 
 	// Launch scan; UDP path should complete without exception
@@ -392,9 +396,9 @@ func TestScanner_UpdateResultMap(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 
 			// Build scanner to call the method under test
-			s, errNew := NewScanner(testLogger, "192.0.2.1", 80, "tcp", dialTimeout, receiveTimeout)
-			if errNew != nil {
-				t.Fatalf("NewScanner() error = '%v'", errNew)
+			s, errS := NewScanner(testLogger, "192.0.2.1", 80, "tcp", dialTimeout, receiveTimeout)
+			if errS != nil {
+				t.Fatalf("NewScanner() error = '%v'", errS)
 			}
 
 			// Execute and verify result map state
@@ -480,9 +484,9 @@ func TestSendPlain_ReturnsDataFromServer(t *testing.T) {
 
 	// Build an HTTP trigger for this host and send it via sendPlain
 	req := fmt.Sprintf(triggerHttp, host)
-	resp, errSend := sendPlain(host, port, "tcp", req, 5*time.Second, 5*time.Second)
-	if errSend != nil {
-		t.Errorf("sendPlain() error = '%v', want = 'nil'", errSend)
+	resp, errResp := sendPlain(host, port, "tcp", req, 5*time.Second, 5*time.Second)
+	if errResp != nil {
+		t.Errorf("sendPlain() error = '%v', want = 'nil'", errResp)
 		return
 	}
 	if len(resp) == 0 {
@@ -495,9 +499,9 @@ func TestSendPlain_ConnectionRefused(t *testing.T) {
 
 	// Allocate and immediately close a TCP port
 	closedAddr := test_closedPort(t, "tcp")
-	tcpAddr, errParse := net.ResolveTCPAddr("tcp", closedAddr)
-	if errParse != nil {
-		t.Fatalf("could not parse address: %v", errParse)
+	tcpAddr, errTcpAddr := net.ResolveTCPAddr("tcp", closedAddr)
+	if errTcpAddr != nil {
+		t.Fatalf("could not parse address: %v", errTcpAddr)
 	}
 
 	// Call and verify an error is returned
@@ -528,9 +532,9 @@ func TestSendSsl_ReturnsDataFromServer(t *testing.T) {
 
 	// Build an HTTP trigger so the TLS server processes the request and replies with HTTP bytes
 	req := fmt.Sprintf(triggerHttp, host)
-	resp, errSend := sendSsl(host, port, req, 5*time.Second, 5*time.Second)
-	if errSend != nil {
-		t.Errorf("sendSsl() error = '%v', want = 'nil'", errSend)
+	resp, errResp := sendSsl(host, port, req, 5*time.Second, 5*time.Second)
+	if errResp != nil {
+		t.Errorf("sendSsl() error = '%v', want = 'nil'", errResp)
 		return
 	}
 	if len(resp) == 0 {
@@ -543,9 +547,9 @@ func TestSendSsl_ConnectionRefused(t *testing.T) {
 
 	// Allocate and immediately close a TCP port
 	closedAddr := test_closedPort(t, "tcp")
-	tcpAddr, errParse := net.ResolveTCPAddr("tcp", closedAddr)
-	if errParse != nil {
-		t.Fatalf("could not parse address: %v", errParse)
+	tcpAddr, errTcpAddr := net.ResolveTCPAddr("tcp", closedAddr)
+	if errTcpAddr != nil {
+		t.Fatalf("could not parse address: %v", errTcpAddr)
 	}
 
 	// Call and verify an error is returned
@@ -560,9 +564,9 @@ func TestSendTelnet_ConnectionRefused(t *testing.T) {
 
 	// Allocate and immediately close a TCP port
 	closedAddr := test_closedPort(t, "tcp")
-	tcpAddr, errParse := net.ResolveTCPAddr("tcp", closedAddr)
-	if errParse != nil {
-		t.Fatalf("could not parse address: %v", errParse)
+	tcpAddr, errTcpAddr := net.ResolveTCPAddr("tcp", closedAddr)
+	if errTcpAddr != nil {
+		t.Fatalf("could not parse address: %v", errTcpAddr)
 	}
 
 	// Prepare and run test cases for both trigger modes
@@ -599,15 +603,77 @@ func TestSendTelnet_ReturnsDataFromServer(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp, errSend := sendTelnet(host, port, tt.isWindows, 2*time.Second, 2*time.Second)
-			if errSend != nil {
-				t.Errorf("sendTelnet() error = '%v', want = 'nil'", errSend)
+			resp, errResp := sendTelnet(host, port, tt.isWindows, 2*time.Second, 2*time.Second)
+			if errResp != nil {
+				t.Errorf("sendTelnet() error = '%v', want = 'nil'", errResp)
 				return
 			}
 			if len(resp) == 0 {
 				t.Errorf("sendTelnet() response length = '0', want = 'non-zero'")
 			}
 		})
+	}
+}
+
+// TestSendPlain_IPv6Address verifies that sendPlain correctly formats an IPv6 address and returns an error for an unreachable host rather than a parse error.
+func TestSendPlain_IPv6Address(t *testing.T) {
+
+	// Use a loopback IPv6 address on a port that will be refused so we get a dial error, not a parse/format error
+	closedAddr := test_closedPort(t, "tcp")
+	tcpAddr, errTcpAddr := net.ResolveTCPAddr("tcp", closedAddr)
+	if errTcpAddr != nil {
+		t.Fatalf("could not parse closed address: %v", errTcpAddr)
+	}
+
+	// Use the IPv6 loopback instead of the IPv4 address returned by test_closedPort
+	_, errSend := sendPlain("::1", tcpAddr.Port, "tcp", triggerLinux, 100*time.Millisecond, 100*time.Millisecond)
+	if errSend == nil {
+		t.Errorf("sendPlain() error = 'nil', want error for refused IPv6 connection")
+		return
+	}
+
+	// Verify the error is a network dial error, not an address-format error
+	if socketErrorType(errSend) != "dial" {
+		t.Errorf("sendPlain() error type = '%v', want = 'dial' (got address-format or unexpected error: %v)", socketErrorType(errSend), errSend)
+	}
+}
+
+// TestSendPlain_TruncatesAtNullByte verifies that sendPlain stops the response buffer at the first null byte.
+func TestSendPlain_TruncatesAtNullByte(t *testing.T) {
+
+	// Start a server that sends a banner followed by null bytes (typical binary protocol response)
+	ln, errLn := net.Listen("tcp", "127.0.0.1:0")
+	if errLn != nil {
+		t.Fatalf("could not start listener: %v", errLn)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	go func() {
+		for {
+			conn, errConn := ln.Accept()
+			if errConn != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer func() { _ = c.Close() }()
+				buf := make([]byte, 64)
+				_, _ = c.Read(buf)
+				// Write banner text followed by a null byte and then more bytes that must be stripped
+				_, _ = c.Write([]byte("HELLO\x00SHOULD_NOT_APPEAR"))
+			}(conn)
+		}
+	}()
+
+	// Parse host and port
+	addr := ln.Addr().(*net.TCPAddr)
+
+	// Call sendPlain and verify null-byte truncation
+	resp, errResp := sendPlain(addr.IP.String(), addr.Port, "tcp", triggerLinux, 2*time.Second, 2*time.Second)
+	if errResp != nil {
+		t.Fatalf("sendPlain() error = '%v', want = 'nil'", errResp)
+	}
+	if string(resp) != "HELLO" {
+		t.Errorf("sendPlain() response = '%s', want = 'HELLO'", resp)
 	}
 }
 

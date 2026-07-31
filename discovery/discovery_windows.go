@@ -12,6 +12,7 @@ package discovery
 
 import (
 	"bytes"
+	"debug/pe"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -23,6 +24,7 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
+// errNpcapPermission indicates insufficient permission to access Npcap
 var errNpcapPermission = fmt.Errorf("NPcap is set to admin only")
 
 // Windows implementation of discovery scan setup
@@ -31,6 +33,12 @@ func setupOs(logger utils.Logger, nmapDir, nmap string) error {
 	// Check for Admin rights
 	if !utils.IsElevated() {
 		return fmt.Errorf("insufficient privileges")
+	}
+
+	// Check the Nmap runtime before trying to execute Nmap, so a missing DLL produces an actionable error.
+	errRedistributable := checkNmapRedistributable(nmap)
+	if errRedistributable != nil {
+		return errRedistributable
 	}
 
 	// Build Nmap path, required for Windows firewall
@@ -80,6 +88,12 @@ func setupOs(logger utils.Logger, nmapDir, nmap string) error {
 // Windows implementation of discovery scan setup check
 func checkSetupOs(nmapDir, nmap string) error {
 
+	// Check the Nmap runtime before trying to execute Nmap, so a missing DLL produces an actionable error.
+	errRedistributable := checkNmapRedistributable(nmap)
+	if errRedistributable != nil {
+		return errRedistributable
+	}
+
 	// Build Nmap path, required for Windows firewall
 	errNmapPath := utils.IsValidExecutable(nmap, "-h") // args required
 	if errNmapPath != nil {
@@ -110,17 +124,75 @@ func checkSetupOs(nmapDir, nmap string) error {
 		}
 	}
 
-	// Check if Visual studio redistributable required by Nmap are installed
-	installed1 := redistributable.IsInstalled(redistributable.VC2013x86)
-	installed2 := redistributable.IsInstalled(redistributable.VC2015to2019x86)
-	if !installed1 && !installed2 {
-		return fmt.Errorf("'Microsoft Visual C++ 2013 Redistributable (x86)' required by Nmap")
+	// Return nil as everything went fine
+	return nil
+}
+
+// checkNmapRedistributable verifies the Visual C++ runtime required by Nmap
+func checkNmapRedistributable(nmapPath string) error {
+
+	// Read the runtime version before trying to execute Nmap
+	version, errVersion := getNmapRedistributableVersion(nmapPath)
+	if errVersion != nil || version == 0 {
+		return errVersion
+	}
+
+	// Official Windows Nmap 7.50 and newer builds require the x86 runtime
+	installed, errInstalled := redistributable.IsInstalled(version, redistributable.ArchitectureX86)
+	if errInstalled != nil {
+		return errInstalled
+	}
+	if !installed {
+		return fmt.Errorf(
+			"missing Microsoft Visual C++ %s Redistributable (x86) required by Nmap",
+			version,
+		)
 	}
 
 	// Return nil as everything went fine
 	return nil
 }
 
+// getNmapRedistributableVersion reads the runtime family imported by Nmap
+func getNmapRedistributableVersion(nmapPath string) (redistributable.Version, error) {
+
+	// Open Nmap as PE without executing it
+	nmapPe, errNmapPe := pe.Open(nmapPath)
+	if errNmapPe != nil {
+		return 0, fmt.Errorf("could not inspect Nmap executable '%s': %w", nmapPath, errNmapPe)
+	}
+	defer func() { _ = nmapPe.Close() }()
+
+	// Read and map its imported runtime
+	imports, errImports := nmapPe.ImportedSymbols()
+	if errImports != nil {
+		return 0, fmt.Errorf("could not inspect Nmap executable imports '%s': %w", nmapPath, errImports)
+	}
+
+	// Return the detected runtime
+	return findNmapRedistributableVersion(imports), nil
+}
+
+// findNmapRedistributableVersion maps Nmap imports to the supported runtime families
+func findNmapRedistributableVersion(imports []string) redistributable.Version {
+
+	// Return the first supported runtime
+	for _, imported := range imports {
+		library := strings.ToLower(imported[strings.LastIndex(imported, ":")+1:])
+		switch library {
+		case "msvcp120.dll", "msvcr120.dll":
+			return redistributable.Version2013
+		case "concrt140.dll", "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll",
+			"vcruntime140.dll", "vcruntime140_1.dll":
+			return redistributable.VersionV14
+		}
+	}
+
+	// Return zero when no redistributable is required
+	return 0
+}
+
+// CheckWinpcap checks whether WinPcap is installed on the system.
 func CheckWinpcap() error {
 
 	// Define command
@@ -128,8 +200,8 @@ func CheckWinpcap() error {
 	args := []string{"Service", "get", "pathname"}
 
 	// Run command
-	out, err := exec.Command(cmd, args...).CombinedOutput()
-	if err != nil {
+	out, errOut := exec.Command(cmd, args...).CombinedOutput()
+	if errOut != nil {
 		return fmt.Errorf("%s", out)
 	}
 
@@ -143,6 +215,7 @@ func CheckWinpcap() error {
 	return nil
 }
 
+// CheckNpcap checks whether Npcap is installed and not restricted to admin-only mode.
 func CheckNpcap() error {
 
 	// Look for the executable path. It should be sufficient to find any string, as long as the entry is existing.
@@ -180,6 +253,7 @@ func CheckNpcap() error {
 	return nil
 }
 
+// SetNpcapNoAdmin disables the Npcap admin-only restriction so Nmap can run without elevated privileges.
 func SetNpcapNoAdmin() error {
 
 	// Look for the executable path. It should be sufficient to find any string, as long as the entry is existing.
@@ -212,10 +286,12 @@ func SetNpcapNoAdmin() error {
 	return nil
 }
 
+// ImportRegistryFile imports the given Windows registry file using the reg.exe tool.
 func ImportRegistryFile(filePath string) error {
 	return utils.Execute("reg", []string{"import", filePath})
 }
 
+// CheckNmapPerformancePatch verifies that the Nmap Windows performance registry patch has been applied.
 func CheckNmapPerformancePatch() error {
 	msg := "performance patch (nmap_performance.reg) not applied"
 
@@ -258,9 +334,9 @@ func CheckNmapPerformancePatch() error {
 func CheckRegistryIntValue(root registry.Key, path, key string, value int) error {
 
 	// Retrieve the value from the registry
-	val, errGet := GetRegistryIntValue(root, path, key)
-	if errGet != nil {
-		return errGet
+	val, errVal := GetRegistryIntValue(root, path, key)
+	if errVal != nil {
+		return errVal
 	}
 
 	// Return validation result or error
@@ -276,9 +352,9 @@ func CheckRegistryIntValue(root registry.Key, path, key string, value int) error
 func GetRegistryIntValue(root registry.Key, path, key string) (uint64, error) {
 
 	// Attach to registry
-	k, errOpen := registry.OpenKey(root, path, registry.QUERY_VALUE)
-	if errOpen != nil {
-		return 0, errOpen
+	k, errK := registry.OpenKey(root, path, registry.QUERY_VALUE)
+	if errK != nil {
+		return 0, errK
 	}
 
 	// Make sure registry key gets closed on exit
@@ -298,9 +374,9 @@ func GetRegistryIntValue(root registry.Key, path, key string) (uint64, error) {
 func GetRegistryStringValue(root registry.Key, path, key string) (string, error) {
 
 	// Attach to registry
-	k, errOpen := registry.OpenKey(root, path, registry.QUERY_VALUE)
-	if errOpen != nil {
-		return "", errOpen
+	k, errK := registry.OpenKey(root, path, registry.QUERY_VALUE)
+	if errK != nil {
+		return "", errK
 	}
 
 	// Make sure registry key gets closed on exit
@@ -320,9 +396,9 @@ func GetRegistryStringValue(root registry.Key, path, key string) (string, error)
 func SetRegistryIntValue(root registry.Key, path, key string, value uint32) error {
 
 	// Attach to registry
-	k, errOpen := registry.OpenKey(root, path, registry.SET_VALUE)
-	if errOpen != nil {
-		return errOpen
+	k, errK := registry.OpenKey(root, path, registry.SET_VALUE)
+	if errK != nil {
+		return errK
 	}
 
 	// Make sure registry key gets closed on exit
@@ -338,6 +414,7 @@ func SetRegistryIntValue(root registry.Key, path, key string, value uint32) erro
 	return nil
 }
 
+// CheckNmapFirewall verifies that the Windows firewall allows the given Nmap executable path.
 func CheckNmapFirewall(nmap string) error {
 
 	// Define command
@@ -352,8 +429,8 @@ func CheckNmapFirewall(nmap string) error {
 	}
 
 	// Run command
-	out, err := exec.Command(cmd, args...).CombinedOutput()
-	if err != nil {
+	out, errOut := exec.Command(cmd, args...).CombinedOutput()
+	if errOut != nil {
 		return fmt.Errorf("%s", out)
 	}
 
@@ -368,6 +445,7 @@ func CheckNmapFirewall(nmap string) error {
 	return nil
 }
 
+// SetNmapFirewall creates or updates the Windows firewall rule that permits the given Nmap executable.
 func SetNmapFirewall(nmap string) error {
 
 	// Check if the path is absolute, if not making a firewall rule is not possible
@@ -388,7 +466,7 @@ func SetNmapFirewall(nmap string) error {
 	})
 
 	// Create new rule. This might fail without Admin process privileges
-	err := utils.Execute("netsh", []string{
+	errExecute := utils.Execute("netsh", []string{
 		"Advfirewall",
 		"firewall",
 		"Add",
@@ -403,5 +481,5 @@ func SetNmapFirewall(nmap string) error {
 	})
 
 	// Return error or nil
-	return err
+	return errExecute
 }

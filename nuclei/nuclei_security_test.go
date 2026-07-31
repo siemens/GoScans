@@ -25,9 +25,9 @@ func TestMakeHelperFileLoader_AllowedPath(t *testing.T) {
 
 	// Prepare and run test cases
 	loader := makeHelperFileLoader(root, map[string]struct{}{helperRelPath: {}})
-	rc, errLoad := loader(helperRelPath, "", nil)
-	if errLoad != nil {
-		t.Fatalf("makeHelperFileLoader() error = '%v', wantErr = 'false'", errLoad)
+	rc, errRc := loader(helperRelPath, "", nil)
+	if errRc != nil {
+		t.Fatalf("makeHelperFileLoader() error = '%v', wantErr = 'false'", errRc)
 	}
 	_ = rc.Close()
 }
@@ -55,8 +55,8 @@ func TestMakeHelperFileLoader_DeniedPaths(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rc, err := makeHelperFileLoader(root, allowlist)(tt.helperFile, "", nil)
-			if err == nil {
+			rc, errRc := makeHelperFileLoader(root, allowlist)(tt.helperFile, "", nil)
+			if errRc == nil {
 				_ = rc.Close()
 				t.Errorf("makeHelperFileLoader() error = 'nil', wantErr = 'true'")
 			}
@@ -88,8 +88,8 @@ func TestMakeHelperFileLoader_RelativeEscape(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// The path would need to be in the allowlist to reach the containment check;
 			// absolute and traversal rejections happen before the allowlist lookup.
-			rc, err := makeHelperFileLoader(root, map[string]struct{}{})(tt.helperFile, "", nil)
-			if err == nil {
+			rc, errRc := makeHelperFileLoader(root, map[string]struct{}{})(tt.helperFile, "", nil)
+			if errRc == nil {
 				_ = rc.Close()
 				t.Errorf("makeHelperFileLoader() error = 'nil', wantErr = 'true'")
 			}
@@ -110,8 +110,8 @@ func TestMakeHelperFileLoader_AbsolutePathRejected(t *testing.T) {
 	} else {
 		absPath = "/etc/passwd"
 	}
-	rc, err := makeHelperFileLoader(root, map[string]struct{}{})(absPath, "", nil)
-	if err == nil {
+	rc, errRc := makeHelperFileLoader(root, map[string]struct{}{})(absPath, "", nil)
+	if errRc == nil {
 		_ = rc.Close()
 		t.Errorf("makeHelperFileLoader() error = 'nil', wantErr = 'true'")
 	}
@@ -142,8 +142,8 @@ func TestMakeHelperFileLoader_SymlinkEscape(t *testing.T) {
 
 	// Prepare and run test cases
 	allowlist := map[string]struct{}{helperRelPath: {}}
-	rc, err := makeHelperFileLoader(root, allowlist)(helperRelPath, "", nil)
-	if err == nil {
+	rc, errRc := makeHelperFileLoader(root, allowlist)(helperRelPath, "", nil)
+	if errRc == nil {
 		_ = rc.Close()
 		t.Errorf("makeHelperFileLoader() error = 'nil', wantErr = 'true'")
 	}

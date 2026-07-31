@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,17 +27,17 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// Label identifies the SSH scan module
 const Label = "Ssh"
 
-// constants used by go
-const (
-	packageVersion        = "SSH-2.0-Go" // ssh\transport.go
-	maxVersionStringBytes = 255          // ""
-	prefixLen             = 5            // ssh\cipher.go
-	maxPacket             = 256 * 1024   // ""
-	msgKexInit            = 20           // ssh\messages.go
-)
+// Internal constants mirroring values from the upstream golang.org/x/crypto/ssh package.
+const packageVersion = "SSH-2.0-Go" // ssh\transport.go
+const maxVersionStringBytes = 255   // Maximum SSH identification string length
+const prefixLen = 5                 // ssh\cipher.go
+const maxPacket = 256 * 1024        // Maximum SSH packet size
+const msgKexInit = 20               // ssh\messages.go
 
+// errNoSuchHost identifies DNS failures for nonexistent hosts
 var errNoSuchHost = fmt.Errorf("no such host")
 
 // Setup configures the environment accordingly, if the scan module has some special requirements. A successful setup
@@ -50,6 +51,7 @@ func CheckSetup() error {
 	return nil
 }
 
+// ResultData holds all SSH security parameters collected during a scan.
 type ResultData struct {
 	AuthenticationMechanisms   []string
 	KeyExchangeAlgorithms      []string
@@ -61,6 +63,7 @@ type ResultData struct {
 	ProtocolVersion            string
 }
 
+// Result wraps ResultData with a scan status and an exception flag for the caller to inspect.
 type Result struct {
 	Data      *ResultData
 	Status    string // Final scan status (success or graceful error). Should be stored along with the scan results.
@@ -69,6 +72,7 @@ type Result struct {
 	// this flag! This flag may additionally come along with a message put into the status attribute.
 }
 
+// Scanner holds the target configuration and timeouts for a single SSH scan session.
 type Scanner struct {
 	Label       string
 	Started     time.Time
@@ -82,6 +86,7 @@ type Scanner struct {
 	contextInnerCancel context.CancelFunc // Context cancel function of inner context, not impacting optional outer one.
 }
 
+// NewScanner validates the target and returns an initialised Scanner ready to run.
 func NewScanner(
 	logger utils.Logger, // Can be any logger implementing our minimalistic interface. Wrap your logger to satisfy the interface, if necessary (like utils.LoggerTest).
 	target string,
@@ -132,7 +137,7 @@ func (s *Scanner) Run(timeout time.Duration) (res *Result) {
 		if r := recover(); r != nil {
 
 			// Log exception with stacktrace
-			s.logger.Errorf(fmt.Sprintf("Unexpected error: %s", r))
+			s.logger.Errorf("Unexpected error: %s", r)
 
 			// Build error status from error message and formatted stacktrace
 			errMsg := fmt.Sprintf("%s%s", r, utils.StacktraceIndented("\t"))
@@ -180,6 +185,7 @@ func (s *Scanner) Run(timeout time.Duration) (res *Result) {
 	return res
 }
 
+// execute collects authentication methods and security parameters from the target and returns the aggregated result.
 func (s *Scanner) execute() *Result {
 
 	// Cleanup inner context if set
@@ -194,19 +200,19 @@ func (s *Scanner) execute() *Result {
 	results := &ResultData{}
 
 	// Prepare address
-	address := fmt.Sprintf("%s:%d", s.target, s.port)
+	address := net.JoinHostPort(s.target, strconv.Itoa(s.port))
 
 	// Get authentication methods
-	authMethods, errAuth := s.getAuthenticationMethods(address)
-	if errAuth != nil {
-		if errors.Is(errAuth, errNoSuchHost) {
+	authMethods, errAuthMethods := s.getAuthenticationMethods(address)
+	if errAuthMethods != nil {
+		if errors.Is(errAuthMethods, errNoSuchHost) {
 			return &Result{
 				results,
 				utils.StatusNotReachable,
 				false,
 			}
 		} else {
-			s.logger.Debugf("Could not extract authentication methods: %s", errAuth)
+			s.logger.Debugf("Could not extract authentication methods: %s", errAuthMethods)
 		}
 	} else {
 
@@ -224,7 +230,7 @@ func (s *Scanner) execute() *Result {
 		}
 	}
 
-	// We initialize a ssh handshake to get the remaining security parameter
+	// We initialize an ssh handshake to get the remaining security parameter
 	errParameters := s.getSecurityParameter(address, results)
 	if errParameters != nil {
 		s.logger.Debugf("Could not get security parameters: %s", errParameters)
@@ -241,7 +247,7 @@ func (s *Scanner) execute() *Result {
 	}
 
 	// Return pointer to result struct
-	s.logger.Debugf("Returning scan result")
+	s.logger.Debugf("Returning scan result.")
 	return &Result{
 		results,
 		utils.StatusCompleted,
@@ -249,10 +255,11 @@ func (s *Scanner) execute() *Result {
 	}
 }
 
+// getAuthenticationMethods dials the target twice with empty credentials to enumerate the server's supported
+// authentication methods, including a separate probe for gssapi-with-mic.
 func (s *Scanner) getAuthenticationMethods(address string) ([]string, error) {
 
-	// To get the authentication mechanisms we use the dial() function of the go ssh package and use empty credentials.
-
+	// Use the Go SSH dial with empty credentials to provoke an error that lists the server's supported auth methods
 	var authMethods []string
 	answers := keyboardInteractive(map[string]string{})
 	config := &ssh.ClientConfig{
@@ -263,58 +270,61 @@ func (s *Scanner) getAuthenticationMethods(address string) ([]string, error) {
 			ssh.KeyboardInteractive(answers.challenge),
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         s.dialTimeout, // Pass remaining time to the deadline as timeout
+		Timeout:         s.dialTimeout,
 	}
 
-	// Try to establish connection to target with empty authentication methods to get the error message with supported
-	// methods by the server, this also checks for reachability of the target
-	sshConn, err := ssh.Dial("tcp", address, config)
+	// Dial with standard auth methods to collect the server-offered list from the resulting error
+	sshConn, errSshConn := ssh.Dial("tcp", address, config)
 
-	// Check if ssh connection could be established with empty credentials (should not happen)
-	// if yes, we add the none-method to the authentication mechanism
-	if err == nil {
+	// If the connection succeeded with empty credentials, record "none" as the only method
+	if errSshConn == nil {
 		authMethods = []string{"none"}
 		errClose := sshConn.Close()
 		if errClose != nil {
 			s.logger.Debugf("Could not close connection to %s: %s", s.target, errClose)
 		}
-	} else if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() { // Check if the error was because the dial timed out.
+	} else {
+		var netErr net.Error
+		if !errors.As(errSshConn, &netErr) || !netErr.Timeout() {
 
-		// Try to excerpt the supported methods from the error
-		triedAuthMethods, errInfo := infoFromErr(err)
-		if errInfo != nil {
-			return nil, errInfo
+			// Extract the supported methods advertised by the server from the error message
+			triedAuthMethods, errTriedAuthMethods := infoFromErr(errSshConn)
+			if errTriedAuthMethods != nil {
+				return nil, errTriedAuthMethods
+			}
+
+			// Go always tries "none" internally, but since empty-credential auth failed we exclude it
+			authMethods = utils.RemoveFromSlice(triedAuthMethods, "none")
 		}
-
-		// golang tried the none method, so it adds it to the error message, but since the authentication with
-		// empty credential failed, we remove it
-		authMethods = utils.RemoveFromSlice(triedAuthMethods, "none")
 	}
 
-	// We test the gssapi-with-mic auth method separately because Go can give back an unusual error when the server does
-	// not support Go's version of this mechanism, but we can still conclude that it supports gssapi-with-mic, if we
-	// don't get the error that only the none method was tried, because this means it tried the gssapi-with-mic method,
-	// because the servers offers it as an option
+	// Probe gssapi-with-mic separately: Go may return an unusual error when the server does not support its
+	// implementation, but if the error does not indicate that only "none" was attempted, the server offered the method
 	config.Auth = []ssh.AuthMethod{ssh.GSSAPIWithMICAuthMethod(&FakeClient{}, "")}
 	config.Timeout = s.dialTimeout
-	sshConn, err = ssh.Dial("tcp", address, config)
-	if err == nil {
-		err := sshConn.Close()
-		if err != nil {
-			s.logger.Debugf("Could not close connection to %s: %s", s.target, err)
+	sshConn, errSshConn = ssh.Dial("tcp", address, config)
+	if errSshConn == nil {
+		errClose2 := sshConn.Close()
+		if errClose2 != nil {
+			s.logger.Debugf("Could not close connection to %s: %s", s.target, errClose2)
 		}
-	} else if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() { // Check if the error was because the dial timed out.
-		if err.Error() != "ssh: handshake failed: ssh: could not authenticate, attempted methods [none], no supported methods remain" {
-			authMethods = append(authMethods, "gssapi-with-mic")
+	} else {
+		var netErr net.Error
+		if !errors.As(errSshConn, &netErr) || !netErr.Timeout() {
+			if errSshConn.Error() != "ssh: handshake failed: ssh: could not authenticate, attempted methods [none], no supported methods remain" {
+				authMethods = append(authMethods, "gssapi-with-mic")
+			}
 		}
 	}
 
+	// Return nil as everything went fine
 	return authMethods, nil
 }
 
-// We need an empty Challenge for the ssh Client, to test all Auth methods of target
+// keyboardInteractive is an empty keyboard-interactive responder used to probe all auth methods offered by the server.
 type keyboardInteractive map[string]string
 
+// challenge returns an empty answer for every question, satisfying the ssh.KeyboardInteractiveChallenge interface.
 func (cr keyboardInteractive) challenge(user string, instruction string, questions []string, echos []bool) ([]string, error) {
 	return make([]string, len(questions)), nil
 }
@@ -322,92 +332,98 @@ func (cr keyboardInteractive) challenge(user string, instruction string, questio
 // FakeClient is a stub GSSAPI client used to probe for GSSAPI authentication support during SSH scanning.
 type FakeClient struct{}
 
+// InitSecContext satisfies the ssh.GSSAPIClient interface by returning empty output, no continuation, and no error.
 func (f *FakeClient) InitSecContext(target string, token []byte, isGSSDelegCreds bool) (outputToken []byte, needContinue bool, err error) {
 	return
 }
 
+// GetMIC satisfies the ssh.GSSAPIClient interface by returning a nil MIC and no error.
 func (f *FakeClient) GetMIC(micField []byte) ([]byte, error) {
 	return nil, nil
 }
 
+// DeleteSecContext satisfies the ssh.GSSAPIClient interface by returning nil.
 func (f *FakeClient) DeleteSecContext() error {
 	return nil
 }
 
+// getSecurityParameter performs the first three steps of the SSH handshake to extract the server's protocol version
+// and negotiated security algorithms, writing all discovered values into results.
 func (s *Scanner) getSecurityParameter(address string, results *ResultData) error {
-	// To get the security parameter of the target we implement the first three steps of the ssh handshake:
-	// After we established a connection, we start the handshake with a protocol Version exchange and read the next two
-	// responses which contain the target's protocol version and its security parameters.
+
+	// To get the security parameters we implement the first three steps of the SSH handshake: establish a connection,
+	// perform the protocol version exchange, then read the server's kexInit message.
 
 	// Establish a connection to target
-	conn, err := net.DialTimeout("tcp", address, s.dialTimeout)
-	if err != nil {
-		return fmt.Errorf("could not establish tcp connection: %s", err)
+	conn, errConn := net.DialTimeout("tcp", address, s.dialTimeout)
+	if errConn != nil {
+		return fmt.Errorf("could not establish tcp connection: %s", errConn)
 	}
 	defer func() {
-		err := conn.Close()
-		if err != nil {
-			s.logger.Debugf("Could not close connection to %s: %s", address, err)
+		errClose := conn.Close()
+		if errClose != nil {
+			s.logger.Debugf("Could not close connection to %s: %s", address, errClose)
 		}
 	}()
 
-	// Start SSH Handshake
-	// Version exchange
-	clientVersion := []byte(packageVersion) // TODO check if we can support ssh version 1.x
-	serverVersion, err := exchangeVersions(conn, clientVersion)
-	if err != nil {
-		return fmt.Errorf("could not get shh protocol version: %s", err)
+	// Send our version string and read the server's version (TODO: add SSH 1.x support if needed)
+	clientVersion := []byte(packageVersion)
+	serverVersion, errServerVersion := exchangeVersions(conn, clientVersion)
+	if errServerVersion != nil {
+		return fmt.Errorf("could not get ssh protocol version: %s", errServerVersion)
 	}
 	results.ProtocolVersion = string(serverVersion)
 
-	// Read targets Key exchange message, which contains all security algorithms we want
-	otherInit, err := s.readPacket(conn)
-	if err != nil {
-		return fmt.Errorf("could not read handshake response: %s", err)
+	// Read the server's kexInit message, which contains all security algorithms
+	otherInit, errOtherInit := s.readPacket(conn)
+	if errOtherInit != nil {
+		return fmt.Errorf("could not read handshake response: %s", errOtherInit)
 	}
 
-	// Prepare result
+	// Populate result with negotiated algorithms
 	results.KeyExchangeAlgorithms = otherInit.KexAlgos
 	results.ServerCompressAlgorithms = otherInit.CompressionServerClient
 	results.ServerEncryptionAlgorithms = otherInit.CiphersServerClient
 	results.ServerKeyAlgorithms = otherInit.ServerHostKeyAlgos
 	results.ServerMacAlgorithms = otherInit.MACsServerClient
 	results.UsesGuessedKeyExchange = otherInit.FirstKexFollows
+
+	// Return nil as everything went fine
 	return nil
 }
 
-// Excerpts information (authentication method, kex algorithms...) from an error of ssh.Dial
-// The err should have the form of "...server offered: [none publickey]..."
+// infoFromErr extracts the SSH negotiation parameter list from an ssh.Dial error message.
+// The error is expected to contain a bracket-enclosed list such as "[none publickey]".
 func infoFromErr(err error) ([]string, error) {
 
-	// If no Error was sent, this is unexpected behavior
+	// Nil error is unexpected behavior
 	if err == nil {
 		return []string{}, fmt.Errorf("error message was nil")
 	}
 	errMsg := err.Error()
 
-	// test if host is reachable
+	// Check if the host is not reachable
 	if strings.Contains(errMsg, errNoSuchHost.Error()) {
 		return nil, errNoSuchHost
 	}
 
-	// Find start and end of the algorithm list
+	// Find start and end of the bracket-enclosed algorithm list
 	start := strings.LastIndex(errMsg, "[")
 	end := strings.LastIndex(errMsg, "]")
 
-	// If Error message changed in the future, send an error
-	if strings.Contains(errMsg, "server offered") && start == -1 || end == -1 {
+	// Return an error if no bracket pair was found, indicating an unrecognized error format
+	if start == -1 || end == -1 {
 		return nil, fmt.Errorf("could not excerpt parameter from error message: %s", errMsg)
 	}
 
-	// Split the algorithms
+	// Split the space-separated algorithm names
 	algStr := errMsg[start+1 : end]
 	params := strings.Split(algStr, " ")
 
 	return params, nil
 }
 
-// struct for ssh messages, copied from go's ssh\messages.go
+// kexInitMsg mirrors the kexInitMsg struct from ssh\messages.go and is used to unmarshal the server's key exchange init packet.
 type kexInitMsg struct {
 	Cookie                  [16]byte `sshtype:"20"`
 	KexAlgos                []string
@@ -424,15 +440,17 @@ type kexInitMsg struct {
 	Reserved                uint32
 }
 
-// readPacket reads the target response to our ssh handshake initiation, leaner version of (s *streamPacketCipher) readPacket in ssh\cipher.go
+// readPacket reads one SSH binary packet from r and unmarshals it as a kexInitMsg. It is a leaner version of
+// (s *streamPacketCipher) readPacket from ssh\cipher.go.
 func (s *Scanner) readPacket(r io.Reader) (*kexInitMsg, error) {
+
 	var prefix [prefixLen]byte
 	var packetData []byte
-	otherInit := &kexInitMsg{}
+	var otherInit = &kexInitMsg{}
 
 	// Read prefix to find out the padding length
-	if _, err := io.ReadFull(r, prefix[:]); err != nil {
-		return nil, err
+	if _, errReadFull := io.ReadFull(r, prefix[:]); errReadFull != nil {
+		return nil, errReadFull
 	}
 
 	// Get message length and padding length from prefix
@@ -449,8 +467,8 @@ func (s *Scanner) readPacket(r io.Reader) (*kexInitMsg, error) {
 
 	// Read payload
 	packetData = make([]byte, length-1)
-	if _, err := io.ReadFull(r, packetData); err != nil {
-		return nil, err
+	if _, errReadFull := io.ReadFull(r, packetData); errReadFull != nil {
+		return nil, errReadFull
 	}
 
 	// Check if we got the right message type
@@ -462,22 +480,21 @@ func (s *Scanner) readPacket(r io.Reader) (*kexInitMsg, error) {
 	packetData = packetData[:length-paddingLength-1]
 
 	// Unmarshal to kexInitMsg
-	if err := ssh.Unmarshal(packetData, otherInit); err != nil {
-		return nil, err
+	if errUnmarshal := ssh.Unmarshal(packetData, otherInit); errUnmarshal != nil {
+		return nil, errUnmarshal
 	}
 
 	// Return the unmarshaled key exchange message from the target
 	return otherInit, nil
 }
 
-// The following two functions are copied from ssh\transport.go
+// The following two functions are copied from ssh\transport.go.
 
-// Sends and receives a version line.  The versionLine string should
-// be US ASCII, start with "SSH-2.0-", and should not include a
-// newline. exchangeVersions returns the other side's version line.
-func exchangeVersions(rw io.ReadWriter, versionLine []byte) (them []byte, err error) {
-	// Contrary to the RFC, we do not ignore lines that don't
-	// start with "SSH-2.0-" to make the library usable with
+// exchangeVersions sends versionLine to rw and reads back the remote side's version string.
+// versionLine must be US-ASCII, start with "SSH-2.0-", and must not include a newline.
+func exchangeVersions(rw io.ReadWriter, versionLine []byte) (them []byte, errThem error) {
+
+	// Contrary to the RFC, we do not ignore lines that don't start with "SSH-2.0-" to remain compatible with
 	// nonconforming servers.
 	for _, c := range versionLine {
 		// The spec disallows non US-ASCII chars, and
@@ -486,24 +503,25 @@ func exchangeVersions(rw io.ReadWriter, versionLine []byte) (them []byte, err er
 			return nil, fmt.Errorf("ssh: junk character in version line")
 		}
 	}
-	if _, err = rw.Write(append(versionLine, '\r', '\n')); err != nil {
+	if _, errThem = rw.Write(append(versionLine, '\r', '\n')); errThem != nil {
 		return
 	}
 
-	them, err = readVersion(rw)
-	return them, err
+	them, errThem = readVersion(rw)
+	return them, errThem
 }
 
-// Read version string as specified by RFC 4253, section 4.2.
+// readVersion reads the SSH version string as specified by RFC 4253, section 4.2.
 func readVersion(r io.Reader) ([]byte, error) {
-	versionString := make([]byte, 0, 64)
+
+	var versionString = make([]byte, 0, 64)
 	var ok bool
 	var buf [1]byte
 
 	for length := 0; length < maxVersionStringBytes; length++ {
-		_, err := io.ReadFull(r, buf[:])
-		if err != nil {
-			return nil, err
+		_, errReadFull := io.ReadFull(r, buf[:])
+		if errReadFull != nil {
+			return nil, errReadFull
 		}
 		// The RFC says that the version should be terminated with \r\n
 		// but several SSH servers actually only send a \n.

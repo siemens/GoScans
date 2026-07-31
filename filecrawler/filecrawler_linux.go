@@ -1,10 +1,22 @@
+/*
+* GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
+*
+* Copyright (c) Siemens AG, 2016-2026.
+*
+* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+* directory or visit <https://opensource.org/licenses/MIT>.
+*
+ */
+
 package filecrawler
 
 import (
-	"github.com/siemens/GoScans/utils"
-	"golang.org/x/sys/unix"
 	"os"
 	"path/filepath"
+
+	"golang.org/x/sys/unix"
+
+	"github.com/siemens/GoScans/utils"
 )
 
 // getUnixFlags extracts unix file permissions of the fileMode
@@ -12,8 +24,8 @@ func getUnixFlags(fm os.FileMode) string {
 	return fm.String()
 }
 
-// Determines the read and write permission of a symlink. Since in most Linux distros the mode of symlinks is 0777 and
-// is not changeable, we determine the (effective) symlink permissions by the effective permissions of its parent folder.
+// determineSymlinkPermissions checks the read and write access of the symlink on Linux by testing the effective
+// permissions of its parent directory, since the mode of symlinks is always 0777 and not independently changeable.
 func determineSymlinkPermissions(symlinkInfo *File, logger utils.Logger) {
 
 	// Get the path to the parent folder

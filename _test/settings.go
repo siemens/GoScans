@@ -1,7 +1,7 @@
 /*
 * GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
 *
-* Copyright (c) Siemens AG, 2016-2021.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -20,9 +20,8 @@ import (
 	"sync"
 )
 
-// Settings necessary for some unit tests
-var settings *Settings
-var once sync.Once
+var settings *Settings // Settings necessary for some unit tests
+var once sync.Once     // Ensures test settings are loaded once
 
 // Settings holds all necessary unittest settings
 type Settings struct {
@@ -55,7 +54,7 @@ func GetSettings() *Settings {
 		var proxy *url.URL // Nil = no proxy
 		for _, name := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"} {
 			if v := os.Getenv(name); v != "" {
-				if u, err := url.Parse(v); err == nil {
+				if u, errU := url.Parse(v); errU == nil {
 					fmt.Println(fmt.Sprintf("Using '%s' from environment variable '%s' as a proxy.", name, v))
 					proxy = u
 					break
@@ -78,9 +77,9 @@ func GetSettings() *Settings {
 		///////////////////////////////////////////////////////////////////////
 
 		// Changes working directory to the bin folder.
-		err := os.Chdir(workingDir)
-		if err != nil {
-			panic(fmt.Sprintf("could not set working directory for unit tests: %s", err))
+		errChdir := os.Chdir(workingDir)
+		if errChdir != nil {
+			panic(fmt.Sprintf("could not set working directory for unit tests: %s", errChdir))
 		}
 
 		// Unset Nmap path if incorrect

@@ -1,7 +1,7 @@
 /*
 * GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
 *
-* Copyright (c) Siemens AG, 2016-2025.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -55,6 +55,7 @@ func parseIssues(cr *gosslyze.CommandResults) (*Issues, error) {
 	return issues, nil
 }
 
+// parseIssuesCiphers derives vulnerability flags from the accepted cipher suites in sslData.
 func parseIssuesCiphers(sslData *Data) error {
 
 	// Check for nil pointer exceptions.
@@ -192,7 +193,7 @@ func robotResultToBool(output string) bool {
 	}
 }
 
-// parseMinStrength set the corresponding field in BasicData to the lowest value of key exchange, encryption,
+// parseMinStrength sets the corresponding field in BasicData to the lowest value of key exchange, encryption,
 // mac or the certificates public key. If a strength is not set a default 0 will be returned.
 func parseMinStrength(sslData *Data) error {
 

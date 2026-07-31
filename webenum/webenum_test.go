@@ -30,9 +30,9 @@ func TestMain(m *testing.M) {
 	_test.GetSettings()
 
 	// Prepare test directory
-	tmpDir, errTmp := os.MkdirTemp(".", "goscans-webenum-test-*")
-	if errTmp != nil {
-		panic(errTmp)
+	tmpDir, errTmpDir := os.MkdirTemp(".", "goscans-webenum-test-*")
+	if errTmpDir != nil {
+		panic(errTmpDir)
 	}
 	if errChdir := os.Chdir(tmpDir); errChdir != nil {
 		panic(errChdir)
@@ -149,12 +149,12 @@ func TestNewScanner(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewScanner(tt.args.logger, tt.args.target, tt.args.port, tt.args.vhosts, tt.args.https,
+			_, errNewScanner := NewScanner(tt.args.logger, tt.args.target, tt.args.port, tt.args.vhosts, tt.args.https,
 				tt.args.ntlmDomain, tt.args.ntlmUser, tt.args.ntlmPassword, tt.args.probesPath, tt.args.probeRobots,
 				testSettings.HttpUserAgent, tt.args.proxy, requestTimeout,
 			)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("NewScanner() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			if (errNewScanner != nil) != tt.wantErr {
+				t.Errorf("NewScanner() error = '%v', wantErr = '%v'", errNewScanner, tt.wantErr)
 				return
 			}
 		})
@@ -172,9 +172,9 @@ func TestLoadProbes(t *testing.T) {
 	sampleProbesBroken := filepath.Join(testSettings.PathDataDir, "webenum", "webenum_sample_probes_broken.txt")
 
 	// Prepare an empty probes file in the isolated test directory
-	emptyFile, errEmpty := os.CreateTemp(".", "empty-probes-*.txt")
-	if errEmpty != nil {
-		t.Fatalf("TestLoadProbes could not create empty probes file: '%v'", errEmpty)
+	emptyFile, errEmptyFile := os.CreateTemp(".", "empty-probes-*.txt")
+	if errEmptyFile != nil {
+		t.Fatalf("TestLoadProbes could not create empty probes file: '%v'", errEmptyFile)
 	}
 	_ = emptyFile.Close()
 	emptyPath := emptyFile.Name()
@@ -214,9 +214,9 @@ func TestLoadProbes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := loadProbes(tt.path)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("loadProbes() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			got, errGot := loadProbes(tt.path)
+			if (errGot != nil) != tt.wantErr {
+				t.Errorf("loadProbes() error = '%v', wantErr = '%v'", errGot, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
@@ -267,9 +267,8 @@ func TestLoadProbesRobots(t *testing.T) {
 
 	// Prepare and run test cases
 	type args struct {
-		url       string
-		vName     string
-		userAgent string
+		url   string
+		vName string
 	}
 	tests := []struct {
 		name    string
@@ -280,26 +279,26 @@ func TestLoadProbesRobots(t *testing.T) {
 		{
 			// Port 1 is always refused. Connection-refused is a reliable non-DNS error.
 			name:    "invalid-url",
-			args:    args{"http://127.0.0.1:1/robots.txt", "127.0.0.1", ""},
+			args:    args{"http://127.0.0.1:1/robots.txt", "127.0.0.1"},
 			want:    []Probe(nil),
 			wantErr: true,
 		},
 		{
 			name:    "no-robots",
-			args:    args{noRobotsServer.URL + "/robots.txt", "no-robots-host", ""},
+			args:    args{noRobotsServer.URL + "/robots.txt", "no-robots-host"},
 			want:    []Probe(nil),
 			wantErr: false,
 		},
 		{
 			name:    "server-error",
-			args:    args{errorServer.URL + "/robots.txt", "error-host", ""},
+			args:    args{errorServer.URL + "/robots.txt", "error-host"},
 			want:    []Probe(nil),
 			wantErr: false,
 		},
 		{
 			// Served by a local httptest.Server to avoid live-data drift.
 			name: "valid",
-			args: args{robotsServer.URL + "/robots.txt", "www.spiegel.de", ""},
+			args: args{robotsServer.URL + "/robots.txt", "www.spiegel.de"},
 			want: []Probe{
 				{"Disallowed by robots.txt", "*cr-dokumentation.pdf$", []string(nil)},
 				{"Disallowed by robots.txt", "gutscheine/suche?", []string(nil)},
@@ -317,9 +316,9 @@ func TestLoadProbesRobots(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := loadProbesRobots(testRequester, tt.args.url, tt.args.vName)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("loadProbesRobots() error = '%v', wantErr = '%v'", err, tt.wantErr)
+			got, errGot := loadProbesRobots(testRequester, tt.args.url, tt.args.vName)
+			if (errGot != nil) != tt.wantErr {
+				t.Errorf("loadProbesRobots() error = '%v', wantErr = '%v'", errGot, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {

@@ -1,7 +1,7 @@
 /*
 * GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
 *
-* Copyright (c) Siemens AG, 2016-2025.
+* Copyright (c) Siemens AG, 2016-2026.
 *
 * This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
 * directory or visit <https://opensource.org/licenses/MIT>.
@@ -12,6 +12,7 @@ package ssl
 
 import (
 	"fmt"
+
 	gosslyze "github.com/noneymous/GoSslyze"
 )
 
@@ -41,7 +42,7 @@ func parseSettings(cr *gosslyze.CommandResults) (*Settings, error) {
 		settings.SecureRenegotiation = cr.Renegotiation.Result.SupportsSecureRenegotiation
 	}
 
-	// check whether session ID resumption was successful.
+	// Check whether session ID resumption was successful.
 	if cr.Resumption != nil && cr.Resumption.Result != nil {
 		if cr.Resumption.Result.AttemptedIdResumptions == cr.Resumption.Result.SuccessfulIdResumptions {
 			settings.SessionResumptionWithId = true

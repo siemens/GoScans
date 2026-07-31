@@ -1,3 +1,13 @@
+/*
+* GoScans, a collection of network scan modules for infrastructure discovery and information gathering.
+*
+* Copyright (c) Siemens AG, 2016-2026.
+*
+* This work is licensed under the terms of the MIT license. For a copy, see the LICENSE file in the top-level
+* directory or visit <https://opensource.org/licenses/MIT>.
+*
+ */
+
 package nuclei
 
 import (
@@ -14,15 +24,15 @@ import (
 func chownDirTree(logger utils.Logger, pathTemplates string) error {
 
 	// Get the path to the currently executing binary
-	exePath, errExecPath := os.Executable()
-	if errExecPath != nil {
-		return fmt.Errorf("could not get executable path: %w", errExecPath)
+	exePath, errExePath := os.Executable()
+	if errExePath != nil {
+		return fmt.Errorf("could not get executable path: %w", errExePath)
 	}
 
 	// Get absolute path
-	exePathAbs, errExecPathAbs := filepath.Abs(exePath)
-	if errExecPathAbs != nil {
-		return fmt.Errorf("could not get absolute path of executable: %w", errExecPathAbs)
+	exePathAbs, errExePathAbs := filepath.Abs(exePath)
+	if errExePathAbs != nil {
+		return fmt.Errorf("could not get absolute path of executable: %w", errExePathAbs)
 	}
 
 	// Get info of the binary

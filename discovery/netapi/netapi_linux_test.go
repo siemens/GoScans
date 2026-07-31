@@ -25,9 +25,9 @@ func TestGetGroupInfo_Linux(t *testing.T) {
 	testLogger := utils.NewTestLogger()
 
 	// Verify stub returns empty result without error
-	result, errGet := GetGroupInfo(testLogger, "192.0.2.1", "S-1-5-32-544")
-	if errGet != nil {
-		t.Errorf("GetGroupInfo() error = '%v', want = 'nil'", errGet)
+	result, errResult := GetGroupInfo(testLogger, "192.0.2.1", "S-1-5-32-544")
+	if errResult != nil {
+		t.Errorf("GetGroupInfo() error = '%v', want = 'nil'", errResult)
 	}
 	if len(result) != 0 {
 		t.Errorf("GetGroupInfo() result len = '%v', want = '0'", len(result))
